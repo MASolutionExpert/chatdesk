@@ -142,6 +142,7 @@ const loadForwardMessageModal = () =>
 const loadLeaveGroupModal = () => import("../components/modals/LeaveGroupModal.jsx");
 const loadGroupInviteLinkModal = () => import("../components/modals/GroupInviteLinkModal.jsx");
 const loadNewChatModal = () => import("../components/modals/NewChatModal.jsx");
+const loadSupportRequestModal = () => import("../components/modals/SupportRequestModal.jsx");
 const loadNewCallModal = () => import("../components/modals/NewCallModal.jsx");
 const loadNewGroupModal = () => import("../components/modals/NewGroupModal.jsx");
 const loadNotificationsSettingsModal = () =>
@@ -157,6 +158,7 @@ const ForwardMessageModal = lazy(loadForwardMessageModal);
 const LeaveGroupModal = lazy(loadLeaveGroupModal);
 const GroupInviteLinkModal = lazy(loadGroupInviteLinkModal);
 const NewChatModal = lazy(loadNewChatModal);
+const SupportRequestModal = lazy(loadSupportRequestModal);
 const NewCallModal = lazy(loadNewCallModal);
 const NewGroupModal = lazy(loadNewGroupModal);
 const NotificationsSettingsModal = lazy(loadNotificationsSettingsModal);
@@ -5840,6 +5842,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMobileTab("chats");
   }
 
+  const [supportOpen, setSupportOpen] = useState(false);
+  const closeSupportModal = () => setSupportOpen(false);
+
+  // Opens the fairly-routed support conversation created by the helpdesk.
+  async function handleSupportCreated(result) {
+    setSupportOpen(false);
+    if (!result?.chatId) return;
+    setActiveChatId(result.chatId);
+    if (result.operator) {
+      setActivePeer({
+        username: result.operator.username,
+        nickname: result.operator.nickname,
+        color: result.operator.color,
+        avatar_url: null,
+        status: "offline",
+      });
+    }
+    setMobileTab("chat");
+    await loadChats();
+  }
+
   const closeNewChatModal = () => {
     setNewChatOpen(false);
     setNewChatUsername("");
@@ -6840,6 +6863,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     "sbSettingsPanel",
   );
   useOverlayBack(Boolean(newChatOpen), closeNewChatModal, "sbNewChatModal");
+  useOverlayBack(Boolean(supportOpen), closeSupportModal, "sbSupportModal");
   useOverlayBack(
     Boolean(newGroupOpen),
     closeNewGroupModal,
@@ -6960,6 +6984,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         lastMessageIdRef={lastMessageIdRef}
         isAtBottomRef={isAtBottomRef}
         onOpenNewChat={() => setNewChatOpen(true)}
+        onOpenNewSupport={() => setSupportOpen(true)}
         onOpenNewGroup={openNewGroupModal}
         onOpenNewChannel={openNewChannelModal}
         chatsSearchQuery={chatsSearchQuery}
@@ -7225,6 +7250,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }}
         onSettings={() => setMobileTab("settings")}
       />
+
+      {supportOpen ? (
+        <Suspense fallback={null}>
+          <SupportRequestModal
+            open={supportOpen}
+            username={user?.username}
+            onClose={closeSupportModal}
+            onCreated={handleSupportCreated}
+          />
+        </Suspense>
+      ) : null}
 
       {newChatOpen ? (
         <Suspense fallback={null}>

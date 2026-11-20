@@ -6,6 +6,7 @@ import {
   ArrowRightFromLine,
   Blocks,
   Chat,
+  Headset,
   ScrollText,
   Settings,
   Users,
@@ -22,9 +23,11 @@ import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 import SettingsTab from "./SettingsTab.jsx";
 import ServicesTab from "./ServicesTab.jsx";
+import HelpdeskTab from "./HelpdeskTab.jsx";
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
+  { id: "helpdesk",  label: "Helpdesk",  icon: Headset,            anim: "icon-anim-bob" },
   { id: "users",     label: "Users",     icon: Users,             anim: "icon-anim-pop" },
   { id: "chats",     label: "Chats",     icon: Chat,              anim: "icon-anim-bob" },
   { id: "actions",   label: "Actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
@@ -331,6 +334,16 @@ export default function AdminPanel({ user, onBack }) {
         <div className="app-scroll min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(104px+env(safe-area-inset-bottom)+var(--vv-bottom-offset,0px))] md:p-5 md:pb-5">
             <Activity mode={tab === "dashboard" ? "visible" : "hidden"}>
               <DashboardTab ref={(r) => { tabRefs.current.dashboard = r; }} stats={stats} onStatsChange={refreshStats} />
+            </Activity>
+            <Activity mode={tab === "helpdesk" ? "visible" : "hidden"}>
+              <HelpdeskTab
+                ref={(r) => { tabRefs.current.helpdesk = r; }}
+                active={tab === "helpdesk"}
+                onMutated={() => {
+                  invalidate("helpdesk");
+                  invalidate("supportOverview");
+                }}
+              />
             </Activity>
             <Activity mode={tab === "services" ? "visible" : "hidden"}>
               <ServicesTab

@@ -29,6 +29,7 @@ const AuthPage = lazy(loadAuthPage)
 const ChatPage = lazy(loadChatPage)
 const InvitePage = lazy(loadInvitePage)
 const AdminPage = lazy(loadAdminPage)
+const SupportPickerPage = lazy(() => import('./pages/SupportPickerPage.jsx'))
 
 function getPreloadMode() {
   if (typeof navigator === 'undefined') return 'eager'
@@ -71,6 +72,7 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
 
 function getRoute(pathname) {
   if (pathname === '/signup') return 'signup'
+  if (pathname === '/departments') return 'support'
   if (pathname.startsWith('/invite/')) return 'invite'
   if (pathname === '/chat') return 'chat'
   if (pathname === '/admin') return 'admin'
@@ -772,7 +774,12 @@ export default function App() {
       return
     }
 
-    if (!user && (route === 'chat' || route === 'invite' || route === 'admin')) {
+    if (user && route === 'support' && user.role && user.role !== 'user') {
+      navigate('/chat', true)
+      return
+    }
+
+    if (!user && (route === 'chat' || route === 'invite' || route === 'admin' || route === 'support')) {
       if (route === 'invite') {
         const nextPath = window.location.pathname
         if (nextPath.startsWith('/invite/')) {
@@ -834,9 +841,16 @@ export default function App() {
       const nextUser = await resolveSessionUserWithRetry(fallbackUser)
       setUser(nextUser)
       const redirectPath = window.sessionStorage.getItem(AUTH_REDIRECT_KEY)
+      let supportIntro = false
+      try {
+        supportIntro = window.localStorage.getItem('songbird-support-intro') === '1'
+        if (supportIntro) window.localStorage.removeItem('songbird-support-intro')
+      } catch {}
       if (redirectPath && redirectPath.startsWith('/invite/')) {
         window.sessionStorage.removeItem(AUTH_REDIRECT_KEY)
         navigate(redirectPath, true)
+      } else if (supportIntro && nextUser?.role === 'user') {
+        navigate('/departments', true)
       } else {
         navigate('/chat', true)
       }
@@ -888,6 +902,10 @@ export default function App() {
         throw new Error(registerData?.error || 'Unable to create account.')
       }
       // Signup creates the account only; user must explicitly sign in next.
+      // After the first sign-in we guide new customers to pick a department.
+      try {
+        window.localStorage.setItem('songbird-support-intro', '1')
+      } catch {}
       setUser(null)
       setAuthStatus('')
       navigate('/login', true)
@@ -899,7 +917,7 @@ export default function App() {
   }
 
   const isNonAdminClaimRoute = route === 'admin' && user && user.role !== 'admin' && user.role !== 'owner'
-  const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite' || isNonAdminClaimRoute
+  const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite' || route === 'support' || isNonAdminClaimRoute
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
   const safeAreaThemeColor = getThemeColor(isDark, route)
   const appShellClass = isAuthRoute
@@ -1062,6 +1080,18 @@ export default function App() {
               ) : null}
               {route === 'admin' && user && adminPanelEnabled ? (
                 <AdminPage user={user} setUser={setUser} isDark={isDark} onToggleTheme={toggleTheme} onBack={() => navigate('/chat', true)} />
+              ) : null}
+              {route === 'support' && user ? (
+                <SupportPickerPage
+                  user={user}
+                  onNavigateChat={(chatId) => {
+                    if (chatId) {
+                      window.sessionStorage.setItem(OPEN_CHAT_ID_KEY, String(chatId))
+                    }
+                    navigate('/chat', true)
+                  }}
+                  onSkip={() => navigate('/chat', true)}
+                />
               ) : null}
               {route === 'invite' && user ? (
                 <InvitePage

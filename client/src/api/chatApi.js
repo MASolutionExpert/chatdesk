@@ -152,6 +152,21 @@ export const createDmChat = ({ from, to }) =>
     body: JSON.stringify({ from, to }),
   });
 
+// ─── Helpdesk: departments & support requests ────────────────────────────────
+
+// Lists active support departments for the department picker.
+export const listDepartments = () =>
+  apiFetch(`${API_BASE}/api/departments`);
+
+// Creates (or continues) a fairly-routed support conversation.
+// Resolves to { chatId, operator, department }.
+export const createSupportRequest = ({ departmentId, message, creator }) =>
+  apiFetch(`${API_BASE}/api/support/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ departmentId, message, creator }),
+  });
+
 export const createGroupChat = (payload) =>
   apiFetch(`${API_BASE}/api/chats/group`, {
     method: "POST",

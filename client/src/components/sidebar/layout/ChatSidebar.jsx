@@ -42,6 +42,7 @@ export default function ChatSidebar({
   lastMessageIdRef,
   isAtBottomRef,
   onOpenNewChat,
+  onOpenNewSupport,
   onOpenNewGroup,
   onOpenNewChannel,
   chatsSearchQuery,
@@ -224,6 +225,7 @@ export default function ChatSidebar({
           onEnterEdit={onEnterEdit}
           onDeleteChats={onDeleteChats}
           onNewChat={onOpenNewChat}
+          onNewSupport={onOpenNewSupport}
           onNewGroup={onOpenNewGroup}
           onNewChannel={onOpenNewChannel}
           chatsSearchQuery={chatsSearchQuery}

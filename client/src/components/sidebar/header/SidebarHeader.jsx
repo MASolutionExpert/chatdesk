@@ -5,6 +5,7 @@ import {
   Chat,
   Close,
   LoaderCircle,
+  LifeBuoy,
   Megaphone,
   Mic,
   Pencil,
@@ -37,6 +38,7 @@ export default function SidebarHeader({
   onEnterEdit,
   onDeleteChats,
   onNewChat,
+  onNewSupport,
   onNewGroup,
   onNewChannel,
   chatsSearchQuery,
@@ -261,6 +263,20 @@ export default function SidebarHeader({
                           className="text-emerald-500 icon-anim-bob"
                         />
                         New DM
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateMenu(false);
+                          onNewSupport?.();
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                      >
+                        <LifeBuoy
+                          size={16}
+                          className="text-emerald-500 icon-anim-bob"
+                        />
+                        Contact support
                       </button>
                       <button
                         type="button"

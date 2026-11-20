@@ -10,6 +10,7 @@ import {
   ArrowUpDown,
   AtSign,
   BadgeCheck,
+  LifeBuoy,
   Ban,
   Bell,
   BellOff,
@@ -17,6 +18,7 @@ import {
   Bookmark,
   Box,
   Boxes,
+  Headset,
   BrushCleaning as Brush,
   Bug,
   Check,
@@ -129,6 +131,8 @@ import {
 
 export {
   Activity,
+  Headset,
+  LifeBuoy,
   AlertCircle,
   AppWindow,
   ArrowDown,

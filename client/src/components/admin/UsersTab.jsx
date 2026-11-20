@@ -104,7 +104,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
     refresh(); onMutated(); onStatsChange();
   };
   const handleRoleToggle = async (u) => {
-    await api.post(`/api/admin/users/${u.id}/role`, { role: u.role === "admin" ? "user" : "admin" });
+    await api.post(`/api/admin/users/${u.id}/role`, { role: u.role === "user" ? "admin" : "user" });
     refresh(); onMutated();
   };
 

@@ -61,8 +61,20 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
   const [uname, setUname]           = useState(user?.username || "");
   const [color, setColor]           = useState(creating ? getRandomAvatarColor() : (user?.color || "#10b981"));
   const [verified, setVerified]     = useState(Boolean(user?.verified));
+  // Helpdesk: pick the account role and (for operators) their department
+  const [role, setRole]             = useState(creating ? "user" : (user?.role || "user"));
+  const [departmentId, setDepartmentId] = useState("");
+  const [departments, setDepartments] = useState([]);
   const [profileErr, setProfileErr] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
+
+  useEffect(() => {
+    if (!creating) return;
+    apiFetch("/api/admin/departments")
+      .then((r) => r.json())
+      .then((d) => setDepartments(Array.isArray(d?.departments) ? d.departments.filter((x) => x.active) : []))
+      .catch(() => undefined);
+  }, [creating]);
 
   // Password fields — used for creation (required) and reset (optional)
   const [pw, setPw]                 = useState("");
@@ -128,11 +140,14 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
         username: uname.toLowerCase(),
         password: pw,
         color,
-        role: "user",
+        role,
         verified,
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) { setProfileErr(data.error || "Failed"); return; }
+      if (role !== "user" && departmentId && data?.user?.id) {
+        await api.patch(`/api/admin/users/${data.user.id}`, { department_id: Number(departmentId) });
+      }
       if (fileUploadEnabled && pendingAvatarFile && data?.user?.id) {
         await uploadUserAvatar(data.user.id, pendingAvatarFile);
       }
@@ -289,6 +304,45 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
                   className="color-swatch h-11 w-11 shrink-0 cursor-pointer overflow-hidden rounded-xl border border-emerald-200/70 dark:border-emerald-500/30" />
               </div>
             </div>
+
+            {/* Role + department (create mode) */}
+            {creating ? (
+              <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Account type</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {[["user", "Customer"], ["operator", "Operator"]].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setRole(value)}
+                      className={
+                        "rounded-xl px-3 py-2.5 text-xs font-semibold transition " +
+                        (role === value
+                          ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/30"
+                          : "border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5")
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {role === "operator" ? (
+                  <label className="mt-3 block">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">Department</span>
+                    <select
+                      value={departmentId}
+                      onChange={(e) => setDepartmentId(e.target.value)}
+                      className={inputCls + " mt-1.5"}
+                    >
+                      <option value="">No department</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* Verified */}
             <button

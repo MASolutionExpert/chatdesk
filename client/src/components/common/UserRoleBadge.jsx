@@ -87,5 +87,31 @@ export default function UserRoleBadge({ role, size = 15, className = "" }) {
     );
   }
 
+  if (normalizedRole === "operator") {
+    return (
+      <Tooltip label="Support Operator" className={`shrink-0 ${className}`}>
+        <span className="inline-flex shrink-0 items-center" role="img" aria-label="Support Operator">
+          {/*
+            Headset — lucide path filled with sky blue, white mouthpiece detail.
+          */}
+          <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+            fill="none"
+          >
+            <path
+              d="M3 12a9 9 0 0 1 18 0v5a3 3 0 0 1-3 3h-1a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h3v-2a7 7 0 0 0-14 0v2h3a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H6a3 3 0 0 1-3-3z"
+              fill="#0ea5e9"
+              className="dark:fill-sky-400"
+            />
+          </svg>
+        </span>
+      </Tooltip>
+    );
+  }
+
   return null;
 }
