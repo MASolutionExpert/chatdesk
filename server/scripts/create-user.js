@@ -44,7 +44,7 @@ async function main() {
 
   if (!nickname || !username || !password) {
     console.error(
-      'Usage: npm run db:user:create -- --nickname "Display Name" --username your_username --password your_password [--role user|admin|owner]',
+      'Usage: npm run db:user:create -- --nickname "Display Name" --username your_username --password your_password [--role user|admin|owner|operator]',
     );
     console.error(
       'Or positional: npm run db:user:create -- "Display Name" your_username your_password',
@@ -53,8 +53,8 @@ async function main() {
   }
 
   const normalizedRole = String(roleValue || "user").trim().toLowerCase();
-  if (!["user", "admin", "owner"].includes(normalizedRole)) {
-    console.error("Invalid role. Allowed values: user, admin, owner.");
+  if (!["user", "admin", "owner", "operator"].includes(normalizedRole)) {
+    console.error("Invalid role. Allowed values: user, admin, owner, operator.");
     process.exit(1);
   }
 

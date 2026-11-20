@@ -657,6 +657,103 @@ function registerAdminPanelRoutes(app, deps) {
     });
   });
 
+  // ─── Helpdesk — departments ───────────────────────────────────────────────────
+
+  app.get("/api/admin/departments", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const departments = await resolveMaybePromise(listDepartments({ activeOnly: false }));
+    const operatorsByDept = {};
+    for (const d of departments || []) {
+      const ops = await resolveMaybePromise(listOperatorsForDepartment(d.id));
+      operatorsByDept[d.id] = (ops || []).map((o) => ({
+        id: o.id,
+        username: o.username,
+        nickname: o.nickname,
+        color: o.color,
+        role: o.role,
+        status: o.status,
+      }));
+    }
+    res.json({ departments: departments || [], operatorsByDept });
+  });
+
+  app.post("/api/admin/departments", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const name = String(req.body?.name || "").trim();
+    if (!name) {
+      return res.status(400).json({ error: "Department name is required." });
+    }
+    const existing = await resolveMaybePromise(listDepartments({ activeOnly: false }));
+    if ((existing || []).some((d) => d.name.toLowerCase() === name.toLowerCase())) {
+      return res.status(409).json({ error: "A department with this name already exists." });
+    }
+    const created = await resolveMaybePromise(
+      createDepartment({
+        name,
+        description: String(req.body?.description || "").trim() || null,
+        color: String(req.body?.color || "").trim() || null,
+      }),
+    );
+    if (!created) {
+      return res.status(500).json({ error: "Failed to create department." });
+    }
+    log(session, "department.create", { targetType: "department", targetLabel: name });
+    res.status(201).json({ ok: true, department: created });
+  });
+
+  app.patch("/api/admin/departments/:id", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const deptId = Number(req.params.id);
+    if (!Number.isFinite(deptId)) {
+      return res.status(400).json({ error: "Invalid department id." });
+    }
+    const dept = await resolveMaybePromise(getDepartmentById(deptId));
+    if (!dept) return res.status(404).json({ error: "Department not found." });
+
+    const updated = await resolveMaybePromise(
+      updateDepartment(deptId, {
+        name: req.body?.name !== undefined ? String(req.body.name || "").trim() : undefined,
+        description: req.body?.description !== undefined ? String(req.body.description || "").trim() : undefined,
+        color: req.body?.color !== undefined ? String(req.body.color || "").trim() : undefined,
+        active: req.body?.active !== undefined ? Boolean(req.body.active) : undefined,
+      }),
+    );
+    if (!updated) return res.status(400).json({ error: "Invalid department update." });
+    log(session, "department.update", {
+      targetType: "department",
+      targetLabel: dept.name,
+      details: JSON.stringify(req.body || {}),
+    });
+    const fresh = await resolveMaybePromise(getDepartmentById(deptId));
+    res.json({ ok: true, department: fresh });
+  });
+
+  // Soft delete: departments are deactivated so historical support chats keep
+  // their department label and reports stay meaningful.
+  app.delete("/api/admin/departments/:id", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const deptId = Number(req.params.id);
+    if (!Number.isFinite(deptId)) {
+      return res.status(400).json({ error: "Invalid department id." });
+    }
+    const dept = await resolveMaybePromise(getDepartmentById(deptId));
+    if (!dept) return res.status(404).json({ error: "Department not found." });
+    await resolveMaybePromise(deleteDepartment(deptId));
+    log(session, "department.delete", { targetType: "department", targetLabel: dept.name });
+    res.json({ ok: true });
+  });
+
+  // ─── Helpdesk — reports ───────────────────────────────────────────────────────
+
+  app.get("/api/admin/support/overview", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const overview = await resolveMaybePromise(getSupportOverview());
+    res.json(overview || { departments: [], chats: [] });
+  });
+
   // ─── Users — list ────────────────────────────────────────────────────────────
 
   app.get("/api/admin/users", async (req, res) => {
@@ -690,7 +787,7 @@ function registerAdminPanelRoutes(app, deps) {
     const password    = String(req.body?.password  || "");
     const requestedRole = String(req.body?.role || "user");
     // Only owners can assign the owner role; admins can assign user/admin
-    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner"] : ["user", "admin"];
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner", "operator"] : ["user", "admin", "operator"];
     const role = allowedRoles.includes(requestedRole) ? requestedRole : "user";
 
     if (!rawUsername || !nickname || !password) {
@@ -767,6 +864,21 @@ function registerAdminPanelRoutes(app, deps) {
     }
 
     const b = req.body || {};
+
+    // Helpdesk: assign the operator/admin to a support department (null clears it)
+    if (b.department_id !== undefined) {
+      const deptId = b.department_id ? Number(b.department_id) : null;
+      if (deptId) {
+        const dept = await resolveMaybePromise(getDepartmentById(deptId));
+        if (!dept) return res.status(400).json({ error: "Unknown department." });
+      }
+      await resolveMaybePromise(setUserDepartment(userId, deptId));
+      log(session, "user.department", {
+        targetType: "user",
+        targetLabel: `@${user.username}`,
+        details: `department_id=${deptId ?? "none"}`,
+      });
+    }
     const nextUsername = b.username !== undefined
       ? String(b.username || "").trim().toLowerCase()
       : String(user.username || "");
@@ -847,7 +959,7 @@ function registerAdminPanelRoutes(app, deps) {
     const { role } = req.body || {};
 
     // Only the owner can assign/revoke the owner role; admins can only use user/admin
-    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner"] : ["user", "admin"];
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner", "operator"] : ["user", "admin", "operator"];
     if (!allowedRoles.includes(role)) {
       return res.status(400).json({ error: "Invalid role" });
     }

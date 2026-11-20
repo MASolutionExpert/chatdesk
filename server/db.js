@@ -4483,3 +4483,365 @@ export function dbSetSetting(key, value) {
 export function dbDeleteSetting(key) {
   run(dbKnex("app_settings").where({ key: String(key) }).del());
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Departments & support routing (helpdesk layer)
+//
+// Support conversations are regular DM chats tagged with `department_id`, so
+// every messenger feature (files, calls, push, SSE) keeps working unchanged.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const SUPPORT_ROLES = ["operator", "admin", "owner"];
+
+export function listDepartments({ activeOnly = true } = {}) {
+  const qb = dbKnex("departments")
+    .select(
+      "id",
+      "name",
+      "description",
+      "color",
+      "active",
+      "created_at"
+    )
+    .orderBy("name", "asc");
+  if (activeOnly) qb.where("active", 1);
+  const rows = getAll(qb);
+  if (rows && typeof rows.then === "function") {
+    return rows.then((r) => (r || []).map(normalizeDepartmentRow));
+  }
+  return (rows || []).map(normalizeDepartmentRow);
+}
+
+export function getDepartmentById(id) {
+  if (!id) return isPostgresMode() ? Promise.resolve(null) : null;
+  const row = getRow(
+    dbKnex("departments").where({ id: Number(id) }).first()
+  );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => (r ? normalizeDepartmentRow(r) : null));
+  }
+  return row ? normalizeDepartmentRow(row) : null;
+}
+
+export function createDepartment({ name, description = null, color = null } = {}) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return isPostgresMode() ? Promise.resolve(null) : null;
+  const res = run(
+    dbKnex("departments").insert({
+      name: trimmed.slice(0, 80),
+      description: description ? String(description).trim().slice(0, 300) : null,
+      color: color ? String(color).trim().slice(0, 20) : null,
+      active: 1,
+    })
+  );
+  if (res && typeof res.then === "function") {
+    return res.then(async () => {
+      const row = await getRow(
+        dbKnex("departments").orderBy("id", "desc").first()
+      );
+      return row ? normalizeDepartmentRow(row) : null;
+    });
+  }
+  const row = getRow(dbKnex("departments").orderBy("id", "desc").first());
+  return row ? normalizeDepartmentRow(row) : null;
+}
+
+export function updateDepartment(id, { name, description, color, active } = {}) {
+  if (!id) return isPostgresMode() ? Promise.resolve(false) : false;
+  const patch = {};
+  if (name !== undefined) {
+    const trimmed = String(name || "").trim();
+    if (!trimmed) return isPostgresMode() ? Promise.resolve(false) : false;
+    patch.name = trimmed.slice(0, 80);
+  }
+  if (description !== undefined) {
+    patch.description = description
+      ? String(description).trim().slice(0, 300)
+      : null;
+  }
+  if (color !== undefined) {
+    patch.color = color ? String(color).trim().slice(0, 20) : null;
+  }
+  if (active !== undefined) patch.active = active ? 1 : 0;
+  if (!Object.keys(patch).length) {
+    return isPostgresMode() ? Promise.resolve(true) : true;
+  }
+  const res = run(dbKnex("departments").where({ id: Number(id) }).update(patch));
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
+// Soft delete keeps historical support chats intact (department_id survives).
+export function deleteDepartment(id) {
+  if (!id) return isPostgresMode() ? Promise.resolve(false) : false;
+  const res = run(
+    dbKnex("departments").where({ id: Number(id) }).update({ active: 0 })
+  );
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
+function normalizeDepartmentRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    name: row.name,
+    description: row.description || null,
+    color: row.color || null,
+    active: Boolean(Number(row.active ?? 1)),
+    createdAt: row.created_at || null,
+  };
+}
+
+export function setUserDepartment(userId, departmentId) {
+  if (!userId) return isPostgresMode() ? Promise.resolve(false) : false;
+  const res = run(
+    dbKnex("users")
+      .where({ id: userId })
+      .update({ department_id: departmentId ? Number(departmentId) : null })
+  );
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
+export function getUserDepartmentId(userId) {
+  if (!userId) return isPostgresMode() ? Promise.resolve(null) : null;
+  const row = getRow(
+    dbKnex("users").where({ id: userId }).select("department_id").first()
+  );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => (r?.department_id ? Number(r.department_id) : null));
+  }
+  return row?.department_id ? Number(row.department_id) : null;
+}
+
+// Operators eligible to receive support chats for a department.
+export function listOperatorsForDepartment(departmentId) {
+  if (!departmentId) return isPostgresMode() ? Promise.resolve([]) : [];
+  const rows = getAll(
+    dbKnex("users")
+      .select("id", "username", "nickname", "color", "role", "status", "department_id")
+      .where("department_id", Number(departmentId))
+      .whereIn("role", SUPPORT_ROLES)
+      .orderBy("username", "asc")
+  );
+  if (rows && typeof rows.then === "function") {
+    return rows.then((r) => r || []);
+  }
+  return rows || [];
+}
+
+/**
+ * Fair routing: the operator with the fewest open support chats in the
+ * department wins; ties go to whoever was assigned longest ago (round-robin).
+ * "Open" = the support chat's most recent message came from the customer,
+ * meaning the operator still owes a reply.
+ */
+export async function pickOperatorForDepartment(departmentId) {
+  const operators = await listOperatorsForDepartment(departmentId);
+  if (!operators.length) return null;
+
+  const loadRows = await getAll(
+    dbKnex("chat_members as m")
+      .join("chats as c", "c.id", "m.chat_id")
+      .join("chat_messages as last_cm", function () {
+        this.on("last_cm.chat_id", "=", "c.id").andOn(
+          "last_cm.id",
+          "=",
+          dbKnex.raw(
+            "(SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1)"
+          )
+        );
+      })
+      .where("c.department_id", Number(departmentId))
+      .where("c.type", "dm")
+      .whereIn("m.role", ["owner", "member"])
+      .select(
+        "m.user_id",
+        dbKnex.raw("COUNT(*) AS open_chats"),
+        dbKnex.raw("MAX(c.created_at) AS last_assignment")
+      )
+      .groupBy("m.user_id")
+  );
+
+  // Only count rows where the last message is NOT from the operator themself:
+  // a chat the operator replied to last is considered handled.
+  const handledChats = await getAll(
+    dbKnex("chat_members as m")
+      .join("chats as c", "c.id", "m.chat_id")
+      .join("chat_messages as last_cm", function () {
+        this.on("last_cm.chat_id", "=", "c.id").andOn(
+          "last_cm.id",
+          "=",
+          dbKnex.raw(
+            "(SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1)"
+          )
+        );
+      })
+      .where("c.department_id", Number(departmentId))
+      .where("c.type", "dm")
+      .whereRaw("last_cm.user_id = m.user_id")
+      .select("m.user_id", dbKnex.raw("COUNT(*) AS handled"))
+      .groupBy("m.user_id")
+  );
+
+  const load = new Map();
+  for (const r of loadRows) load.set(Number(r.user_id), Number(r.open_chats || 0));
+  const handled = new Map();
+  for (const r of handledChats) handled.set(Number(r.user_id), Number(r.handled || 0));
+
+  // Last-assignment time per operator, for round-robin tie-breaking.
+  const lastAssigned = new Map();
+  for (const r of loadRows) {
+    lastAssigned.set(Number(r.user_id), String(r.last_assignment || ""));
+  }
+
+  let best = null;
+  for (const op of operators) {
+    const open = Math.max(0, (load.get(Number(op.id)) || 0) - (handled.get(Number(op.id)) || 0));
+    const candidate = { operator: op, open, last: lastAssigned.get(Number(op.id)) || "" };
+    if (
+      !best ||
+      candidate.open < best.open ||
+      (candidate.open === best.open &&
+        (!candidate.last || candidate.last < best.last))
+    ) {
+      best = candidate;
+    }
+  }
+  return best.operator;
+}
+
+export function markChatDepartment(chatId, departmentId) {
+  if (!chatId) return isPostgresMode() ? Promise.resolve(false) : false;
+  const res = run(
+    dbKnex("chats")
+      .where({ id: chatId })
+      .update({ department_id: departmentId ? Number(departmentId) : null })
+  );
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
+export function getChatDepartmentId(chatId) {
+  if (!chatId) return isPostgresMode() ? Promise.resolve(null) : null;
+  const row = getRow(
+    dbKnex("chats").where({ id: chatId }).select("department_id").first()
+  );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => (r?.department_id ? Number(r.department_id) : null));
+  }
+  return row?.department_id ? Number(row.department_id) : null;
+}
+
+// Per-department support metrics for the admin reports.
+export async function getSupportOverview() {
+  const departments = listDepartments({ activeOnly: false });
+  const deptList = departments && typeof departments.then === "function"
+    ? await departments
+    : departments;
+
+  const chatRows = await getAll(
+    dbKnex("chats as c")
+      .leftJoin("departments as d", "d.id", "c.department_id")
+      .whereNotNull("c.department_id")
+      .where("c.type", "dm")
+      .select(
+        "c.id",
+        "c.department_id",
+        "c.created_at",
+        "d.name as department_name",
+        dbKnex.raw(
+          "(SELECT u.id FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role = 'user' LIMIT 1) AS customer_user_id"
+        ),
+        dbKnex.raw(
+          "(SELECT u.username FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role = 'user' LIMIT 1) AS customer_username"
+        ),
+        dbKnex.raw(
+          "(SELECT u.nickname FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role = 'user' LIMIT 1) AS customer_nickname"
+        ),
+        dbKnex.raw(
+          "(SELECT u.username FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role IN ('operator','admin','owner') LIMIT 1) AS operator_username"
+        ),
+        dbKnex.raw(
+          "(SELECT u.nickname FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role IN ('operator','admin','owner') LIMIT 1) AS operator_nickname"
+        ),
+        dbKnex.raw(
+          "(SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message_body"
+        ),
+        dbKnex.raw(
+          "(SELECT user_id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message_user_id"
+        ),
+        dbKnex.raw(
+          "(SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message_at"
+        ),
+        dbKnex.raw(
+          "(SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count"
+        ),
+      )
+      .orderBy("c.created_at", "desc")
+      .limit(200)
+  );
+
+  const byDepartment = new Map();
+  for (const dept of deptList) {
+    byDepartment.set(Number(dept.id), {
+      id: dept.id,
+      name: dept.name,
+      active: dept.active,
+      chats: 0,
+      open: 0,
+      messages: 0,
+      operators: 0,
+    });
+  }
+
+  const operatorCounts = await getAll(
+    dbKnex("users")
+      .whereIn("role", SUPPORT_ROLES)
+      .whereNotNull("department_id")
+      .select("department_id", dbKnex.raw("COUNT(*) AS cnt"))
+      .groupBy("department_id")
+  );
+  for (const r of operatorCounts) {
+    const entry = byDepartment.get(Number(r.department_id));
+    if (entry) entry.operators = Number(r.cnt || 0);
+  }
+
+  const decryptedChats = [];
+  for (const row of chatRows || []) {
+    const entry = byDepartment.get(Number(row.department_id));
+    if (entry) {
+      entry.chats += 1;
+      entry.messages += Number(row.message_count || 0);
+      const lastByOperator = row.operator_user_id_hint
+        ? false
+        : row.customer_user_id
+          ? Number(row.last_message_user_id) !== Number(row.customer_user_id)
+          : false;
+      if (row.last_message_user_id && !lastByOperator) entry.open += 1;
+    }
+    decryptedChats.push({
+      id: row.id,
+      departmentId: row.department_id ? Number(row.department_id) : null,
+      departmentName: row.department_name || null,
+      customerUsername: row.customer_username || null,
+      customerNickname: row.customer_nickname || null,
+      operatorUsername: row.operator_username || null,
+      operatorNickname: row.operator_nickname || null,
+      lastMessageBody: storageEncryption.decryptText(row.last_message_body || "") || "",
+      lastMessageAt: row.last_message_at || null,
+      lastMessageByCustomer:
+        row.customer_user_id && row.last_message_user_id
+          ? Number(row.last_message_user_id) === Number(row.customer_user_id)
+          : Boolean(row.last_message_user_id),
+      createdAt: row.created_at,
+      messageCount: Number(row.message_count || 0),
+    });
+  }
+
+  return {
+    departments: Array.from(byDepartment.values()),
+    chats: decryptedChats,
+  };
+}
