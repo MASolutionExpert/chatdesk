@@ -44,7 +44,10 @@ APP_NAME="songbird"
 INSTALL_DIR="/opt/songbird"
 LOG_FILE="/opt/songbird/logs/install.log"
 DATA_COMMAND_LAUNCHER="${DATA_COMMAND_LAUNCHER:-${INSTALL_DIR}/scripts/run-data-command.sh}"
+# Repository source. Point REPO_URL / REPO_BRANCH at any fork to install it.
+# Example: REPO_URL=https://github.com/<you>/<repo>.git REPO_BRANCH=dev bash scripts/install.sh
 REPO_URL="${REPO_URL:-https://github.com/bllackbull/Songbird.git}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
 SERVICE_USER="songbird"
 SERVICE_GROUP="songbird"
 SERVICE_NAME="songbird"
@@ -67,7 +70,9 @@ DEFAULT_SIGN_UP="true"
 DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB="5"
 DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS="480"
 NODE_MAJOR="24"
-SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/bllackbull/Songbird/main/scripts/install.sh}"
+_repo_url_path="${REPO_URL#*github.com/}"
+_repo_url_path="${_repo_url_path%.git}"
+SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/${_repo_url_path}/${REPO_BRANCH}/scripts/install.sh}"
 LOG_LINES="${LOG_LINES:-100}"
 CERT_INSTALL_DIR="/etc/ssl/songbird"
 ACME_WEBROOT="/var/lib/songbird/certbot"
@@ -93,7 +98,7 @@ DOMAIN_GROUPS=()
 MANUAL_CERT_GROUP_FULLCHAIN_PATHS=()
 MANUAL_CERT_GROUP_PRIVKEY_PATHS=()
 CERTBOT_EMAIL=""
-DEFAULT_DB_CLIENT="sqlite3"
+DEFAULT_DB_CLIENT="postgres"
 DEFAULT_POSTGRES_HOST="127.0.0.1"
 DEFAULT_POSTGRES_PORT="5432"
 DEFAULT_POSTGRES_DB="songbird"
@@ -1730,8 +1735,8 @@ clone_repo() {
   if run_as_root test -d "$INSTALL_DIR/.git"; then
     log "Repository exists at ${INSTALL_DIR}. Updating source..."
     run_in_install_dir "git fetch --all --prune" || return 1
-    run_in_install_dir "git checkout main" || return 1
-    run_in_install_dir "git pull --ff-only origin main" || return 1
+    run_in_install_dir "git checkout ${REPO_BRANCH}" || return 1
+    run_in_install_dir "git pull --ff-only origin ${REPO_BRANCH}" || return 1
     return 0
   fi
 
@@ -1745,7 +1750,7 @@ clone_repo() {
   fi
 
   log "Cloning Songbird repository..."
-  run_silent run_as_root git clone "$REPO_URL" "$INSTALL_DIR" || return 1
+  run_silent run_as_root git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR" || return 1
 }
 
 prepare_install_dir_for_offline() {

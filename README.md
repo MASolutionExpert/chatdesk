@@ -19,6 +19,7 @@
 ## Key Features
 
 - 💬 **Chat Types**: Direct messages, groups, and channels
+- 🎧 **Helpdesk Mode**: Departments, operator roles, and fair routing — a messenger feel with a ticketing engine behind it
 - 📁 **Media Support**: File uploads, voice messages, video transcoding
 - 🔔 **Push Notifications**: Web push with VAPID
 - 📞 **Voice & Video Calls**: Real-time peer-to-peer and secure voice and video calling
