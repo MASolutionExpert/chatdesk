@@ -2,8 +2,7 @@
 
 All notable changes to ChatDesk are documented in this file.
 
-## 1.1.0-dev.11
-
+## 1.1.0
 ### Fixed
 
 - 🏷️ **Update detection could think dev.10 is OLDER than dev.9** — both version comparators (server and client) compared the prerelease part as a plain string, so `"dev.10"` sorted before `"dev.9"`. From dev.10 onward the in-app updater would have offered dev.9 as "newer". Prerelease identifiers now compare per SemVer rules (numeric identifiers numerically), and the GitHub tag fetch paginates (up to 3×100 tags) so the newest release is never missed on a long tag list.
