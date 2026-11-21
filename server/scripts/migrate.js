@@ -20,6 +20,15 @@ try {
   console.log(
     `Migrations complete in ${((Date.now() - startedAt) / 1000).toFixed(1)}s. Current schema version: ${schemaVersion}`,
   )
+
+  // Close the knex pool explicitly: without this the idle pool keeps the
+  // Node process alive for idleTimeoutMillis (30s in Postgres mode), making
+  // the updater appear to pause for no reason after migrations finish.
+  try {
+    const { dbKnex } = await import('../db/knex.js')
+    await dbKnex.destroy()
+  } catch {}
+  process.exit(0)
 } catch (error) {
   // Fail-fast errors (connectivity preflight, migration watchdog) carry a
   // full actionable message — print it cleanly instead of a stack trace.

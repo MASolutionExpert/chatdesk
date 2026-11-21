@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.1.0-dev.10
+# chatdesk-deploy-version: 1.1.0-dev.11
 
 set -uo pipefail
 
@@ -249,6 +249,21 @@ ensure_log_dir() {
   if [[ ! -d "$log_dir" ]]; then
     run_as_root mkdir -p "$log_dir" || return 1
     log "Created log directory: $log_dir"
+  fi
+  # Both root-run steps (run_as_root) and user-run redirects (tee inside
+  # run_in_install_dir_streaming) append to LOG_FILE. When the installer is
+  # launched through sudo (rather than directly as root) the file is often
+  # created root-owned, which makes plain `tee` fail with "Permission denied"
+  # and lose streaming output. Hand the log file to the invoking user once
+  # here so every later append works regardless of who created it.
+  if [[ ! -f "$LOG_FILE" ]]; then
+    touch "$LOG_FILE" 2>/dev/null || run_as_root touch "$LOG_FILE" 2>/dev/null || true
+  fi
+  if [[ -f "$LOG_FILE" ]]; then
+    if [[ -n "$SUDO" ]]; then
+      $SUDO -n chown "$(id -u):$(id -g)" "$LOG_FILE" 2>/dev/null || true
+    fi
+    chmod u+w "$LOG_FILE" 2>/dev/null || true
   fi
 }
 
@@ -678,9 +693,18 @@ run_in_install_dir_streaming() {
   if [[ -f "$LOG_FILE" ]]; then
     printf "[%s] Running: %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE" 2>/dev/null || true
   fi
+  # The child command runs as root (run_as_root), but the streaming
+  # redirections (tee) run as the INVOKING user. If the log file is not
+  # writable by that user (e.g. created root-owned by an earlier step),
+  # route tee through sudo as well so streaming output is never lost with
+  # "Permission denied". -n avoids hanging on a password prompt.
+  local stream_tee=(tee -a "$LOG_FILE")
+  if [[ -n "$SUDO" && -f "$LOG_FILE" && ! -w "$LOG_FILE" ]]; then
+    stream_tee=("$SUDO" -n tee -a "$LOG_FILE")
+  fi
   run_as_root bash -lc "cd '$INSTALL_DIR' && ${path_export}$*" \
-    > >(tee -a "$LOG_FILE") \
-    2> >(tee -a "$LOG_FILE" >&2)
+    > >("${stream_tee[@]}") \
+    2> >("${stream_tee[@]}" >&2)
 }
 
 run_in_install_dir_output() {

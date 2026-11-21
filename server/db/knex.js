@@ -67,16 +67,17 @@ export function describePgTarget() {
   if (explicitUrl) {
     try {
       const parsed = new URL(explicitUrl);
+      const urlHasSslMode = /sslmode=/i.test(explicitUrl);
       return {
         mode: "url",
         host: parsed.hostname,
         port: parsed.port || "5432",
         database: parsed.pathname.replace(/^\//, "") || "(default)",
         user: parsed.username || "(default)",
-        ssl: /sslmode=(require|verify-ca|verify-full)/i.test(explicitUrl),
+        ssl: urlHasSslMode || process.env.POSTGRES_SSL === "true",
       };
     } catch {
-      return { mode: "url", host: "(unparseable URL)", port: "?", database: "?", user: "?", ssl: false };
+      return { mode: "url", host: "(unparseable URL)", port: "?", database: "?", user: "?", ssl: process.env.POSTGRES_SSL === "true" };
     }
   }
   return {
@@ -108,7 +109,7 @@ function buildPgConnection() {
   // idle_in_transaction_session_timeout regardless of whether the target is
   // given as a URL string or as individual parts.
   if (explicitUrl) {
-    return {
+    const connection = {
       connectionString: explicitUrl,
       connectionTimeoutMillis: timeouts.connectionTimeoutMs,
       statement_timeout: timeouts.statementTimeoutMs,
@@ -116,6 +117,15 @@ function buildPgConnection() {
       keepAlive: true,
       application_name: "chatdesk",
     };
+
+    // POSTGRES_SSL=true must also work when the target is given as a URL.
+    // If the URL already carries an explicit sslmode parameter it wins;
+    // otherwise POSTGRES_SSL=true enables SSL with relaxed certificate
+    // verification so self-signed Postgres servers work in both modes.
+    if (process.env.POSTGRES_SSL === "true" && !/[?&]sslmode=/i.test(explicitUrl)) {
+      connection.ssl = { rejectUnauthorized: false };
+    }
+    return connection;
   }
 
   return {

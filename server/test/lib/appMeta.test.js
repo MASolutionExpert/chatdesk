@@ -61,8 +61,13 @@ describe("compareVersions", () => {
     expect(compareVersions("1.0.0-alpha", "1.0.0")).toBe(-1);
   });
 
-  test("compares prereleases lexicographically", () => {
+  test("compares prereleases per SemVer identifier rules", () => {
     expect(compareVersions("1.0.0-beta", "1.0.0-alpha")).toBe(1);
+    // Numeric identifiers must compare NUMERICALLY: a string comparison
+    // would wrongly order dev.10 before dev.9 (regression in dev.10).
+    expect(compareVersions("1.1.0-dev.10", "1.1.0-dev.9")).toBe(1);
+    expect(compareVersions("1.1.0-dev.9", "1.1.0-dev.10")).toBe(-1);
+    expect(compareVersions("1.1.0-dev.10", "1.1.0-dev.10")).toBe(0);
   });
 
   test("handles v-prefix inputs", () => {

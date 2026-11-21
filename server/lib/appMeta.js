@@ -19,6 +19,41 @@ function parseVersion(value) {
   };
 }
 
+// Compare a single prerelease identifier per SemVer 2.0 rules:
+// numeric identifiers are compared numerically (so 10 > 9 — a naive string
+// comparison would wrongly order dev.10 before dev.9), alphanumeric
+// identifiers lexically, and numeric identifiers always rank lower than
+// alphanumeric ones.
+function comparePrereleaseIdentifiers(a, b) {
+  const aIsNumeric = /^\d+$/.test(a);
+  const bIsNumeric = /^\d+$/.test(b);
+  if (aIsNumeric && bIsNumeric) {
+    const aNum = Number(a);
+    const bNum = Number(b);
+    if (aNum === bNum) return 0;
+    return aNum > bNum ? 1 : -1;
+  }
+  if (aIsNumeric) return -1;
+  if (bIsNumeric) return 1;
+  if (a === b) return 0;
+  return a > b ? 1 : -1;
+}
+
+// Dot-separated prerelease identifiers compare left to right; a prerelease
+// with fewer identifiers ranks lower when all shared identifiers are equal.
+function comparePrerelease(a, b) {
+  const aIds = a.split(".");
+  const bIds = b.split(".");
+  const length = Math.max(aIds.length, bIds.length);
+  for (let i = 0; i < length; i++) {
+    if (aIds[i] === undefined) return -1;
+    if (bIds[i] === undefined) return 1;
+    const result = comparePrereleaseIdentifiers(aIds[i], bIds[i]);
+    if (result !== 0) return result;
+  }
+  return 0;
+}
+
 function compareVersions(left, right) {
   const a = parseVersion(left);
   const b = parseVersion(right);
@@ -33,7 +68,7 @@ function compareVersions(left, right) {
   if (!a.prerelease && b.prerelease) return 1;
   if (a.prerelease && !b.prerelease) return -1;
   if (a.prerelease === b.prerelease) return 0;
-  return a.prerelease.localeCompare(b.prerelease);
+  return comparePrerelease(a.prerelease, b.prerelease);
 }
 
 function parseGitHubRepository(url) {

@@ -219,9 +219,21 @@ function createPreMigrationBackup(fromVersion, toVersion) {
 // Postgres mode. Never blocks or fails the migration: if pg_dump is not
 // installed or fails, we warn loudly and continue, because a missing backup
 // must not make an already delicate migration worse.
+// pg_dump runs with a hard time limit and a connect timeout: a pg_dump stuck
+// on a lock or an unreachable server must not freeze the whole updater
+// synchronously BEFORE the migration watchdog even starts.
+function getPostgresBackupTimeoutMs() {
+  const raw = Number(process.env.DB_BACKUP_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 120_000; // 2 minutes is enough for any reasonably sized logical dump
+}
+
 function createPostgresPreMigrationBackup(fromVersion, toVersion) {
   try {
-    const probe = spawnSync("pg_dump", ["--version"], { encoding: "utf8" });
+    const probe = spawnSync("pg_dump", ["--version"], {
+      encoding: "utf8",
+      timeout: 15_000,
+    });
     if (probe.status !== 0 || probe.error) {
       console.warn(
         "[db-migrations] Pre-migration backup skipped: pg_dump is not installed on this host. " +
@@ -232,6 +244,7 @@ function createPostgresPreMigrationBackup(fromVersion, toVersion) {
 
     const explicitUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
     const target = describePgTarget();
+    const backupTimeoutMs = getPostgresBackupTimeoutMs();
 
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
@@ -243,7 +256,13 @@ function createPostgresPreMigrationBackup(fromVersion, toVersion) {
     );
 
     const args = ["--file", backupPath, "--no-owner", "--no-privileges"];
-    const env = { ...process.env };
+    const env = {
+      ...process.env,
+      // pg_dump honors this even when the target is a full connection URL.
+      PGCONNECT_TIMEOUT: String(
+        Math.ceil(getPostgresTimeouts().connectionTimeoutMs / 1000) || 10,
+      ),
+    };
 
     if (explicitUrl) {
       args.push("--dbname", explicitUrl);
@@ -260,13 +279,21 @@ function createPostgresPreMigrationBackup(fromVersion, toVersion) {
       }
     }
 
-    const result = spawnSync("pg_dump", args, { env, encoding: "utf8" });
-    if (result.status !== 0) {
+    const result = spawnSync("pg_dump", args, {
+      env,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: backupTimeoutMs,
+    });
+    const timedOut = result.error && /ETIMEDOUT|timed out/i.test(String(result.error.code || result.error.message || ""));
+    if (result.status !== 0 || result.error) {
       try {
         if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
       } catch {}
       console.warn(
-        `[db-migrations] Pre-migration backup FAILED (pg_dump exit ${result.status}): ${
+        `[db-migrations] Pre-migration backup FAILED${
+          timedOut ? ` (timed out after ${backupTimeoutMs}ms)` : result.error ? ` (${String(result.error.code || result.error.message || "")})` : ` (pg_dump exit ${result.status})`
+        }: ${
           String(result.stderr || "").trim().slice(0, 500)
         }. Continuing with migrations WITHOUT a backup — make one manually first if this database matters.`,
       );
@@ -710,7 +737,18 @@ async function ensurePostgresConnectivity() {
 }
 
 export function getMigrationTimeoutMs() {
-  const raw = Number(process.env.DB_MIGRATION_TIMEOUT_MS);
+  const rawSetting = process.env.DB_MIGRATION_TIMEOUT_MS;
+  // Explicit 0 disables the watchdog entirely — documented and honoured here.
+  // An empty value (DB_MIGRATION_TIMEOUT_MS=) is treated as unset so a blank
+  // line in .env can never accidentally turn the watchdog off.
+  if (
+    rawSetting !== undefined &&
+    String(rawSetting).trim() !== "" &&
+    Number(rawSetting) === 0
+  ) {
+    return 0;
+  }
+  const raw = Number(rawSetting);
   if (Number.isFinite(raw) && raw > 0) return raw;
   return 120_000; // 2 minutes per migration is generous even for big tables
 }

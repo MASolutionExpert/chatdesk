@@ -1,5 +1,11 @@
 // db:doctor — database health diagnostics for ChatDesk.
 //
+// READ-ONLY: this tool never runs migrations and never writes to the
+// database. It deliberately does NOT import server/db.js — importing that
+// module triggers the full migration bootstrap as a side effect, which would
+// mean a "diagnostic" silently mutating the schema (and racing a live
+// server). All checks below use the knex connection directly.
+//
 // Answers the questions that matter when something feels wrong:
 //   - Which database engine and target am I actually connected to?
 //   - How fast is the connection (connectivity preflight)?
@@ -77,6 +83,36 @@ function fail(text) {
   console.log(`  [FAIL] ${text}`);
 }
 
+function isPostgresMode() {
+  // Mirrors server/db.js isPostgresMode() without importing it (see header).
+  const client = (
+    process.env.DB_CLIENT ||
+    (process.env.POSTGRES_URL || process.env.DATABASE_URL ? "postgres" : "sqlite3")
+  ).toLowerCase();
+  return client === "postgres" || client === "postgresql" || client === "pg";
+}
+
+async function readSchemaVersion(dbKnex, postgres) {
+  // Mirrors server/db.js getSchemaVersion() but WITHOUT importing db.js:
+  // importing that module would run the full migration bootstrap, which a
+  // read-only diagnostic must never do. SQLite stores the version in the
+  // PRAGMA user_version header field; Postgres uses the meta table.
+  try {
+    if (postgres) {
+      const res = await dbKnex.raw(
+        "SELECT value FROM meta WHERE key = 'user_version'",
+      );
+      const rows = Array.isArray(res) ? res : res?.rows || [];
+      return Number(rows[0]?.value || 0);
+    }
+    const res = await dbKnex.raw("PRAGMA user_version");
+    const rows = Array.isArray(res) ? res : res?.rows || [];
+    return Number(rows[0]?.user_version ?? rows[0]?.value ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
 export async function collectDiagnostics() {
   const findings = { ok: 0, warnings: 0, failures: 0 };
   const report = { findings, lines: [] };
@@ -88,36 +124,41 @@ export async function collectDiagnostics() {
     if (fn === fail) findings.failures += 1;
   };
 
-  let knexMod, migrations, dbModule;
+  let knexMod, migrations;
   try {
     knexMod = await import("../db/knex.js");
     const migrationsModule = await import("../migrations/index.js");
     migrations = migrationsModule.migrations;
-    dbModule = await import("../db.js");
   } catch (error) {
-    // Importing db.js runs the migration bootstrap; if that throws (e.g.
-    // Postgres unreachable), the doctor must still print useful diagnostics
-    // instead of crashing.
-    const { describePgTarget, getPostgresTimeouts } = await import("../db/knex.js");
-    const target = describePgTarget();
+    // Even a failed import must not crash the doctor — print useful
+    // diagnostics instead.
+    let target = null;
+    let timeouts = null;
+    try {
+      const fallback = await import("../db/knex.js");
+      target = fallback.describePgTarget();
+      timeouts = fallback.getPostgresTimeouts();
+    } catch {}
     record(
       fail,
-      `Database bootstrap FAILED while loading: ${String(error?.message || error).split("\n")[0].slice(0, 400)}`,
+      `Database modules FAILED to load: ${String(error?.message || error).split("\n")[0].slice(0, 400)}`,
     );
-    record(
-      ok,
-      `Configured target: ${target.host}:${target.port}, database '${target.database}', user '${target.user}'` +
-        ` (via ${target.mode === "url" ? "POSTGRES_URL/DATABASE_URL" : "POSTGRES_* settings"})`,
-    );
-    const timeouts = getPostgresTimeouts();
-    record(ok, `Fail-fast timeouts: connect=${timeouts.connectionTimeoutMs}ms acquire=${timeouts.acquireTimeoutMs}ms statement=${timeouts.statementTimeoutMs}ms`);
+    if (target) {
+      record(
+        ok,
+        `Configured target: ${target.host}:${target.port}, database '${target.database}', user '${target.user}'` +
+          ` (via ${target.mode === "url" ? "POSTGRES_URL/DATABASE_URL" : "POSTGRES_* settings"})`,
+      );
+    }
+    if (timeouts) {
+      record(ok, `Fail-fast timeouts: connect=${timeouts.connectionTimeoutMs}ms acquire=${timeouts.acquireTimeoutMs}ms statement=${timeouts.statementTimeoutMs}ms`);
+    }
     record(warn, "Run: npm run db:migrate  — it prints the full connectivity error with the fix.");
     report.currentSchemaVersion = null;
     report.latestMigrationVersion = null;
     return report;
   }
   const { dbKnex, describePgTarget, getPostgresTimeouts } = knexMod;
-  const { getCurrentSchemaVersion, isPostgresMode } = dbModule;
 
   const postgres = isPostgresMode();
   const target = describePgTarget();
@@ -152,7 +193,7 @@ export async function collectDiagnostics() {
   section("Schema");
   let schemaVersion = null;
   try {
-    schemaVersion = await getCurrentSchemaVersion();
+    schemaVersion = await readSchemaVersion(dbKnex, postgres);
     report.currentSchemaVersion = schemaVersion;
     report.latestMigrationVersion = migrations.length;
     if (schemaVersion >= migrations.length) {
