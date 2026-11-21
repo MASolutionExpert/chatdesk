@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Close, LoaderCircle, SendHorizontal } from "../../icons/lucide.js";
 import ForwardChatGridItem from "../forward/ForwardChatGridItem.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useI18n } from "../../i18n/index.js";
 import {
   canForwardToChat,
   excludeForwardSourceChat,
@@ -18,6 +19,7 @@ export default function ForwardMessageModal({
   onClose,
   onSubmit,
 }) {
+  const { t } = useI18n();
   const [selectedChatIds, setSelectedChatIds] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef(null);
@@ -71,14 +73,14 @@ export default function ForwardMessageModal({
       >
         <div className="flex items-center justify-between pb-1">
           <h3 id="forward-modal-title" className="text-base font-semibold text-emerald-800 dark:text-emerald-200">
-            Send to...
+            {t("modals.forward.title")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
             className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-            aria-label="Close"
+            aria-label={t("common.actions.close")}
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
@@ -126,7 +128,7 @@ export default function ForwardMessageModal({
             ) : (
               <SendHorizontal size={16} className="icon-anim-slide" />
             )}
-            {submitting ? "Sending..." : "Send"}
+            {submitting ? t("modals.forward.sending") : t("common.actions.send")}
           </button>
         </div>
       </div>

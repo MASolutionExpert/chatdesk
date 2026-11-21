@@ -1,3 +1,5 @@
+import { translateKey } from "../../i18n/index.js";
+
 export function canForwardToChat(chat, currentUserId) {
   const type = String(chat?.type || "").toLowerCase();
   if (type === "dm") {
@@ -22,7 +24,7 @@ export function getForwardChatDisplay(chat, currentUsername) {
   const type = String(chat?.type || "").toLowerCase();
   if (type === "saved") {
     return {
-      title: "Saved messages",
+      title: translateKey("modals.names.savedMessages"),
       avatarUrl: "",
       color: "#10b981",
       kind: "saved",
@@ -31,7 +33,12 @@ export function getForwardChatDisplay(chat, currentUsername) {
   }
   if (type === "group" || type === "channel") {
     const title = String(
-      chat?.name || (type === "channel" ? "Channel" : "Group"),
+      chat?.name ||
+        translateKey(
+          type === "channel"
+            ? "modals.names.channel"
+            : "modals.names.group",
+        ),
     );
     return {
       title,
@@ -48,16 +55,17 @@ export function getForwardChatDisplay(chat, currentUsername) {
       String(member?.username || "").toLowerCase() !==
       String(currentUsername || "").toLowerCase(),
   );
+  const deletedAccountLabel = translateKey("modals.names.deletedAccount");
   return {
     title:
-      String(peer?.nickname || peer?.username || "Deleted account").trim() ||
-      "Deleted account",
+      String(peer?.nickname || peer?.username || deletedAccountLabel).trim() ||
+      deletedAccountLabel,
     avatarUrl: String(peer?.avatar_url || "").trim(),
     color: String(peer?.color || "#94a3b8"),
     kind: "dm",
     initials:
-      String(peer?.nickname || peer?.username || "Deleted account").trim() ||
-      "Deleted account",
+      String(peer?.nickname || peer?.username || deletedAccountLabel).trim() ||
+      deletedAccountLabel,
     isOnline: String(peer?.status || "").toLowerCase() === "online",
     verified: Boolean(peer?.user_verified),
     role: peer?.user_role || null,

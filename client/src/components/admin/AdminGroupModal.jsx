@@ -10,6 +10,7 @@ import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { getRandomAvatarColor } from "../../utils/avatarColor.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { useI18n } from "../../i18n/index.js";
 
 const NewGroupModal = lazy(() => import("../modals/NewGroupModal.jsx"));
 
@@ -39,6 +40,7 @@ const emptyFormFor = (type) => ({
  * pick any user by username.
  */
 function OwnerPicker({ value, onChange }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -75,7 +77,7 @@ function OwnerPicker({ value, onChange }) {
           </Tooltip>
           <p className="truncate text-xs text-slate-500 dark:text-slate-400" dir="auto">@{value.username}</p>
         </div>
-        <Tooltip label="Remove" className="shrink-0">
+        <Tooltip label={t("admin.groups.removeOwner")} className="shrink-0">
           <button type="button" onClick={() => { onChange(null); }}
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-transparent text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10">
             <Close size={14} className="icon-anim-pop" />
@@ -94,7 +96,7 @@ function OwnerPicker({ value, onChange }) {
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value.toLowerCase())}
-          placeholder="username"
+          placeholder={t("admin.groups.ownerPlaceholder")}
           lang={queryHasPersian ? "fa" : "en"}
           dir={queryHasPersian ? "rtl" : "ltr"}
           className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${queryHasPersian ? "font-fa text-right" : "text-left"}`}
@@ -103,7 +105,7 @@ function OwnerPicker({ value, onChange }) {
         {query.trim() ? (
           <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setQuery("")}
             className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
-            aria-label="Clear search">
+            aria-label={t("admin.common.clearSearch")}>
             <Close size={16} className="icon-anim-pop" />
           </button>
         ) : null}
@@ -133,9 +135,9 @@ function OwnerPicker({ value, onChange }) {
             })}
           </div>
         ) : loading ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">Searching...</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{t("admin.groups.searching")}</p>
         ) : query.trim() ? (
-          <p className="text-xs text-slate-500 dark:text-slate-400">No users found.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{t("admin.groups.noUsersFound")}</p>
         ) : null}
       </div>
     </div>
@@ -148,6 +150,7 @@ function OwnerPicker({ value, onChange }) {
  * through its `extraFields` slot, then submits to the admin endpoints.
  */
 export default function AdminGroupModal({ mode, chat, initialType = "group", onClose, onSaved }) {
+  const { t } = useI18n();
   const editing = mode === "edit";
   const type = editing ? (chat?.type || "group") : initialType;
   const [form, setForm] = useState(() => {
@@ -256,7 +259,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       if (cancelled) return;
       setForm((f) => ({
         ...f,
-        remoteChannelStatus: { available: false, source: null, error: "Unable to load Remote Channel settings." },
+        remoteChannelStatus: { available: false, source: null, error: t("admin.groups.errRemoteLoad") },
         remoteChannelLoading: false,
       }));
     });
@@ -352,7 +355,8 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     }
   }, []);
 
-  const entityLabel = type === "channel" ? "Channel" : "Group";
+  const entityKey = type === "channel" ? "admin.groups.entityChannel" : "admin.groups.entityGroup";
+  const entityLabel = t(entityKey);
 
   const toggleAddAllEligibleMembers = useCallback(() => {
     if (!addAllEligibleMembers) {
@@ -366,8 +370,8 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     try {
       const name = String(form.nickname || "").trim();
       const username = String(form.username || "").trim().toLowerCase();
-      if (!name || !username) { setError("Name and username are required."); setBusy(false); return; }
-      if (!owner?.id) { setError("Please select an owner."); setBusy(false); return; }
+      if (!name || !username) { setError(t("admin.groups.errNameUsername")); setBusy(false); return; }
+      if (!owner?.id) { setError(t("admin.groups.errOwnerRequired")); setBusy(false); return; }
 
       // Remote channel payload (channels only, mirrors ChatPage logic).
       const remoteSource = String(form.remoteChannelSource || "").trim();
@@ -390,7 +394,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       const shouldSaveRemote = isChannel && remoteFlags.enabled
         && (editing ? remoteChanged : Boolean(remoteEnabled || remoteSource || remoteSync || remoteStream));
       if (shouldSaveRemote && remoteEnabled && !remoteSource) {
-        setError("Remote Channel source is required."); setBusy(false); return;
+        setError(t("admin.groups.errRemoteSource")); setBusy(false); return;
       }
       const remotePayload = {
         enabled: remoteEnabled, provider: remoteProvider, source: remoteSource,
@@ -408,10 +412,10 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         };
         if (owner?.id && owner.id !== initialOwnerId) payload.owner = owner.id;
         const r = await api.patch(`/api/admin/chats/${chat.id}`, payload);
-        if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
+        if (!r.ok) { const d = await r.json(); setError(d.error || t("admin.groups.failed")); setBusy(false); return; }
         if (shouldSaveRemote) {
           const rr = await api.put(`/api/admin/chats/${chat.id}/remote-channel`, remotePayload);
-          if (!rr.ok) { const d = await rr.json().catch(() => ({})); setError(d.error || "Failed to save Remote Channel."); setBusy(false); return; }
+          if (!rr.ok) { const d = await rr.json().catch(() => ({})); setError(d.error || t("admin.groups.errRemoteSave")); setBusy(false); return; }
         }
         for (const member of members) {
           const memberResponse = await api.post(`/api/admin/chats/${chat.id}/members`, {
@@ -419,7 +423,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           });
           if (!memberResponse.ok) {
             const data = await memberResponse.json().catch(() => ({}));
-            setError(data.error || "Failed to add member.");
+            setError(data.error || t("admin.groups.errMemberAdd"));
             setBusy(false);
             return;
           }
@@ -430,7 +434,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           });
           if (!allMembersResponse.ok) {
             const data = await allMembersResponse.json().catch(() => ({}));
-            setError(data.error || "Failed to add all eligible members.");
+            setError(data.error || t("admin.groups.errMembersAddAll"));
             setBusy(false);
             return;
           }
@@ -454,7 +458,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         };
         if (shouldSaveRemote) payload.remoteChannel = remotePayload;
         const r = await api.post("/api/admin/chats", payload);
-        if (!r.ok) { const d = await r.json(); setError(d.error || "Failed"); setBusy(false); return; }
+        if (!r.ok) { const d = await r.json(); setError(d.error || t("admin.groups.failed")); setBusy(false); return; }
         const d = await r.json().catch(() => ({}));
         const newId = d?.chat?.id;
         if (fileUploadEnabled && pendingAvatarFile && newId) {
@@ -463,30 +467,30 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       }
       onSaved(); onClose();
     } catch {
-      setError("Request failed."); setBusy(false);
+      setError(t("admin.groups.errRequest")); setBusy(false);
     }
-  }, [editing, form, owner, type, isChannel, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified, autoAddNewUsers, remoteFlags.enabled, remoteFlags.mediaStreamEnabled]);
+  }, [editing, form, owner, type, isChannel, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified, autoAddNewUsers, remoteFlags.enabled, remoteFlags.mediaStreamEnabled, t]);
 
   const extraFields = (
     <div className="space-y-3">
       <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
-        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Owner</p>
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t("admin.common.owner")}</p>
         <div className="mt-2">
           <OwnerPicker value={owner} onChange={handleOwnerChange} />
         </div>
       </div>
       <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
-        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Color</p>
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t("admin.common.color")}</p>
         <div className="mt-2 flex items-center gap-2">
           <div className="relative flex-1">
             <input className={inputCls + " w-full pr-12"} value={form.groupColor} onChange={(e) => setForm((f) => ({ ...f, groupColor: e.target.value }))} placeholder="#10b981" />
-            <Tooltip label="Reroll" className="absolute right-1 top-1/2 -translate-y-1/2">
+            <Tooltip label={t("admin.common.reroll")} className="absolute right-1 top-1/2 -translate-y-1/2">
               <button
                 type="button"
                 onClick={handleColorRefresh}
                 disabled={colorRefreshState === "done"}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-transparent text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-700 disabled:cursor-default disabled:text-emerald-600 dark:text-slate-400 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-300 dark:disabled:text-emerald-400"
-                aria-label="Choose a random color"
+                aria-label={t("admin.common.randomColor")}
               >
                 {colorRefreshState === "done"
                   ? <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
@@ -507,7 +511,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       >
         <span className="inline-flex items-center gap-2">
           <BadgeCheck size={18} className="shrink-0 icon-anim-pop" aria-hidden="true" />
-          Verify
+          {t("admin.common.verify")}
         </span>
         <span
           className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
@@ -534,7 +538,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     >
       <span className="inline-flex items-center gap-2">
         <UserPlus size={18} className="shrink-0 icon-anim-pop" aria-hidden="true" />
-        Auto-add new users
+        {t("admin.groups.autoAdd")}
       </span>
       <span
         className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition ${
@@ -565,14 +569,14 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       if (r.ok) await refreshRemoteStatus();
       else {
         const d = await r.json().catch(() => ({}));
-        setError(d.error || "Queue action failed.");
+        setError(d.error || t("admin.groups.errQueueAction"));
       }
     } catch {
-      setError("Queue action failed.");
+      setError(t("admin.groups.errQueueAction"));
     } finally {
       setQueueActionLoading(false);
     }
-  }, [editing, chat, refreshRemoteStatus]);
+  }, [editing, chat, refreshRemoteStatus, t]);
 
   const handleTestConnection = useCallback(async () => {
     if (!editing || !chat?.id) return;
@@ -583,14 +587,14 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       setTestResult(r.ok ? "success" : "error");
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        setError(d.error || "Connection test failed.");
+        setError(d.error || t("admin.groups.errConnectionTest"));
       }
     } catch {
       setTestResult("error");
     } finally {
       setTestLoading(false);
     }
-  }, [editing, chat]);
+  }, [editing, chat, t]);
 
   const remoteSource = form.remoteChannelStatus?.source || null;
   const remoteQueueSlot = editing && isChannel && remoteSource?.id && Boolean(form.remoteChannelEnabled) ? (
@@ -627,8 +631,8 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
         creatingGroup={busy}
         onCreate={submit}
         onClose={onClose}
-        title={editing ? `Edit ${entityLabel.toLowerCase()}` : `New ${entityLabel.toLowerCase()}`}
-        submitLabel={editing ? "Save" : "Create"}
+        title={editing ? t("admin.groups.editTitle", { entity: entityLabel }) : t("admin.groups.newTitle", { entity: entityLabel })}
+        submitLabel={editing ? t("admin.groups.save") : t("admin.groups.create")}
         entityLabel={entityLabel}
         extraFields={extraFields}
         autoAddToggleSlot={autoAddToggleSlot}

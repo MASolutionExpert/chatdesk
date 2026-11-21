@@ -1,7 +1,8 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, afterEach } from "vitest";
 import {
   normalizeVersion,
   compareVersions,
+  fetchLatestGitHubTag,
 } from "../../src/utils/versioning.js";
 
 describe("normalizeVersion", () => {
@@ -82,9 +83,13 @@ describe("compareVersions", () => {
       expect(compareVersions("1.0.0-rc1", "1.0.0")).toBe(-1);
     });
 
-    test("compares prereleases lexicographically", () => {
+    test("compares prereleases per SemVer identifier rules", () => {
       expect(compareVersions("1.0.0-beta", "1.0.0-alpha")).toBe(1);
       expect(compareVersions("1.0.0-alpha", "1.0.0-beta")).toBe(-1);
+      // Numeric identifiers must compare NUMERICALLY: a string comparison
+      // would wrongly order dev.10 before dev.9 (regression in dev.10).
+      expect(compareVersions("1.1.0-dev.10", "1.1.0-dev.9")).toBe(1);
+      expect(compareVersions("1.1.0-dev.9", "1.1.0-dev.10")).toBe(-1);
     });
 
     test("returns 0 for equal prereleases", () => {
@@ -110,5 +115,74 @@ describe("compareVersions", () => {
     test("compares mixed v-prefix and plain versions", () => {
       expect(compareVersions("v1.0.1", "1.0.0")).toBe(1);
     });
+  });
+});
+
+describe("fetchLatestGitHubTag release channels", () => {
+  const mockTagsResponse = (tags) => {
+    global.fetch = async () => ({
+      ok: true,
+      json: async () => tags.map((name) => ({ name })),
+    });
+  };
+
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  const MIXED_TAGS = ["v1.1.0-dev.7", "v1.1.0-dev.6", "v1.0.0"];
+
+  test("stable channel ignores prerelease tags", async () => {
+    mockTagsResponse(MIXED_TAGS);
+    const latest = await fetchLatestGitHubTag({
+      owner: "MASolutionExpert",
+      repo: "chatdesk",
+      channel: "stable",
+    });
+    expect(latest.rawTag).toBe("v1.0.0");
+  });
+
+  test("dev channel follows prerelease tags", async () => {
+    mockTagsResponse(MIXED_TAGS);
+    const latest = await fetchLatestGitHubTag({
+      owner: "MASolutionExpert",
+      repo: "chatdesk",
+      channel: "dev",
+    });
+    expect(latest.rawTag).toBe("v1.1.0-dev.7");
+  });
+
+  test("defaults to the stable channel when channel is missing", async () => {
+    mockTagsResponse(MIXED_TAGS);
+    const latest = await fetchLatestGitHubTag({
+      owner: "MASolutionExpert",
+      repo: "chatdesk",
+    });
+    expect(latest.rawTag).toBe("v1.0.0");
+  });
+
+  test("dev channel picks the highest prerelease even past 30 tags", async () => {
+    // GitHub paginates tags (default 30 per page); the newest tag must still
+    // win even when the list is long and git-ref order is not semver order.
+    const manyTags = [
+      "v1.1.0-dev.10",
+      "v1.1.0-dev.9",
+      "v1.1.0-dev.8",
+      "v1.1.0-dev.7",
+      "v1.1.0-dev.6",
+      "v1.1.0-dev.5",
+      "v1.1.0-dev.4",
+      "v1.1.0-dev.3",
+      "v1.1.0-dev.2",
+      "v1.1.0-dev.1",
+      "v1.0.0",
+    ];
+    mockTagsResponse(manyTags);
+    const latest = await fetchLatestGitHubTag({
+      owner: "MASolutionExpert",
+      repo: "chatdesk",
+      channel: "dev",
+    });
+    expect(latest.rawTag).toBe("v1.1.0-dev.10");
   });
 });

@@ -1,5 +1,6 @@
 import { AlertCircle, Check, Clock12, FastForward, LoaderCircle, Pause, Play, Refresh, SkipForward } from "../../icons/lucide.js";
 import Tooltip from "../common/Tooltip.jsx";
+import { useI18n } from "../../i18n/index.js";
 
 /**
  * Displays the remote channel queue status with counts for each status type.
@@ -31,6 +32,7 @@ export default function RemoteChannelQueueStatus({
   testConnectionLoading = false,
   actionLoading = false,
 }) {
+  const { t } = useI18n();
   const pending = Number(queue.pending || 0);
   const processing = Number(queue.processing || 0);
   const retry = Number(queue.retry || 0);
@@ -43,7 +45,7 @@ export default function RemoteChannelQueueStatus({
 
   const statusItems = [
     {
-      label: "Queued",
+      label: t("modals.queue.queued"),
       count: pending + retry,
       icon: LoaderCircle,
       iconClass: "animate-spin",
@@ -51,7 +53,7 @@ export default function RemoteChannelQueueStatus({
       show: (pending + retry) > 0,
     },
     {
-      label: "Processing",
+      label: t("modals.queue.processing"),
       count: processing,
       icon: Clock12,
       iconClass: "animate-spin",
@@ -59,14 +61,14 @@ export default function RemoteChannelQueueStatus({
       show: processing > 0,
     },
     {
-      label: "Done",
+      label: t("modals.queue.done"),
       count: done,
       icon: Check,
       color: "text-emerald-600 dark:text-emerald-400",
       show: done > 0,
     },
     {
-      label: "Failed",
+      label: t("modals.queue.failed"),
       count: failed,
       icon: AlertCircle,
       color: "text-rose-600 dark:text-rose-400",
@@ -81,34 +83,34 @@ export default function RemoteChannelQueueStatus({
     if (active > 0) {
       // Items in queue implies connection is working — show count
       return {
-        label: `${active} in queue`,
+        label: t("modals.queue.inQueue", { count: active }),
         className: "text-slate-600 dark:text-slate-400",
       };
     }
     if (testConnectionLoading) {
       return {
-        label: "Connecting...",
+        label: t("modals.queue.connecting"),
         className: "text-stale-600 dark:text-stale-400",
         icon: <LoaderCircle size={11} className="animate-spin" />,
       };
     }
     if (testConnectionResult === "success") {
       return {
-        label: "Connected",
+        label: t("modals.queue.connected"),
         className: "text-emerald-600 dark:text-emerald-400",
         icon: <Check size={11} />,
       };
     }
     if (testConnectionResult === "error") {
       return {
-        label: "Disconnected",
+        label: t("modals.queue.disconnected"),
         className: "text-rose-600 dark:text-rose-400",
         icon: <AlertCircle size={11} />,
       };
     }
     // No result yet (initial state before first check)
     return {
-      label: "Check",
+      label: t("modals.queue.check"),
       className: "text-slate-500 dark:text-slate-400",
       icon: <Refresh size={11} />,
     };
@@ -126,7 +128,7 @@ export default function RemoteChannelQueueStatus({
   return (
     <div className="space-y-2">
       {/* Queue Stats — clickable to test connection */}
-      <Tooltip label={canTest ? "Click to test connection" : ""} className="w-full">
+      <Tooltip label={canTest ? t("modals.queue.testTooltip") : ""} className="w-full">
       <button
         type="button"
         onClick={canTest ? onTestConnection : undefined}
@@ -141,7 +143,7 @@ export default function RemoteChannelQueueStatus({
       >
         <div className="flex items-center justify-between">
           <p className={`text-xs font-semibold ${isDisconnected ? "text-rose-600 dark:text-rose-200" : "text-slate-700 dark:text-slate-200"}`}>
-            Queue Status
+            {t("modals.queue.queueStatus")}
           </p>
           <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${connectionBadge.className}`}>
             {connectionBadge.icon ?? null}
@@ -151,7 +153,9 @@ export default function RemoteChannelQueueStatus({
 
         {total === 0 ? (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {sourceEnabled ? "Queue is empty" : "Remote channel is disabled"}
+            {sourceEnabled
+              ? t("modals.queue.queueEmpty")
+              : t("modals.queue.remoteDisabled")}
           </p>
         ) : (
           <div className="mt-2 flex flex-wrap gap-2">
@@ -181,7 +185,7 @@ export default function RemoteChannelQueueStatus({
       {/* Action Buttons */}
       {!readOnly && sourceEnabled ? (
         <div className="flex flex-wrap gap-2">
-          <Tooltip label={onResume ? "Resume queue" : "Pause queue"}>
+          <Tooltip label={onResume ? t("modals.queue.resumeQueue") : t("modals.queue.pauseQueue")}>
             <button
               type="button"
               onClick={onResume || onPause}
@@ -195,11 +199,11 @@ export default function RemoteChannelQueueStatus({
               ) : (
                 <Pause size={13} />
               )}
-              {onResume ? "Resume" : "Pause"}
+              {onResume ? t("modals.queue.resume") : t("modals.queue.pause")}
             </button>
           </Tooltip>
 
-          <Tooltip label="Skip current item">
+          <Tooltip label={t("modals.queue.skipTooltip")}>
             <button
               type="button"
               onClick={onSkip}
@@ -211,11 +215,11 @@ export default function RemoteChannelQueueStatus({
               ) : (
                 <FastForward size={13} />
               )}
-              Skip
+              {t("modals.queue.skip")}
             </button>
           </Tooltip>
 
-          <Tooltip label="Skip all queued items">
+          <Tooltip label={t("modals.queue.skipAllTooltip")}>
             <button
               type="button"
               onClick={onSkipAll}
@@ -227,7 +231,7 @@ export default function RemoteChannelQueueStatus({
               ) : (
                 <SkipForward size={13} />
               )}
-              Skip All
+              {t("modals.queue.skipAll")}
             </button>
           </Tooltip>
         </div>

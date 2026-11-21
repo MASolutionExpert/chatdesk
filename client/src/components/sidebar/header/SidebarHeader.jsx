@@ -15,6 +15,7 @@ import {
   Trash,
   Users,
 } from "../../../icons/lucide.js";
+import { useI18n } from "../../../i18n/index.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import UserMenuButton from "./UserMenuButton.jsx";
 
@@ -25,10 +26,10 @@ export default function SidebarHeader({
   isUpdating,
   hasChats,
   selectedChatsCount,
-  title = "Chats",
-  editAriaLabel = "Edit chat list",
-  deleteAriaLabel = "Delete chats",
-  newCallAriaLabel = "New call",
+  title,
+  editAriaLabel,
+  deleteAriaLabel,
+  newCallAriaLabel,
   callsDisabled = false,
   isInCall = false,
   onEnterCallsEditMode,
@@ -64,7 +65,12 @@ export default function SidebarHeader({
   handleLogout,
   onOpenOwnProfile,
 }) {
+  const { t } = useI18n();
   const isCallsMode = mobileTab === "calls";
+  const resolvedTitle = title || t("sidebar.header.chats");
+  const resolvedEditAriaLabel = editAriaLabel || t("sidebar.header.editChatsAria");
+  const resolvedDeleteAriaLabel = deleteAriaLabel || t("sidebar.header.deleteChatsAria");
+  const resolvedNewCallAriaLabel = newCallAriaLabel || t("sidebar.header.newCall");
   const isChatsTab = mobileTab !== "calls" && mobileTab !== "settings";
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const createMenuRef = useRef(null);
@@ -118,7 +124,7 @@ export default function SidebarHeader({
             {!isConnected ? (
               <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
             ) : null}
-            {isConnected ? "Settings" : "Connecting..."}
+            {isConnected ? t("sidebar.header.settings") : t("sidebar.header.connecting")}
           </span>
         </div>
       ) : (
@@ -133,7 +139,7 @@ export default function SidebarHeader({
                     onCloseSearch?.();
                   }}
                   className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-white/80 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] dark:border-rose-500/30 dark:bg-slate-950 dark:text-rose-200"
-                  aria-label="Close search"
+                  aria-label={t("sidebar.header.closeSearch")}
                 >
                   <Close size={18} className="icon-anim-pop" />
                 </button>
@@ -142,7 +148,7 @@ export default function SidebarHeader({
                   type="button"
                   onClick={onExitEdit}
                   className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-white/80 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] dark:border-rose-500/30 dark:bg-slate-950 dark:text-rose-200"
-                  aria-label="Exit edit mode"
+                  aria-label={t("sidebar.header.exitEdit")}
                 >
                   <Close size={18} className="icon-anim-pop" />
                 </button>
@@ -153,7 +159,7 @@ export default function SidebarHeader({
                     onClick={isCallsMode ? onEnterCallsEditMode : onEnterEdit}
                     disabled={!hasChats}
                     className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-emerald-200 disabled:hover:shadow-none dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:hidden"
-                    aria-label={editAriaLabel}
+                    aria-label={resolvedEditAriaLabel}
                   >
                     <Pencil size={18} className="icon-anim-sway" />
                   </button>
@@ -184,24 +190,24 @@ export default function SidebarHeader({
                   <LoaderCircle className="h-5 w-5 animate-spin text-emerald-500" />
                 ) : null}
                 {editMode ? (
-                  "Edit"
+                  t("common.actions.edit")
                 ) : chatsSearchFocused ? (
-                  "Search"
+                  t("common.actions.search")
                 ) : !isConnected ? (
-                  "Connecting..."
+                  t("sidebar.header.connecting")
                 ) : isUpdating ? (
-                  "Updating..."
+                  t("sidebar.header.updating")
                 ) :                 chatsScrollable ? (
                   <button
                     type="button"
                     onClick={onScrollToTop}
                     className="inline-flex cursor-pointer items-center gap-2 px-1 py-0.5 text-inherit"
-                    aria-label={`${title} to top`}
+                    aria-label={t("sidebar.header.scrollToTopAria", { title: resolvedTitle })}
                   >
-                    {title}
+                    {resolvedTitle}
                   </button>
                 ) : (
-                  title
+                  resolvedTitle
                 )}
               </span>
             </h2>
@@ -214,7 +220,7 @@ export default function SidebarHeader({
                   onClick={isCallsMode ? onDeleteCalls : onDeleteChats}
                   disabled={!selectedChatsCount}
                   className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-2 text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_16px_rgba(244,63,94,0.22)] disabled:opacity-50 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
-                  aria-label={deleteAriaLabel}
+                  aria-label={resolvedDeleteAriaLabel}
                 >
                   <Trash size={18} className="icon-anim-slide" />
                 </button>
@@ -225,15 +231,15 @@ export default function SidebarHeader({
                   disabled={isInCall || callsDisabled}
                   title={
                     callsDisabled
-                      ? "Calls are disabled by the server"
+                      ? t("sidebar.header.callsDisabled")
                       : isInCall
-                        ? "Already in a call"
+                        ? t("sidebar.header.inCall")
                         : undefined
                   }
                   className={`inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 ${
                     isInCall || callsDisabled ? "cursor-not-allowed opacity-50" : ""
                   }`}
-                  aria-label={newCallAriaLabel}
+                  aria-label={resolvedNewCallAriaLabel}
                 >
                   <PhoneCall size={18} className={isInCall || callsDisabled ? "" : "icon-anim-pop"} />
                 </button>
@@ -243,27 +249,13 @@ export default function SidebarHeader({
                     type="button"
                     onClick={() => setShowCreateMenu((prev) => !prev)}
                     className="inline-flex items-center justify-center rounded-full border border-emerald-200 bg-white/80 p-2 text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
-                    aria-label="Create"
+                    aria-label={t("sidebar.header.create")}
                     aria-expanded={showCreateMenu}
                   >
                     <Plus size={18} className="icon-anim-pop" />
                   </button>
                   {showCreateMenu ? (
                     <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateMenu(false);
-                          onNewChat?.();
-                        }}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                      >
-                        <Chat
-                          size={16}
-                          className="text-emerald-500 icon-anim-bob"
-                        />
-                        New DM
-                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -276,7 +268,21 @@ export default function SidebarHeader({
                           size={16}
                           className="text-emerald-500 icon-anim-bob"
                         />
-                        Contact support
+                        {t("sidebar.header.contactSupport")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCreateMenu(false);
+                          onNewChat?.();
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                      >
+                        <Chat
+                          size={16}
+                          className="text-emerald-500 icon-anim-bob"
+                        />
+                        {t("sidebar.header.newDm")}
                       </button>
                       <button
                         type="button"
@@ -290,7 +296,7 @@ export default function SidebarHeader({
                           size={18}
                           className="text-emerald-500 icon-anim-sway"
                         />
-                        New group
+                        {t("sidebar.header.newGroup")}
                       </button>
                       <button
                         type="button"
@@ -304,7 +310,7 @@ export default function SidebarHeader({
                           size={18}
                           className="text-emerald-500 icon-anim-swing"
                         />
-                        New channel
+                        {t("sidebar.header.newChannel")}
                       </button>
                     </div>
                   ) : null}
@@ -323,7 +329,7 @@ export default function SidebarHeader({
                       className="icon-anim-pop block text-emerald-600 dark:text-emerald-300"
                     />
                   </span>
-                  <span>Search</span>
+                  <span>{t("common.actions.search")}</span>
                 </span>
               ) : null}
               {chatsSearchFocused || hasSearchText ? (
@@ -342,7 +348,7 @@ export default function SidebarHeader({
                 onChange={(event) => onChatsSearchChange?.(event.target.value)}
                 onFocus={onChatsSearchFocus}
                 onBlur={onChatsSearchBlur}
-                placeholder="Search"
+                placeholder={t("sidebar.search.placeholder")}
                 lang={searchIsRtl ? "fa" : "en"}
                 dir={searchIsRtl ? "rtl" : "ltr"}
                 className={`w-full rounded-2xl border border-emerald-200 bg-white py-2 pr-10 text-sm text-slate-700 outline-hidden transition hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] focus:border-emerald-400 focus:bg-white/80 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-emerald-500/50 dark:hover:shadow-[0_0_18px_rgba(16,185,129,0.12)] dark:focus:bg-slate-950 ${
@@ -360,7 +366,7 @@ export default function SidebarHeader({
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onChatsSearchChange?.("")}
                   className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
-                  aria-label="Clear search"
+                  aria-label={t("sidebar.header.clearSearch")}
                 >
                   <Close size={14} className="icon-anim-pop" />
                 </button>
@@ -399,7 +405,7 @@ export default function SidebarHeader({
                   <div className="flex min-w-0 items-center gap-2">
                     <Bell className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                     <span className="truncate whitespace-nowrap">
-                      Enable notifications
+                      {t("sidebar.header.enableNotifications")}
                     </span>
                   </div>
                   <button
@@ -409,7 +415,7 @@ export default function SidebarHeader({
                       permissionsPrompt.onDismiss?.("notification");
                     }}
                     className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-200 dark:hover:bg-rose-500/10"
-                    aria-label="Dismiss"
+                    aria-label={t("sidebar.header.dismiss")}
                   >
                     <Close size={14} className="icon-anim-pop" />
                   </button>
@@ -421,7 +427,7 @@ export default function SidebarHeader({
                   <div className="flex min-w-0 items-center gap-2">
                     <Mic className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                     <span className="truncate whitespace-nowrap">
-                      Enable microphone
+                      {t("sidebar.header.enableMicrophone")}
                     </span>
                   </div>
                   <button
@@ -431,7 +437,7 @@ export default function SidebarHeader({
                       permissionsPrompt.onDismiss?.("microphone");
                     }}
                     className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-200 dark:hover:bg-rose-500/10"
-                    aria-label="Dismiss"
+                    aria-label={t("sidebar.header.dismiss")}
                   >
                     <Close size={14} className="icon-anim-pop" />
                   </button>
@@ -444,7 +450,7 @@ export default function SidebarHeader({
               <div className="flex min-w-0 items-center gap-2">
                 <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-300" />
                 <span className="truncate whitespace-nowrap">
-                  Connection is not secure
+                  {t("sidebar.header.insecureConnection")}
                 </span>
               </div>
               <button
@@ -459,7 +465,7 @@ export default function SidebarHeader({
                   setHideInsecureBanner(true);
                 }}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-rose-200/80 bg-white/80 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-slate-900/80 dark:text-rose-200 dark:hover:bg-rose-500/10"
-                aria-label="Dismiss"
+                aria-label={t("sidebar.header.dismiss")}
               >
                 <Close size={14} className="icon-anim-pop" />
               </button>

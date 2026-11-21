@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from "react";
 import {
   CirclePlus,
   Headset,
@@ -12,7 +12,6 @@ import {
   cardCls,
   btnPrimary,
   btnSecondary,
-  btnDanger,
   inputCls,
   labelCls,
   iconBtn,
@@ -21,6 +20,7 @@ import {
 import { EmptyState, TabToolbar } from "./AdminCommon.jsx";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { useI18n } from "../../i18n/index.js";
 
 const DEPARTMENT_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#f43f5e", "#8b5cf6", "#14b8a6", "#f97316"];
 
@@ -33,6 +33,7 @@ const DEPARTMENT_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#f43f5e", "#8b5cf6"
  *  2. Departments — create, edit, deactivate support departments.
  */
 const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }, ref) {
+  const { t } = useI18n();
   const [departments, setDepartments] = useState([]);
   const [operatorsByDept, setOperatorsByDept] = useState({});
   const [overview, setOverview] = useState({ departments: [], chats: [] });
@@ -62,12 +63,12 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
       setOperatorsByDept(deptRes?.operatorsByDept ?? {});
       setOverview(ovRes ?? { departments: [], chats: [] });
     } catch {
-      setError("Could not load helpdesk data.");
+      setError(t("admin.helpdesk.loadError"));
     } finally {
       setLoading(false);
       setInitialized(true);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (active && !initialized) void refresh();
@@ -112,14 +113,14 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
           });
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        setEditorErr(d.error || "Failed to save department.");
+        setEditorErr(d.error || t("admin.helpdesk.saveError"));
         return;
       }
       setEditorOpen(false);
       await refresh();
       onMutated?.();
     } catch {
-      setEditorErr("Request failed.");
+      setEditorErr(t("admin.helpdesk.requestFailed"));
     } finally {
       setSaving(false);
     }
@@ -145,17 +146,17 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <LifeBuoy size={18} className="text-emerald-500 icon-anim-bob" />
           <h2 className="truncate text-sm font-bold text-slate-800 dark:text-slate-100">
-            Helpdesk
+            {t("admin.tabs.helpdesk")}
           </h2>
           <span className="hidden rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 sm:inline dark:bg-emerald-500/20 dark:text-emerald-300">
-            ticketing
+            {t("admin.helpdesk.ticketing")}
           </span>
         </div>
         <button type="button" onClick={openCreate} className={btnPrimary}>
           <CirclePlus size={15} className="icon-anim-pop" />
-          New department
+          {t("admin.helpdesk.newDepartment")}
         </button>
-        <button type="button" onClick={() => void refresh()} className={btnSecondary} aria-label="Refresh">
+        <button type="button" onClick={() => void refresh()} className={btnSecondary} aria-label={t("admin.helpdesk.refresh")}>
           <Refresh size={14} />
         </button>
       </TabToolbar>
@@ -169,12 +170,12 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
       {/* ─── Reports ──────────────────────────────────────────────────────── */}
       <section className={cardCls + " p-4"}>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Support reports
+          {t("admin.helpdesk.reports")}
         </h3>
         {loading && !initialized ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-slate-500 dark:text-slate-400">
             <LoaderCircle size={16} className="animate-spin" />
-            Loading reports...
+            {t("admin.helpdesk.loadingReports")}
           </div>
         ) : (
           <>
@@ -190,23 +191,23 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                     </span>
                     {!d.active ? (
                       <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                        inactive
+                        {t("admin.helpdesk.inactive")}
                       </span>
                     ) : null}
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                    <Metric label="Chats" value={d.chats} />
-                    <Metric label="Open" value={d.open} tone={d.open > 0 ? "amber" : "slate"} />
-                    <Metric label="Msgs" value={d.messages} />
+                    <Metric label={t("admin.helpdesk.metricChats")} value={d.chats} />
+                    <Metric label={t("admin.helpdesk.metricOpen")} value={d.open} tone={d.open > 0 ? "amber" : "slate"} />
+                    <Metric label={t("admin.helpdesk.metricMsgs")} value={d.messages} />
                   </div>
                   <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                    {d.operators} operator{d.operators === 1 ? "" : "s"} on duty
+                    {t("admin.helpdesk.operatorsOnDuty", { count: d.operators })}
                   </p>
                 </div>
               ))}
               {!(overview.departments || []).length ? (
                 <p className="col-span-full py-4 text-center text-xs text-slate-500 dark:text-slate-400">
-                  No departments yet — create one to open the helpdesk.
+                  {t("admin.helpdesk.noDepartmentsReports")}
                 </p>
               ) : null}
             </div>
@@ -214,7 +215,7 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
             {(overview.chats || []).length ? (
               <div className="mt-4">
                 <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Latest support conversations
+                  {t("admin.helpdesk.latestConversations")}
                 </h4>
                 <div className="app-scroll max-h-72 space-y-2 overflow-y-auto pr-1">
                   {(overview.chats || []).slice(0, 30).map((c) => (
@@ -235,7 +236,7 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                           ) : null}
                         </p>
                         <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400" dir="auto">
-                          {c.lastMessageBody || "(no messages)"}
+                          {c.lastMessageBody || t("admin.helpdesk.noMessages")}
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
@@ -247,7 +248,7 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                               : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300")
                           }
                         >
-                          {c.lastMessageByCustomer ? "awaiting reply" : "handled"}
+                          {c.lastMessageByCustomer ? t("admin.helpdesk.awaitingReply") : t("admin.helpdesk.handled")}
                         </span>
                         <p className="mt-1 text-[10px] text-slate-400">
                           {fmtDate(c.lastMessageAt || c.createdAt)}
@@ -265,10 +266,10 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
       {/* ─── Departments ──────────────────────────────────────────────────── */}
       <section className={cardCls + " p-4"}>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Departments
+          {t("admin.helpdesk.departments")}
         </h3>
         {loading && !initialized ? (
-          <p className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">Loading...</p>
+          <p className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">{t("admin.helpdesk.loading")}</p>
         ) : departments.length ? (
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {departments.map((dept) => {
@@ -303,7 +304,7 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                         type="button"
                         onClick={() => openEdit(dept)}
                         className={iconBtn("emerald")}
-                        aria-label={`Edit ${dept.name}`}
+                        aria-label={t("admin.helpdesk.editDept", { name: dept.name })}
                       >
                         <Pencil size={13} />
                       </button>
@@ -311,7 +312,7 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                         type="button"
                         onClick={() => void toggleDepartment(dept)}
                         className={dept.active ? iconBtn("rose") : iconBtn("slate")}
-                        aria-label={dept.active ? `Deactivate ${dept.name}` : `Activate ${dept.name}`}
+                        aria-label={dept.active ? t("admin.helpdesk.deactivate", { name: dept.name }) : t("admin.helpdesk.activate", { name: dept.name })}
                       >
                         {dept.active ? "⏸" : "▶"}
                       </button>
@@ -330,14 +331,16 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                       ))
                     ) : (
                       <span className="rounded-full border border-dashed border-amber-300 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:border-amber-500/40 dark:text-amber-300">
-                        no operators yet
+                        {t("admin.helpdesk.noOperators")}
                       </span>
                     )}
                   </div>
                   {overviewByDept.get(Number(dept.id)) ? (
                     <p className="mt-2 text-[10px] text-slate-400">
-                      {overviewByDept.get(Number(dept.id)).chats} conversations ·{" "}
-                      {overviewByDept.get(Number(dept.id)).messages} messages
+                      {t("admin.helpdesk.deptStats", {
+                        chats: overviewByDept.get(Number(dept.id)).chats,
+                        messages: overviewByDept.get(Number(dept.id)).messages,
+                      })}
                     </p>
                   ) : null}
                 </div>
@@ -345,7 +348,7 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
             })}
           </div>
         ) : (
-          <EmptyState message="No departments yet — create one so customers can reach the right team." />
+          <EmptyState message={t("admin.helpdesk.emptyDepartments")} />
         )}
       </section>
 
@@ -362,16 +365,16 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
             className="w-full max-w-sm rounded-2xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950"
           >
             <h3 id="dept-editor-title" className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
-              {editing ? "Edit department" : "New department"}
+              {editing ? t("admin.helpdesk.editDepartment") : t("admin.helpdesk.newDepartment")}
             </h3>
             <div className="mt-4 space-y-3">
               <div>
-                <label className={labelCls} htmlFor="dept-name">Name</label>
+                <label className={labelCls} htmlFor="dept-name">{t("admin.helpdesk.fieldName")}</label>
                 <input
                   id="dept-name"
                   value={name}
                   onChange={(e) => { setName(e.target.value); setEditorErr(""); }}
-                  placeholder="e.g. Technical Support"
+                  placeholder={t("admin.helpdesk.namePlaceholder")}
                   lang={nameHasPersian ? "fa" : "en"}
                   dir={nameHasPersian ? "rtl" : "ltr"}
                   className={`mt-1.5 ${inputCls} ${nameHasPersian ? "font-fa text-right" : ""}`}
@@ -381,12 +384,12 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                 />
               </div>
               <div>
-                <label className={labelCls} htmlFor="dept-desc">Description</label>
+                <label className={labelCls} htmlFor="dept-desc">{t("admin.helpdesk.fieldDescription")}</label>
                 <input
                   id="dept-desc"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What does this team handle?"
+                  placeholder={t("admin.helpdesk.descPlaceholder")}
                   lang={descHasPersian ? "fa" : "en"}
                   dir={descHasPersian ? "rtl" : "ltr"}
                   className={`mt-1.5 ${inputCls} ${descHasPersian ? "font-fa text-right" : ""}`}
@@ -395,14 +398,14 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                 />
               </div>
               <div>
-                <span className={labelCls}>Color</span>
+                <span className={labelCls}>{t("admin.common.color")}</span>
                 <div className="mt-2 flex gap-2">
                   {DEPARTMENT_COLORS.map((c) => (
                     <button
                       key={c}
                       type="button"
                       onClick={() => setColor(c)}
-                      aria-label={`Use color ${c}`}
+                      aria-label={t("admin.helpdesk.useColor", { color: c })}
                       className={
                         "h-7 w-7 rounded-full transition " +
                         (color === c
@@ -422,11 +425,11 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
             ) : null}
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" onClick={() => setEditorOpen(false)} className={btnSecondary}>
-                Cancel
+                {t("admin.common.cancel")}
               </button>
               <button type="submit" disabled={!name.trim() || saving} className={btnPrimary}>
                 {saving ? <LoaderCircle size={14} className="animate-spin" /> : null}
-                {editing ? "Save changes" : "Create department"}
+                {editing ? t("admin.helpdesk.saveChanges") : t("admin.helpdesk.createDepartment")}
               </button>
             </div>
           </form>

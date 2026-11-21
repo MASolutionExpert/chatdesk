@@ -20,6 +20,7 @@ import {
   hasMessageText,
   isCallLogBody,
 } from "../../utils/messageContent.js";
+import { useI18n } from "../../i18n/index.js";
 
 export function useAppContextMenu({
   activeChatId,
@@ -43,6 +44,7 @@ export function useAppContextMenu({
   isOffline: isOfflineProp = false,
   sseConnected = true,
 }) {
+  const { t } = useI18n();
   const [contextMenu, setContextMenu] = useState(null);
 
   const findContextMenuLinkTarget = useCallback((eventTarget, targetEl) => {
@@ -115,7 +117,7 @@ export function useAppContextMenu({
             ? [
                 {
                   id: "reply",
-                  label: "Reply",
+                  label: t("modals.context.reply"),
                   icon: Reply,
                   onSelect: () => onReplyToMessage?.(message),
                 },
@@ -125,7 +127,9 @@ export function useAppContextMenu({
             ? [
                 {
                   id: linkTarget ? "copy-link" : "copy",
-                  label: linkTarget ? "Copy link" : "Copy text",
+                  label: linkTarget
+                    ? t("modals.context.copyLink")
+                    : t("modals.context.copyText"),
                   icon: Copy,
                   onSelect: () =>
                     copyTextToClipboard(
@@ -138,7 +142,7 @@ export function useAppContextMenu({
             ? [
                 {
                   id: "edit",
-                  label: "Edit",
+                  label: t("common.actions.edit"),
                   icon: Pencil,
                   disabled: Boolean(offline),
                   onSelect: () => onEditMessage?.(message),
@@ -149,7 +153,7 @@ export function useAppContextMenu({
             ? [
                 {
                   id: "save",
-                  label: "Save",
+                  label: t("common.actions.save"),
                   icon: Download,
                   onSelect: () => onSaveMessageFiles?.(message),
                 },
@@ -160,14 +164,14 @@ export function useAppContextMenu({
             : [
                 {
                   id: "forward",
-                  label: "Forward",
+                  label: t("modals.context.forward"),
                   icon: Forward,
                   onSelect: () => onForwardMessage?.(message),
                 },
               ]),
           {
             id: "delete",
-            label: "Delete",
+            label: t("common.actions.delete"),
             icon: Trash,
             danger: true,
             onSelect: () =>
@@ -193,7 +197,7 @@ export function useAppContextMenu({
 
         items.push({
           id: "profile",
-          label: "Open profile",
+          label: t("modals.context.openProfile"),
           icon: User,
           onSelect: () => {
             if (typeof data?.onOpenProfile === "function") {
@@ -207,7 +211,7 @@ export function useAppContextMenu({
         if (!isSelf && !existingDm) {
           items.push({
             id: "chat",
-            label: "Chat",
+            label: t("modals.context.chat"),
             icon: Chat,
             onSelect: () => onOpenOrCreateDm?.(targetUser),
           });
@@ -216,7 +220,7 @@ export function useAppContextMenu({
         if (isRemovableGroupMember) {
           items.push({
             id: "remove",
-            label: "Remove",
+            label: t("common.actions.remove"),
             icon: Ban,
             danger: true,
             onSelect: () => onRemoveGroupMember?.(targetUser),
@@ -230,7 +234,7 @@ export function useAppContextMenu({
         if (unreadCount > 0) {
           items.push({
             id: "seen",
-            label: "Mark as seen",
+            label: t("modals.context.markAsSeen"),
             icon: CheckCheck,
             onSelect: () => handleMarkChatSeen(chat),
           });
@@ -238,14 +242,16 @@ export function useAppContextMenu({
         if (String(chat?.type || "").toLowerCase() !== "saved") {
           items.push({
             id: "mute",
-            label: chat?._muted ? "Unmute" : "Mute",
+            label: chat?._muted
+              ? t("modals.shared.unmute")
+              : t("modals.shared.mute"),
             icon: chat?._muted ? Volume2 : VolumeX,
             onSelect: () => onToggleChatMute?.(chat?.id),
           });
         }
         items.push({
           id: "delete",
-          label: "Delete",
+          label: t("common.actions.delete"),
           icon: Trash,
           danger: true,
           onSelect: () => onDeleteChats?.([chat?.id]),
@@ -287,6 +293,7 @@ export function useAppContextMenu({
       canEditMessage,
       isOfflineProp,
       sseConnected,
+      t,
     ],
   );
 

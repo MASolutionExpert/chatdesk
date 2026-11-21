@@ -17,6 +17,7 @@ import {
 import { api } from "./adminShared.js";
 import { TypedConfirmModal, SectionHeading } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
+import { useI18n } from "../../i18n/index.js";
 
 // ─── Status badge — shown on the right side of an action row ────────────────
 
@@ -100,9 +101,10 @@ function ActionRow({
 // ─── Check for updates row — has its own dynamic status trailing badge ───────
 
 function CheckUpdateRow({ appInfo }) {
+  const { t } = useI18n();
   const [status, setStatus] = useState(null);
   const resetRef = useRef(null);
-  const versionLabel = String(appInfo?.version || "Unknown").trim() || "Unknown";
+  const versionLabel = String(appInfo?.version || t("admin.actions.unknown")).trim() || t("admin.actions.unknown");
 
   useEffect(
     () => () => {
@@ -121,19 +123,19 @@ function CheckUpdateRow({ appInfo }) {
       clearTimeout(resetRef.current);
       resetRef.current = null;
     }
-    setStatus({ type: "busy", label: "Checking…" });
+    setStatus({ type: "busy", label: t("admin.services.checking") });
     try {
       const payload = await checkAppVersion(appInfo);
       const s = payload?.status || "up-to-date";
       setStatus(
         s === "error"
-          ? { type: "error", label: "Check failed" }
+          ? { type: "error", label: t("admin.services.checkFailed") }
           : s === "update-available"
-            ? { type: "success", label: "Update available" }
-            : { type: "success", label: "Up to date" },
+            ? { type: "success", label: t("admin.actions.updateAvailable") }
+            : { type: "success", label: t("admin.actions.upToDate") },
       );
     } catch {
-      setStatus({ type: "error", label: "Check failed" });
+      setStatus({ type: "error", label: t("admin.services.checkFailed") });
     }
     scheduleReset();
   };
@@ -142,8 +144,8 @@ function CheckUpdateRow({ appInfo }) {
     <ActionRow
       icon={Refresh}
       iconAnim="icon-anim-spin-full"
-      label="Check for updates"
-      description={`Current version: ${versionLabel}`}
+      label={t("admin.actions.checkUpdates")}
+      description={t("admin.actions.currentVersion", { version: versionLabel })}
       onClick={check}
       status={status}
     />
@@ -151,6 +153,7 @@ function CheckUpdateRow({ appInfo }) {
 }
 
 const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
+  const { t } = useI18n();
   const [appInfo, setAppInfo] = useState(null);
   const [maintenanceInfo, setMaintenanceInfo] = useState({
     engine: "sqlite",
@@ -210,23 +213,23 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
   useImperativeHandle(ref, () => ({ refresh: () => { loadAppInfo(); loadMaintenanceInfo(); } }), [loadAppInfo, loadMaintenanceInfo]);
 
   const confirmVacuum = async () => {
-    flashStatus("vacuum", "busy", "Vacuuming…");
+    flashStatus("vacuum", "busy", t("admin.actions.vacuuming"));
     try {
       const r = await api.post("/api/admin/maintenance/vacuum", {});
-      flashStatus("vacuum", r.ok ? "success" : "error", r.ok ? "Vacuumed" : "Failed");
+      flashStatus("vacuum", r.ok ? "success" : "error", r.ok ? t("admin.actions.vacuumed") : t("admin.actions.failed"));
     } catch {
-      flashStatus("vacuum", "error", "Failed");
+      flashStatus("vacuum", "error", t("admin.actions.failed"));
     } finally {
       setVacuumConfirmOpen(false);
     }
   };
 
   const downloadDb = async () => {
-    flashStatus("backup", "busy", "Downloading…");
+    flashStatus("backup", "busy", t("admin.actions.downloading"));
     try {
       const res = await apiFetch("/api/admin/maintenance/download-db");
       if (!res.ok) {
-        flashStatus("backup", "error", "Failed");
+        flashStatus("backup", "error", t("admin.actions.failed"));
         return;
       }
       const blob = await res.blob();
@@ -244,9 +247,9 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      flashStatus("backup", "success", "Saved");
+      flashStatus("backup", "success", t("admin.actions.saved"));
     } catch {
-      flashStatus("backup", "error", "Failed");
+      flashStatus("backup", "error", t("admin.actions.failed"));
     }
   };
 
@@ -258,7 +261,7 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
 
   const confirmRestore = async () => {
     if (!pendingFile) return;
-    flashStatus("restore", "busy", "Restoring…");
+    flashStatus("restore", "busy", t("admin.actions.restoring"));
     try {
       const form = new FormData();
       form.append("database", pendingFile);
@@ -266,9 +269,9 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
         method: "POST",
         body: form,
       });
-      flashStatus("restore", r.ok ? "success" : "error", r.ok ? "Restored" : "Failed");
+      flashStatus("restore", r.ok ? "success" : "error", r.ok ? t("admin.actions.restored") : t("admin.actions.failed"));
     } catch {
-      flashStatus("restore", "error", "Failed");
+      flashStatus("restore", "error", t("admin.actions.failed"));
     } finally {
       setPendingFile(null);
     }
@@ -278,17 +281,17 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
     const action = serviceAction;
     if (!action) return;
     const key = action === "restart" ? "restart" : "stop";
-    flashStatus(key, "busy", action === "restart" ? "Restarting…" : "Stopping…");
+    flashStatus(key, "busy", action === "restart" ? t("admin.actions.restartingBusy") : t("admin.actions.stoppingBusy"));
     try {
       await api.post(`/api/admin/service/${action}`, {});
       flashStatus(
         key,
         "success",
-        action === "restart" ? "Restarting" : "Stopped",
+        action === "restart" ? t("admin.actions.restarting") : t("admin.actions.stopped"),
         6000,
       );
     } catch {
-      flashStatus(key, "error", "Failed");
+      flashStatus(key, "error", t("admin.actions.failed"));
     } finally {
       setServiceAction(null);
     }
@@ -299,9 +302,9 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
     flashStatus(danger.key, "busy", danger.busyLabel);
     try {
       const r = await api.post(danger.endpoint, { confirm: danger.phrase });
-      flashStatus(danger.key, r.ok ? "success" : "error", r.ok ? danger.doneLabel : "Failed");
+      flashStatus(danger.key, r.ok ? "success" : "error", r.ok ? danger.doneLabel : t("admin.actions.failed"));
     } catch {
-      flashStatus(danger.key, "error", "Failed");
+      flashStatus(danger.key, "error", t("admin.actions.failed"));
     } finally {
       setDanger(null);
     }
@@ -311,17 +314,17 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
     <div className="space-y-5">
       {/* System */}
       <div>
-        <SectionHeading>System</SectionHeading>
+        <SectionHeading>{t("admin.actions.system")}</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <CheckUpdateRow appInfo={appInfo} />
           <ActionRow
             icon={Rotate}
             iconAnim="icon-anim-spin-full"
-            label="Restart service"
+            label={t("admin.actions.restartService")}
             description={
               serviceAvailable === false
-                ? "Not available in this deployment environment."
-                : "Briefly interrupts the app while the service restarts."
+                ? t("admin.actions.envUnavailable")
+                : t("admin.actions.restartDesc")
             }
             onClick={() => setServiceAction("restart")}
             status={rowStatus.restart}
@@ -330,11 +333,11 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
           <ActionRow
             icon={Power}
             iconAnim="icon-anim-beat"
-            label="Stop service"
+            label={t("admin.actions.stopService")}
             description={
               serviceAvailable === false
-                ? "Not available in this deployment environment."
-                : "Takes the app offline until restarted from the server."
+                ? t("admin.actions.envUnavailable")
+                : t("admin.actions.stopDesc")
             }
             onClick={() => setServiceAction("stop")}
             status={rowStatus.stop}
@@ -346,21 +349,21 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
 
       {/* Database */}
       <div>
-        <SectionHeading>Database Maintenance</SectionHeading>
+        <SectionHeading>{t("admin.actions.dbMaintenance")}</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ActionRow
             icon={HardDriveDownload}
             iconAnim="icon-anim-drop"
-            label="Backup database"
-            description={maintenanceInfo.engine === "postgres" ? "Create and download a native PostgreSQL backup archive." : "Download the database file to your device."}
+            label={t("admin.actions.backupDb")}
+            description={maintenanceInfo.engine === "postgres" ? t("admin.actions.backupDescPg") : t("admin.actions.backupDesc")}
             onClick={downloadDb}
             status={rowStatus.backup}
           />
           <ActionRow
             icon={HardDriveUpload}
             iconAnim="icon-anim-lift"
-            label="Restore database"
-            description={maintenanceInfo.offlineRestoreRequired ? "PostgreSQL restores require ChatDesk to be stopped; use the db:restore CLI command." : "Replace the current database by uploading a backup file."}
+            label={t("admin.actions.restoreDb")}
+            description={maintenanceInfo.offlineRestoreRequired ? t("admin.actions.restoreDescPg") : t("admin.actions.restoreDesc")}
             onClick={() => fileRef.current?.click()}
             status={rowStatus.restore}
             disabled={maintenanceInfo.offlineRestoreRequired}
@@ -375,8 +378,8 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
           <ActionRow
             icon={Brush}
             iconAnim="icon-anim-wiggle"
-            label="Vacuum database"
-            description={maintenanceInfo.engine === "postgres" ? "Run PostgreSQL VACUUM ANALYZE." : "Reclaim unused space and defragment the DB file."}
+            label={t("admin.actions.vacuumDb")}
+            description={maintenanceInfo.engine === "postgres" ? t("admin.actions.vacuumDescPg") : t("admin.actions.vacuumDesc")}
             onClick={() => setVacuumConfirmOpen(true)}
             status={rowStatus.vacuum}
           />
@@ -385,23 +388,22 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
 
       {/* Danger zone */}
       <div>
-        <SectionHeading danger>Danger Zone</SectionHeading>
+        <SectionHeading danger>{t("admin.actions.dangerZone")}</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ActionRow
             icon={MessageCircleX}
             iconAnim="icon-anim-sway"
-            label="Clear all messages"
-            description="Permanently delete every message and uploaded file. Users and chats are kept."
+            label={t("admin.actions.clearMessages")}
+            description={t("admin.actions.clearMessagesDesc")}
             onClick={() =>
               setDanger({
                 key: "clearMessages",
-                title: "Clear all messages",
-                message:
-                  "This permanently deletes every message and uploaded file across all chats. Users and chats remain. This cannot be undone.",
+                title: t("admin.actions.clearMessages"),
+                message: t("admin.actions.clearMessagesConfirm"),
                 phrase: "clear messages",
                 endpoint: "/api/admin/maintenance/clear-messages",
-                busyLabel: "Clearing…",
-                doneLabel: "Cleared",
+                busyLabel: t("admin.actions.clearing"),
+                doneLabel: t("admin.actions.cleared"),
               })
             }
             status={rowStatus.clearMessages}
@@ -410,17 +412,17 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
           <ActionRow
             icon={Trash}
             iconAnim="icon-anim-slide"
-            label="Reset database"
-            description="Wipe users, chats, messages, sessions, and files while keeping the schema."
+            label={t("admin.actions.resetDb")}
+            description={t("admin.actions.resetDbDesc")}
             onClick={() =>
               setDanger({
                 key: "resetDb",
-                title: "Reset database",
-                message: "This permanently deletes all users, chats, messages, sessions, and files. The schema is kept.",
+                title: t("admin.actions.resetDb"),
+                message: t("admin.actions.resetDbConfirm"),
                 phrase: "reset everything",
                 endpoint: "/api/admin/maintenance/reset",
-                busyLabel: "Resetting…",
-                doneLabel: "Reset",
+                busyLabel: t("admin.actions.resetting"),
+                doneLabel: t("admin.actions.resetDone"),
               })
             }
             status={rowStatus.resetDb}
@@ -430,17 +432,17 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
             <ActionRow
               icon={Trash}
               iconAnim="icon-anim-slide"
-              label="Delete PostgreSQL database"
-              description={maintenanceInfo.offlineDeleteRequired ? "Requires ChatDesk to be stopped; use the db:delete CLI command." : "Drop the entire PostgreSQL database. ChatDesk will stop working until it is recreated."}
+              label={t("admin.actions.deletePgDb")}
+              description={maintenanceInfo.offlineDeleteRequired ? t("admin.actions.deletePgDescOffline") : t("admin.actions.deletePgDesc")}
               onClick={() =>
                 setDanger({
                   key: "deleteDb",
-                  title: "Delete PostgreSQL database",
-                  message: "This permanently drops the PostgreSQL database. All ChatDesk data will be unavailable until a new database is created and migrated.",
+                  title: t("admin.actions.deletePgDb"),
+                  message: t("admin.actions.deletePgConfirm"),
                   phrase: "delete postgres database",
                   endpoint: "/api/admin/maintenance/delete",
-                  busyLabel: "Deleting…",
-                  doneLabel: "Deleted",
+                  busyLabel: t("admin.actions.deleting"),
+                  doneLabel: t("admin.actions.deleted"),
                 })
               }
               status={rowStatus.deleteDb}
@@ -453,9 +455,9 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
 
       <ConfirmModal
         open={vacuumConfirmOpen}
-        title="Vacuum database"
-        message={maintenanceInfo.engine === "postgres" ? "Run PostgreSQL VACUUM ANALYZE now?" : "Run VACUUM now? This rewrites the database file to reclaim space."}
-        confirmLabel={rowStatus.vacuum?.type === "busy" ? "Vacuuming…" : "Vacuum"}
+        title={t("admin.actions.vacuumDb")}
+        message={maintenanceInfo.engine === "postgres" ? t("admin.actions.vacuumConfirmPg") : t("admin.actions.vacuumConfirm")}
+        confirmLabel={rowStatus.vacuum?.type === "busy" ? t("admin.actions.vacuuming") : t("admin.actions.vacuum")}
         busy={rowStatus.vacuum?.type === "busy"}
         onConfirm={confirmVacuum}
         onClose={() => {
@@ -465,13 +467,13 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
 
       <ConfirmModal
         open={Boolean(pendingFile)}
-        title="Restore database"
+        title={t("admin.actions.restoreDb")}
         message={
           pendingFile
-            ? `Replace the current database with "${pendingFile.name}"? This overwrites all existing data and cannot be undone.`
+            ? t("admin.actions.restoreConfirm", { name: pendingFile.name })
             : ""
         }
-        confirmLabel={rowStatus.restore?.type === "busy" ? "Restoring…" : "Restore"}
+        confirmLabel={rowStatus.restore?.type === "busy" ? t("admin.actions.restoring") : t("admin.actions.restore")}
         busy={rowStatus.restore?.type === "busy"}
         onConfirm={confirmRestore}
         onClose={() => {
@@ -481,18 +483,18 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
 
       <ConfirmModal
         open={Boolean(serviceAction)}
-        title={serviceAction === "stop" ? "Stop service" : "Restart service"}
+        title={serviceAction === "stop" ? t("admin.actions.stopService") : t("admin.actions.restartService")}
         message={
           serviceAction === "stop"
-            ? "Stop the ChatDesk service? The app will go offline until it is started again from the server."
-            : "Restart the ChatDesk service? The app will be briefly unavailable while it restarts."
+            ? t("admin.actions.stopConfirm")
+            : t("admin.actions.restartConfirm")
         }
         confirmLabel={
           rowStatus[serviceAction]?.type === "busy"
-            ? "Working…"
+            ? t("admin.common.working")
             : serviceAction === "stop"
-              ? "Stop"
-              : "Restart"
+              ? t("admin.actions.stop")
+              : t("admin.actions.restart")
         }
         busy={rowStatus[serviceAction]?.type === "busy"}
         onConfirm={confirmServiceAction}

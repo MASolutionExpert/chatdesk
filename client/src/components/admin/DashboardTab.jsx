@@ -18,6 +18,7 @@ import {
 import { api, cardCls, fmtBytes, fmtUptime } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import Tooltip from "../common/Tooltip.jsx";
+import { useI18n } from "../../i18n/index.js";
 
 const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
@@ -143,6 +144,7 @@ function SemiCircleGauge({
 }
 
 const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, ref) {
+  const { t } = useI18n();
   const [sys, setSys] = useState(null);
   // Parent owns `/api/admin/stats` polling; keep a stable ref so manual refresh
   // can still bump stats without putting an unstable callback in effect deps.
@@ -211,81 +213,81 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
     pct > 85 ? "rose" : pct > 65 ? "orange" : "emerald";
 
   const chatBreakdown = stats
-    ? `${stats.groupChats ?? 0} groups · ${stats.channelChats ?? 0} channels`
+    ? t("admin.dashboard.chatBreakdown", { groups: stats.groupChats ?? 0, channels: stats.channelChats ?? 0 })
     : undefined;
 
   const statCards = [
     {
-      label: "Total Users",
+      label: t("admin.dashboard.totalUsers"),
       value: stats?.totalUsers,
       icon: User,
       accent: "emerald",
     },
     {
-      label: "Online Users",
+      label: t("admin.dashboard.onlineUsers"),
       value: stats?.onlineUsers,
       icon: Wifi,
       accent: "emerald",
-      hint: "Users currently active (seen in the last 30 seconds)",
+      hint: t("admin.dashboard.onlineUsersHint"),
     },
     {
-      label: "New Users (7d)",
+      label: t("admin.dashboard.newUsers7d"),
       value: stats?.newUsers7d,
       icon: UserPlus,
       accent: "emerald",
-      hint: "Users registered in the last 7 days",
+      hint: t("admin.dashboard.newUsers7dHint"),
     },
-    { label: "Banned", value: stats?.bannedUsers, icon: Ban, accent: "rose" },
+    { label: t("admin.dashboard.banned"), value: stats?.bannedUsers, icon: Ban, accent: "rose" },
     {
-      label: "Total Chats",
+      label: t("admin.dashboard.totalChats"),
       value: stats?.totalChats,
       icon: Chat,
       accent: "emerald",
       hint: chatBreakdown,
     },
     {
-      label: "Total Groups",
+      label: t("admin.dashboard.totalGroups"),
       value: stats?.groupChats,
       icon: Users,
       accent: "emerald",
-      hint: "Group chats",
+      hint: t("admin.dashboard.totalGroupsHint"),
     },
     {
-      label: "Total Channels",
+      label: t("admin.dashboard.totalChannels"),
       value: stats?.channelChats,
       icon: Megaphone,
       accent: "emerald",
-      hint: "Channels",
+      hint: t("admin.dashboard.totalChannelsHint"),
     },
     {
-      label: "Total Messages",
+      label: t("admin.dashboard.totalMessages"),
       value: stats?.totalMessages,
       icon: MessageCircleMore,
       accent: "emerald",
     },
     {
-      label: "Messages (24h)",
+      label: t("admin.dashboard.messages24h"),
       value: stats?.messagesLast24h,
       icon: MessageCircleMore,
       accent: "emerald",
-      hint: "Messages sent in the last 24 hours",
+      hint: t("admin.dashboard.messages24hHint"),
     },
     {
-      label: "Uploaded Files",
+      label: t("admin.dashboard.uploadedFiles"),
       value: stats?.totalFiles,
       icon: Files,
       accent: "emerald",
-      hint: "Total media/files attached to messages",
+      hint: t("admin.dashboard.uploadedFilesHint"),
     },
     {
-      label: "Push Devices",
+      label: t("admin.dashboard.pushDevices"),
       value: stats?.pushSubscriptions,
       icon: Bell,
       accent: "emerald",
-      hint: "Registered web-push notification subscriptions",
+      hint: t("admin.dashboard.pushDevicesHint"),
     },
     {
-      label: "Active Sessions",
+      label: t("admin.dashboard.activeSessions"),
       value: stats?.totalSessions,
       icon: MonitorDot,
       accent: "emerald",
@@ -294,19 +296,19 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
 
   const infoCards = [
     {
-      label: "Database Size",
+      label: t("admin.dashboard.databaseSize"),
       value: displaySys ? fmtBytes(uploadsSize) : "—",
       icon: Database,
-      hint: "Total size of uploaded files on disk",
+      hint: t("admin.dashboard.databaseSizeHint"),
     },
     {
-      label: "Process RSS",
+      label: t("admin.dashboard.processRss"),
       value: displaySys ? fmtBytes(displaySys.memory.rss) : "—",
       icon: MemoryStick,
-      hint: "Total RAM used by the server process (Resident Set Size)",
+      hint: t("admin.dashboard.processRssHint"),
     },
     {
-      label: "Uptime",
+      label: t("admin.dashboard.uptime"),
       value: displaySys ? fmtUptime(displaySys.uptime) : "—",
       icon: Activity,
       accent: true,
@@ -317,33 +319,33 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
     <div className="space-y-5">
       {/* Resource gauges */}
       <div>
-        <SectionHeading>Resources</SectionHeading>
+        <SectionHeading>{t("admin.dashboard.resources")}</SectionHeading>
         <div className={cardCls + " p-4"}>
           <div className="flex flex-wrap items-start justify-around gap-2">
             <SemiCircleGauge
               pct={loadPct}
               color={gaugeColor(loadPct)}
-              label="CPU Load"
-              sublabel={displaySys ? `${load1?.toFixed(2)} avg · ${displaySys.cpuCount} core${displaySys.cpuCount !== 1 ? "s" : ""}` : "—"}
+              label={t("admin.dashboard.cpuLoad")}
+              sublabel={displaySys ? t("admin.dashboard.cpuSublabel", { avg: load1?.toFixed(2), cores: displaySys.cpuCount }) : "—"}
             />
             <SemiCircleGauge
               pct={heapPct}
               color={gaugeColor(heapPct)}
-              label="App Memory"
+              label={t("admin.dashboard.appMemory")}
               sublabel={displaySys ? `${fmtBytes(displaySys.memory.heapUsed)} / ${fmtBytes(displaySys.memory.heapTotal)}` : "—"}
             />
             <SemiCircleGauge
               pct={sysPct}
               color={gaugeColor(sysPct)}
-              label="System Memory"
+              label={t("admin.dashboard.systemMemory")}
               sublabel={displaySys ? `${fmtBytes(displaySys.memory.systemUsed)} / ${fmtBytes(displaySys.memory.systemTotal)}` : "—"}
             />
             <SemiCircleGauge
               pct={diskPct}
               color={gaugeColor(diskPct)}
-              label="Disk Storage"
+              label={t("admin.dashboard.diskStorage")}
               sublabel={displaySys
-                ? (diskTotal > 0 ? `${fmtBytes(diskUsed)} / ${fmtBytes(diskTotal)}` : "Unavailable")
+                ? (diskTotal > 0 ? `${fmtBytes(diskUsed)} / ${fmtBytes(diskTotal)}` : t("admin.dashboard.diskUnavailable"))
                 : "—"}
             />
           </div>
@@ -372,7 +374,7 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
 
       {/* Overview stat cards */}
       <div>
-        <SectionHeading>Overview</SectionHeading>
+        <SectionHeading>{t("admin.dashboard.overview")}</SectionHeading>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {statCards.map(({ label, value, icon: Icon, accent, hint }) => (
             <Tooltip key={label} label={hint} placement="bottom" as="div" className="w-full">

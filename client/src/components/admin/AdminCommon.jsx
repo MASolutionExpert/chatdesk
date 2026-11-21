@@ -14,6 +14,7 @@ import { labelCls, PAGE_SIZE_OPTIONS, PAGE_LOCK_THRESHOLD, inputSmCls, searchIco
 import { hasPersian } from "../../utils/fontUtils.js";
 import Tooltip from "../common/Tooltip.jsx";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
+import { useI18n } from "../../i18n/index.js";
 
 // ─── Loading / empty states ─────────────────────────────────────────────────
 
@@ -50,7 +51,8 @@ export function TabToolbar({ children }) {
 // ─── Tab search input ─────────────────────────────────────────────────────────
 
 // Shared search field used by UsersTab, ChatsTab, and LogsTab.
-export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
+export function TabSearchInput({ value, onChange, placeholder = "admin.common.search" }) {
+  const { t } = useI18n();
   const isPersian = hasPersian(value);
   const hasSearchText = Boolean(String(value || "").trim());
   return (
@@ -60,7 +62,7 @@ export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
       </span>
       <input
         type="text"
-        placeholder={placeholder}
+        placeholder={t(placeholder)}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         lang={isPersian ? "fa" : "en"}
@@ -74,7 +76,7 @@ export function TabSearchInput({ value, onChange, placeholder = "Search…" }) {
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => onChange("")}
           className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
-          aria-label="Clear search"
+          aria-label={t("admin.common.clearSearch")}
         >
           <Close size={14} className="icon-anim-pop" />
         </button>
@@ -104,13 +106,17 @@ export function SectionHeading({ children, danger = false }) {
 const ROLE_CHIP_BASE = "inline-flex w-12 items-center justify-center rounded-full border px-1 py-px text-[9px] font-semibold uppercase tracking-wide";
 
 export function RoleBadge({ role, banned = false }) {
+  const { t } = useI18n();
   if (banned) return (
-    <span className={`${ROLE_CHIP_BASE} border-rose-200 bg-rose-100 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400`}>banned</span>
+    <span className={`${ROLE_CHIP_BASE} border-rose-200 bg-rose-100 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-400`}>{t("admin.common.roleBanned")}</span>
   );
   const r = (role === 0 || role === "0" || !role) ? "user" : String(role);
-  if (r === "user") return <span className="text-[11px] text-slate-400 dark:text-slate-500">user</span>;
+  if (r === "user") return <span className="text-[11px] text-slate-400 dark:text-slate-500">{t("admin.common.roleUser")}</span>;
   if (r === "owner") return (
-    <span className={`${ROLE_CHIP_BASE} border-amber-300 bg-amber-50 text-amber-600 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400`}>{r}</span>
+    <span className={`${ROLE_CHIP_BASE} border-amber-300 bg-amber-50 text-amber-600 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400`}>{t("admin.common.roleOwner")}</span>
+  );
+  if (r === "admin") return (
+    <span className={`${ROLE_CHIP_BASE} border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400`}>{t("admin.common.roleAdmin")}</span>
   );
   return (
     <span className={`${ROLE_CHIP_BASE} border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400`}>{r}</span>
@@ -139,15 +145,16 @@ export function SortTh({ field, sortBy, sortDir, onToggle, children }) {
 // opening upward (it lives in the bottom footer). When `disabled`, it 
 // renders as a static, dimmed control with no menu.
 function PageSizeSelect({ value, onChange, options, disabled = false }) {
+  const { t } = useI18n();
   const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
   const isOpen = open && !disabled;
   return (
     <div className="relative">
-      <Tooltip label="Rows per page">
+      <Tooltip label={t("admin.common.rowsPerPage")}>
         <button ref={btnRef} type="button" onClick={disabled ? undefined : toggle} disabled={disabled}
           aria-expanded={isOpen}
           className="relative flex h-8 items-center gap-1.5 rounded-xl border border-emerald-200/70 bg-white/90 pl-3 pr-7 text-xs font-semibold text-slate-600 outline-hidden transition hover:border-emerald-300 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-emerald-200/70 disabled:hover:bg-white/90 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-emerald-500/5 dark:disabled:hover:bg-slate-900/50">
-          <span className="truncate">{value} / page</span>
+          <span className="truncate">{t("admin.common.perPage", { n: value })}</span>
           <ChevronDown size={15} className={`absolute right-2 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform ${isOpen ? "" : "rotate-180"}`} />
         </button>
       </Tooltip>
@@ -156,7 +163,7 @@ function PageSizeSelect({ value, onChange, options, disabled = false }) {
           {options.map((opt) => (
             <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }}
               className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200 ${opt === value ? "text-emerald-700 dark:text-emerald-300" : ""}`}>
-              <span>{opt} / page</span>
+              <span>{t("admin.common.perPage", { n: opt })}</span>
               {opt === value && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
             </button>
           ))}
@@ -181,6 +188,7 @@ export function Pagination({
   onPageSizeChange,
   busy = false,
 }) {
+  const { t } = useI18n();
   const safeTotal    = Math.max(0, Number(total) || 0);
   const safePageSize = Math.max(1, Number(pageSize) || 1);
   const pageCount    = Math.max(1, Math.ceil(safeTotal / safePageSize));
@@ -205,11 +213,10 @@ export function Pagination({
   return (
     <div className="flex items-center justify-between gap-2 px-1 pt-1">
       <p className="text-[11px] text-slate-400 dark:text-slate-500">
-        <span className="font-semibold text-slate-600 dark:text-slate-300">{first}–{last}</span> of{" "}
-        <span className="font-semibold text-slate-600 dark:text-slate-300">{safeTotal}</span>
+        <span className="font-semibold text-slate-600 dark:text-slate-300">{first}–{last}</span> {t("admin.common.rangeOf", { total: safeTotal })}
       </p>
       <div className="flex items-center gap-1.5">
-        <Tooltip label="Previous page">
+        <Tooltip label={t("admin.common.prevPage")}>
           <button type="button" onClick={() => go(current - 1)} disabled={locked || busy || current <= 1} className={navBtn}>
             <ChevronLeft size={16} />
           </button>
@@ -217,7 +224,7 @@ export function Pagination({
         <span className="px-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
           {current} / {pageCount}
         </span>
-        <Tooltip label="Next page">
+        <Tooltip label={t("admin.common.nextPage")}>
           <button type="button" onClick={() => go(current + 1)} disabled={locked || busy || current >= pageCount} className={navBtn}>
             <ChevronRight size={16} />
           </button>
@@ -251,10 +258,11 @@ function useDropdown() {
   return { open, setOpen, toggle, btnRef, menuRef };
 }
 
-export function CustomSelect({ value, onChange, options, placeholder = "Select…" }) {
+export function CustomSelect({ value, onChange, options, placeholder = "admin.common.select" }) {
+  const { t } = useI18n();
   const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
   const selected = options.find(([v]) => v === value);
-  const label = selected?.[1] ?? placeholder;
+  const label = selected?.[1] ?? t(placeholder);
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
@@ -277,10 +285,11 @@ export function CustomSelect({ value, onChange, options, placeholder = "Select�
   );
 }
 
-export function CompactSelect({ value, onChange, options, placeholder = "Select…", inline = true }) {
+export function CompactSelect({ value, onChange, options, placeholder = "admin.common.select", inline = true }) {
+  const { t } = useI18n();
   const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
   const selected = options.find(([v]) => v === value);
-  const label = selected?.[1] ?? placeholder;
+  const label = selected?.[1] ?? t(placeholder);
   return (
     <div className="relative">
       <button ref={btnRef} type="button" onClick={toggle} aria-expanded={open}
@@ -304,6 +313,7 @@ export function CompactSelect({ value, onChange, options, placeholder = "Select�
 }
 
 export function FilterPopover({ sections = [], onReset }) {
+  const { t } = useI18n();
   const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
   const activeCount = sections.filter((s) => Boolean(s.value)).length;
 
@@ -314,7 +324,7 @@ export function FilterPopover({ sections = [], onReset }) {
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        aria-label="Filter"
+        aria-label={t("admin.common.filter")}
         className={`relative flex h-9 w-9 items-center justify-center rounded-xl border text-xs font-semibold outline-hidden transition sm:w-auto sm:justify-start sm:gap-1.5 sm:px-3 ${
           activeCount > 0
             ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-300"
@@ -322,7 +332,7 @@ export function FilterPopover({ sections = [], onReset }) {
         }`}
       >
         <Filter size={15} className="text-emerald-500 shrink-0 icon-anim-pop" />
-        <span className="hidden sm:inline">Filter</span>
+        <span className="hidden sm:inline">{t("admin.common.filter")}</span>
         <ChevronDown size={12} className={`hidden text-emerald-500 transition-transform sm:inline-flex ${open ? "rotate-180" : ""}`} />
         {activeCount > 0 && (
           <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white shadow-xs">
@@ -337,14 +347,14 @@ export function FilterPopover({ sections = [], onReset }) {
           className="absolute right-0 z-50 mt-1.5 w-56 max-h-[85vh] flex flex-col rounded-2xl border border-emerald-200 bg-white p-2.5 text-xs font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 sm:w-60"
         >
           <div className="flex shrink-0 items-center justify-between border-b border-slate-100 pb-2 mb-2 dark:border-white/5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Filter Options</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{t("admin.common.filterOptions")}</span>
             {activeCount > 0 && onReset && (
               <button
                 type="button"
                 onClick={() => { onReset(); setOpen(false); }}
                 className="rounded-full border border-rose-200/80 bg-rose-50/60 px-2 py-0.5 text-[10px] font-semibold text-rose-600 outline-hidden transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_12px_rgba(244,63,94,0.25)] dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20"
               >
-                Reset
+                {t("admin.common.reset")}
               </button>
             )}
           </div>
@@ -363,9 +373,10 @@ export function FilterPopover({ sections = [], onReset }) {
 }
 
 export function FilterDropdown({ value, onChange, options, icon: Icon = Filter }) {
+  const { t } = useI18n();
   const { open, toggle, setOpen, btnRef, menuRef } = useDropdown();
   const selected = options.find(([v]) => v === value);
-  const label = selected?.[1] ?? options[0]?.[1] ?? "Filter";
+  const label = selected?.[1] ?? options[0]?.[1] ?? t("admin.common.filter");
   // On mobile the label is hidden and the button collapses to an icon.
   const isActive = Boolean(value);
   return (
@@ -428,6 +439,7 @@ export function Field({ label, hint, children }) {
 
 // Confirmation modal that requires typing an exact phrase before enabling confirm.
 export function TypedConfirmModal({ open, title, message, phrase, busy = false, onConfirm, onClose }) {
+  const { t } = useI18n();
   const [text, setText] = useState("");
   useEffect(() => { if (open) setText(""); }, [open]);
   // System back cancels the dialog instead of exiting.
@@ -441,18 +453,18 @@ export function TypedConfirmModal({ open, title, message, phrase, busy = false, 
         <h3 className="text-lg font-semibold text-rose-600 dark:text-rose-300">{title}</h3>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{message}</p>
         <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          Type <span className="font-semibold text-rose-600 dark:text-rose-300">{phrase}</span> to confirm.
+          {t("admin.common.typePhrase", { phrase })}
         </p>
         <input autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={phrase}
           className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-700 outline-hidden transition focus:border-rose-400 focus:ring-2 focus:ring-rose-300/40 dark:border-rose-500/30 dark:bg-slate-900 dark:text-slate-100" />
         <div className="mt-4 flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy}
             className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:opacity-50 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-            Cancel
+            {t("admin.common.cancel")}
           </button>
           <button type="button" onClick={onConfirm} disabled={busy || !matched}
             className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] disabled:opacity-40 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200">
-            {busy ? "Working…" : "Confirm"}
+            {busy ? t("admin.common.working") : t("admin.common.confirm")}
           </button>
         </div>
       </div>

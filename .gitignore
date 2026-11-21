@@ -38,8 +38,6 @@ logs/
 certs/
 
 # Tools
-graphify-out/
-.opencode/
 .agents/
 paseo.json
 skills-lock.json

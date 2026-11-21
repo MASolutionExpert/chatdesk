@@ -26,8 +26,13 @@ Adjust configuration in `.env` if needed.
 
 ## 🌿 Branching Strategy
 
-* Create branches from `main`
-* Submit Pull Requests into `main`
+ChatDesk uses a two-channel release pipeline — contributions must never go
+straight to the stable channel:
+
+* Create branches from `dev` and submit Pull Requests into `dev`
+* `main` is release-only: it receives code exclusively through the
+  "Promote dev to Stable" GitHub Actions workflow after a dev version has
+  been tested and approved
 
 ## 📐 Guidelines
 

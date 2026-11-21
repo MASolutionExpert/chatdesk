@@ -11,7 +11,13 @@ export const checkAppVersion = async (appInfo = null) => {
   const owner = String(appInfo?.repository?.owner || "").trim();
   const repo = String(appInfo?.repository?.repo || "").trim();
   const currentVersion = normalizeVersion(appInfo?.version || "");
-  const latestTag = await fetchLatestGitHubTag({ owner, repo });
+  const latestTag = await fetchLatestGitHubTag({
+    owner,
+    repo,
+    // Only offer updates from the channel this install runs on
+    // ("dev" prereleases vs "stable" releases).
+    channel: appInfo?.channel,
+  });
   const comparison = compareVersions(latestTag.normalizedTag, currentVersion);
 
   return {

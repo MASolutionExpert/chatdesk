@@ -28,6 +28,7 @@ import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useI18n } from "../../i18n/index.js";
 
 export default function NewGroupModal({
   open,
@@ -73,6 +74,7 @@ export default function NewGroupModal({
   addAllMembersSelected = false,
   onToggleAddAllMembers,
 }) {
+  const { t } = useI18n();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [remoteSourceMenuOpen, setRemoteSourceMenuOpen] = useState(false);
   const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
@@ -175,10 +177,16 @@ export default function NewGroupModal({
     Boolean(groupForm.remoteChannelStreamMedia);
   const remoteProviderLabel =
     groupForm.remoteChannelProvider === "chatdesk" ? "ChatDesk" : "Telegram";
+  const entityName =
+    entityLabel?.toLowerCase() === "channel"
+      ? t("modals.names.channel")
+      : entityLabel?.toLowerCase() === "group"
+        ? t("modals.names.group")
+        : entityLabel;
   const remoteSourcePlaceholder =
     groupForm.remoteChannelProvider === "chatdesk"
       ? "https://example.com/invite/channelname"
-      : "@channel or https://t.me/channel";
+      : t("modals.newGroup.telegramSourcePlaceholder");
   const privacyOptionClass = (locked = false) =>
     `flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition ${
       locked
@@ -227,7 +235,7 @@ export default function NewGroupModal({
             {showAvatarField ? (
               <div className="py-2">
                 <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  {entityLabel} photo
+                  {t("modals.newGroup.photoLabel", { entity: entityName })}
                 </p>
                 <div className="mt-3 flex justify-center">
                   <div className="relative">
@@ -243,12 +251,12 @@ export default function NewGroupModal({
                           ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60"
                           : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"
                       }`}
-                      aria-label={`Change ${entityLabel.toLowerCase()} photo`}
+                      aria-label={t("modals.newGroup.changePhoto", { entity: entityName })}
                     >
                       {avatarPreview ? (
                         <img
                           src={avatarPreview}
-                          alt={`${entityLabel} avatar preview`}
+                          alt={t("modals.newGroup.avatarPreview", { entity: entityName })}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -284,7 +292,7 @@ export default function NewGroupModal({
                           onAvatarRemove?.();
                         }}
                         className="absolute -right-2 -top-2 z-10 inline-flex h-6 min-h-6 w-6 min-w-6 flex-none items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-0 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
-                        aria-label={`Remove ${entityLabel.toLowerCase()} photo`}
+                        aria-label={t("modals.newGroup.removePhoto", { entity: entityName })}
                       >
                         <Trash size={12} className="icon-anim-sway" />
                       </button>
@@ -296,7 +304,7 @@ export default function NewGroupModal({
 
             <div>
               <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                {entityLabel} nickname
+                {t("modals.newGroup.nicknameLabel", { entity: entityName })}
               </label>
               <div className="relative mt-2">
                 <input
@@ -309,7 +317,7 @@ export default function NewGroupModal({
                     setGroupError("");
                   }}
                   maxLength={NICKNAME_MAX}
-                  placeholder={`My ${entityLabel.toLowerCase()}`}
+                  placeholder={t("modals.newGroup.nicknamePlaceholder", { entity: entityName })}
                   lang={nicknameHasPersian ? "fa" : "en"}
                   dir={nicknameHasPersian ? "rtl" : "ltr"}
                   className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 pr-16 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
@@ -325,7 +333,7 @@ export default function NewGroupModal({
 
             <div>
               <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                {entityLabel} username
+                {t("modals.newGroup.usernameLabel", { entity: entityName })}
               </label>
               <div className="relative mt-2">
                 <input
@@ -356,7 +364,7 @@ export default function NewGroupModal({
 
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Privacy
+                {t("modals.newGroup.privacy")}
               </p>
               <div className="mt-2 space-y-2">
                 <button
@@ -379,7 +387,7 @@ export default function NewGroupModal({
                 >
                   <span className="flex min-w-0 items-center gap-3">
                     <Lock size={18} className="shrink-0 icon-anim-bob" />
-                    <span className="truncate">Private {entityLabel}</span>
+                    <span className="truncate">{t("modals.newGroup.privateEntity", { entity: entityName })}</span>
                   </span>
                   {renderSwitch(privateChatEnabled)}
                 </button>
@@ -399,7 +407,7 @@ export default function NewGroupModal({
                 >
                   <span className="flex min-w-0 items-center gap-3">
                     <UserPlus size={18} className="shrink-0 icon-anim-pop" />
-                    <span className="truncate">Members Can Invite</span>
+                    <span className="truncate">{t("modals.newGroup.membersCanInvite")}</span>
                   </span>
                   {renderSwitch(memberInvitesEnabled, memberInvitesLocked)}
                 </button>
@@ -409,11 +417,11 @@ export default function NewGroupModal({
             {showInviteManagement ? (
               <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Invite link
+                  {t("modals.shared.inviteLink")}
                 </p>
                 {onRegenerateInvite ? (
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Regenerating creates a new link and expires the previous one.
+                    {t("modals.newGroup.regenerateHint")}
                   </p>
                 ) : null}
                 <button
@@ -427,10 +435,10 @@ export default function NewGroupModal({
                   }}
                   disabled={!currentInviteLink}
                   className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-hidden focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
-                  aria-label="Copy invite link"
+                  aria-label={t("modals.shared.copyInviteLink")}
                 >
                   <span className="min-w-0 flex-1 break-all">
-                    {currentInviteLink || "No invite link available."}
+                    {currentInviteLink || t("modals.shared.noInviteLink")}
                   </span>
                   {currentInviteLink ? (
                     <span className="ml-1 shrink-0 text-emerald-600 dark:text-emerald-400">
@@ -443,8 +451,8 @@ export default function NewGroupModal({
                     <Tooltip
                       label={
                         privateChatEnabled
-                          ? "Regenerate invite link"
-                          : "Private chats can regenerate invite links"
+                          ? t("modals.newGroup.regenerateTooltip")
+                          : t("modals.newGroup.regenerateLockedTooltip")
                       }
                     >
                       <button
@@ -461,7 +469,7 @@ export default function NewGroupModal({
                         ) : (
                           <Refresh size={12} className="icon-anim-spin-dir" />
                         )}
-                        Regenerate
+                        {t("modals.newGroup.regenerate")}
                       </button>
                     </Tooltip>
                   </div>
@@ -473,12 +481,12 @@ export default function NewGroupModal({
               <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                    Connection
+                    {t("modals.newGroup.connection")}
                   </p>
                   {groupForm.remoteChannelLoading ? (
                     <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                       <LoaderCircle size={14} className="animate-spin text-emerald-500" />
-                      Loading...
+                      {t("common.actions.loading")}
                     </span>
                   ) : null}
                 </div>
@@ -510,7 +518,7 @@ export default function NewGroupModal({
                   >
                     <span className="flex items-center gap-3">
                       <SatelliteDish size={18} className="icon-anim-sway" />
-                      Remote Channel
+                      {t("modals.newGroup.remoteChannel")}
                     </span>
                     <span
                       className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
@@ -528,7 +536,7 @@ export default function NewGroupModal({
                   <div className="mt-3 space-y-3">
                     <div className="relative">
                       <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                        Source
+                        {t("modals.newGroup.source")}
                       </label>
                       <button
                         ref={remoteSourceButtonRef}
@@ -563,7 +571,7 @@ export default function NewGroupModal({
                           className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
                         >
                           <Tooltip
-                            label={!remoteChannelTelegramAvailable ? "Telegram is not configured on this server" : ""}
+                            label={!remoteChannelTelegramAvailable ? t("modals.newGroup.telegramUnavailable") : ""}
                             className="w-full"
                           >
                             <button
@@ -619,7 +627,7 @@ export default function NewGroupModal({
                     </div>
                     <div>
                       <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                        Target Channel
+                        {t("modals.newGroup.targetChannel")}
                       </label>
                       <input
                         value={groupForm.remoteChannelSource || ""}
@@ -656,7 +664,7 @@ export default function NewGroupModal({
                     >
                       <span className="flex items-center gap-3">
                         <CloudSync size={18} className="icon-anim-sway" />
-                        Sync Channel Metadata
+                        {t("modals.newGroup.syncMetadata")}
                       </span>
                       <span
                         className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
@@ -689,7 +697,7 @@ export default function NewGroupModal({
                     >
                       <span className="flex items-center gap-3">
                         <ImageIcon size={18} className="icon-anim-pop" />
-                        Stream Media Files
+                        {t("modals.newGroup.streamMedia")}
                       </span>
                       <span
                         className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
@@ -712,7 +720,7 @@ export default function NewGroupModal({
             <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  Add Members
+                  {t("modals.newGroup.addMembers")}
                 </p>
               </div>
               {autoAddToggleSlot ? <div className="mt-2">{autoAddToggleSlot}</div> : null}
@@ -739,7 +747,7 @@ export default function NewGroupModal({
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => setGroupSearchQuery("")}
                     className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
-                    aria-label="Clear member search"
+                    aria-label={t("modals.newGroup.clearMemberSearch")}
                   >
                     <Close size={16} className="icon-anim-pop" />
                   </button>
@@ -758,7 +766,9 @@ export default function NewGroupModal({
                     aria-pressed={addAllMembersSelected}
                   >
                     <Users size={14} />
-                    {addAllMembersSelected ? "All selected" : "Add all"}
+                    {addAllMembersSelected
+                      ? t("modals.newGroup.allSelected")
+                      : t("modals.newGroup.addAll")}
                   </button>
                 ) : null}
               </div>
@@ -834,11 +844,11 @@ export default function NewGroupModal({
                   </div>
                 ) : groupSearchLoading ? (
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Searching...
+                    {t("modals.search.searching")}
                   </p>
                 ) : groupSearchQuery.trim() ? (
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    No users found.
+                    {t("modals.search.noUsers")}
                   </p>
                 ) : null}
               </div>
@@ -896,7 +906,7 @@ export default function NewGroupModal({
               className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200/80 bg-rose-50/70 px-4 py-3 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/50"
             >
               <Trash size={16} className="icon-anim-sway" />
-              Delete {entityLabel.toLowerCase()}
+              {t("modals.newGroup.deleteEntity", { entity: entityName })}
             </button>
           ) : null}
 
@@ -906,7 +916,7 @@ export default function NewGroupModal({
               onClick={onClose}
               className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-[0_0_14px_rgba(148,163,184,0.2)] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800/70"
             >
-              Cancel
+              {t("common.actions.cancel")}
             </button>
             <button
               type="button"
@@ -917,7 +927,7 @@ export default function NewGroupModal({
               {creatingGroup ? (
                 <>
                   <LoaderCircle size={14} className="animate-spin" />
-                  Saving...
+                  {t("modals.newGroup.saving")}
                 </>
               ) : (
                 submitLabel
@@ -929,10 +939,10 @@ export default function NewGroupModal({
 
       <ConfirmPasswordModal
         open={deleteModalOpen}
-        title={`Delete ${entityLabel.toLowerCase()}`}
-        description={`This permanently deletes the ${entityLabel.toLowerCase()}, removes all members, and erases all messages.`}
-        confirmLabel="Continue"
-        deleteLabel={`Delete ${entityLabel.toLowerCase()}`}
+        title={t("modals.newGroup.deleteEntity", { entity: entityName })}
+        description={t("modals.newGroup.deleteDescription", { entity: entityName })}
+        confirmLabel={t("common.actions.continue")}
+        deleteLabel={t("modals.newGroup.deleteEntity", { entity: entityName })}
         onClose={() => setDeleteModalOpen(false)}
         onConfirm={async (password) => {
           await onDeleteChat?.(password);

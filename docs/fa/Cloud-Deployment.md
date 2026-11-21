@@ -212,8 +212,8 @@ railway domain --service chatdesk-server
 
 میتوانید ChatDesk را در محیط های کانتینری با استفاده از ایمیج های رسمی و از پیش ساخته شده از Docker Hub اجرا کنید:
 
-- **برنامه اصلی (فرانت اند + بک اند):** `miladalefbusiness/chatdesk:latest`
-- **ورکر مدیا مجزا (تبدیل ویدیو و FFmpeg):** `miladalefbusiness/chatdesk-worker:latest`
+- **برنامه اصلی (فرانت اند + بک اند):** `MASolutionExpert/chatdesk:latest`
+- **ورکر مدیا مجزا (تبدیل ویدیو و FFmpeg):** `MASolutionExpert/chatdesk-worker:latest`
 
 ### پیکربندی کانتینر
 

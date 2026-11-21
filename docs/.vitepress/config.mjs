@@ -101,11 +101,8 @@ export default defineConfig({
     logo: '/chatdesk-logo.svg',
 
     socialLinks: [
-      {icon: 'docker', link: 'https://hub.docker.com/r/miladalefbusiness/chatdesk'},
-      {icon: 'railway', link: 'https://railway.app/template/chatdesk'},
-      {icon: 'github', link: 'https://github.com/miladalefbusiness/chatdesk'},
-      {icon: 'telegram', link: 'https://t.me/chatdeskapp'},
-      {icon: 'linkedin', link: 'https://www.linkedin.com/in/pouyakhalilii/'},
+      {icon: 'docker', link: 'https://hub.docker.com/r/MASolutionExpert/chatdesk'},
+      {icon: 'github', link: 'https://github.com/MASolutionExpert/chatdesk'},
 
     ],
 
@@ -122,11 +119,11 @@ export default defineConfig({
         nav: [
           {text: 'Home', link: '/'},
           {text: 'Guide', link: '/Deployment-Script'},
-          {text: 'Releases', link: 'https://github.com/miladalefbusiness/chatdesk/releases'},
+          {text: 'Releases', link: 'https://github.com/MASolutionExpert/chatdesk/releases'},
         ],
         sidebar: enSidebar,
         editLink: {
-          pattern: 'https://github.com/miladalefbusiness/chatdesk/edit/main/docs/:path',
+          pattern: 'https://github.com/MASolutionExpert/chatdesk/edit/main/docs/:path',
           text: 'Edit this page on GitHub',
         },
         footer: {
@@ -144,11 +141,11 @@ export default defineConfig({
         nav: [
           {text: 'خانه', link: '/fa/'},
           {text: 'راهنما', link: '/fa/Deployment-Script'},
-          {text: 'نسخه‌ها', link: 'https://github.com/miladalefbusiness/chatdesk/releases'},
+          {text: 'نسخه‌ها', link: 'https://github.com/MASolutionExpert/chatdesk/releases'},
         ],
         sidebar: faSidebar,
         editLink: {
-          pattern: 'https://github.com/miladalefbusiness/chatdesk/edit/main/docs/:path',
+          pattern: 'https://github.com/MASolutionExpert/chatdesk/edit/main/docs/:path',
           text: 'ویرایش این صفحه در GitHub',
         },
         footer: {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OfflineHistoryBanner } from "./MessageList.jsx";
+import { useI18n } from "../../../i18n/index.js";
 
 const BOTTOM_STRETCH_MAX_PX = 84;
 const BOTTOM_STRETCH_GAIN = 0.2;
@@ -25,6 +26,7 @@ export function MessageTimeline({
   chatScrollStyle,
   timelineBottomSpacerPx,
 }) {
+  const { t } = useI18n();
   const scrollContainerRef = useRef(null);
   const [bottomStretchPx, setBottomStretchPx] = useState(0);
   const [isReleasingStretch, setIsReleasingStretch] = useState(false);
@@ -321,7 +323,7 @@ export function MessageTimeline({
         onWheelCapture={handleScrollIntent}
         role="log"
         aria-live="polite"
-        aria-label="Messages"
+        aria-label={t("chat.timeline.messagesAria")}
         aria-relevant="additions"
         className="chat-scroll h-full overflow-y-auto overflow-x-hidden px-0 pb-3 pt-1 md:px-2"
         style={chatScrollStyle}
@@ -355,7 +357,9 @@ export function MessageTimeline({
                     <button
                       type="button"
                       onClick={() => handleGroupChipClick(row.dayKey)}
-                      aria-label={`Jump to messages from ${row.dayLabel || row.dayKey}`}
+                      aria-label={t("chat.timeline.jumpToDay", {
+                        day: row.dayLabel || row.dayKey,
+                      })}
                       className="inline-flex w-max items-center justify-center rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-xs transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                     >
                       <span
@@ -390,7 +394,7 @@ export function MessageTimeline({
       style={chatScrollStyle}
     >
       <div className="rounded-full border border-emerald-200 bg-white/80 px-4 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-        Say something to start
+        {t("chat.timeline.emptyStart")}
       </div>
     </div>
   );

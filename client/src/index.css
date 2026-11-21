@@ -1217,7 +1217,7 @@ label:hover .sb-dash-br {
   -webkit-box-decoration-break: clone;
 }
 
-/* Firefox can wrap a short mention token (e.g. @pouya) at the last character. */
+/* Firefox can wrap a short mention token (e.g. @username) at the last character. */
 @-moz-document url-prefix() {
   .sb-mention-active {
     margin: 0;

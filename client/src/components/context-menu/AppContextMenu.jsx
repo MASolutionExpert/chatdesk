@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
+import { useI18n } from "../../i18n/index.js";
 
 const SCREEN_GAP = 12;
 
 export default function AppContextMenu({ menu, onClose }) {
+  const { t } = useI18n();
   const menuRef = useRef(null);
   const [desktopPosition, setDesktopPosition] = useState({ x: 0, y: 0 });
   const [verticalPlacement, setVerticalPlacement] = useState("below");
@@ -112,7 +114,7 @@ export default function AppContextMenu({ menu, onClose }) {
     >
       <button
         type="button"
-        aria-label="Close context menu"
+        aria-label={t("modals.context.close")}
         className="absolute inset-0 h-full w-full cursor-default border-0 bg-transparent p-0"
         onClick={() => onClose?.()}
       />
@@ -120,7 +122,7 @@ export default function AppContextMenu({ menu, onClose }) {
       <div
         ref={menuRef}
         role="menu"
-        aria-label="Context menu"
+        aria-label={t("modals.context.menu")}
         className={`fixed overflow-hidden rounded-[1.25rem] border border-slate-300/80 bg-white text-slate-900 shadow-[0_18px_46px_rgba(15,23,42,0.2)] dark:border-white/10 dark:bg-slate-800 dark:text-slate-100 ${
           verticalPlacement === "below"
             ? "sb-context-menu-open-down"

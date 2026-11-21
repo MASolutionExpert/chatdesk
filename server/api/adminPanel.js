@@ -90,6 +90,16 @@ function registerAdminPanelRoutes(app, deps) {
     adminBanUser,
     adminDeleteUser,
     adminDeleteChat,
+    adminGetAll,
+    // helpdesk — departments & support reports
+    listDepartments,
+    getDepartmentById,
+    createDepartment,
+    updateDepartment,
+    deleteDepartment,
+    listOperatorsForDepartment,
+    setUserDepartment,
+    getSupportOverview,
     removeStoredFileNames,
     setUserRole,
     // user creation / editing
@@ -1131,7 +1141,7 @@ function registerAdminPanelRoutes(app, deps) {
     const sortBy  = ["id", "name", "type", "group_visibility", "created_at", "member_count", "message_count"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
     const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
-    const typeFilter = ["group", "channel"].includes(req.query.type) ? req.query.type : null;
+    const typeFilter = ["group", "channel", "dm"].includes(req.query.type) ? req.query.type : null;
     const visibilityFilter = ["public", "private"].includes(req.query.visibility) ? req.query.visibility : null;
     const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
     const autoAddFilter = ["1", "0", "true", "false"].includes(req.query.auto_add) ? req.query.auto_add : null;

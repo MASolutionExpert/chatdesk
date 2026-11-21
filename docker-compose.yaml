@@ -1,7 +1,7 @@
 services:
   chatdesk:
     # Use the pre-built image from Docker Hub (recommended):
-    image: ${CHATDESK_IMAGE:-miladalefbusiness/chatdesk:latest}
+    image: ${CHATDESK_IMAGE:-MASolutionExpert/chatdesk:latest}
     # Or build locally from source (uncomment and remove the image line above):
     # build:
     #   context: .
@@ -65,7 +65,7 @@ volumes:
 
 # Optional Standalone Media Worker container service (uncomment to run worker in a separate container):
 #  media-worker:
-#    image: ${CHATDESK_WORKER_IMAGE:-miladalefbusiness/chatdesk-worker:latest}
+#    image: ${CHATDESK_WORKER_IMAGE:-MASolutionExpert/chatdesk-worker:latest}
 #    container_name: chatdesk-media-worker
 #    restart: unless-stopped
 #    environment:

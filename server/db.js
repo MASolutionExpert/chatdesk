@@ -1,11 +1,12 @@
 import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import initSqlJs from "sql.js";
 import Database from "better-sqlite3";
-import { dbKnex } from "./db/knex.js";
+import { dbKnex, describePgTarget, getPostgresTimeouts } from "./db/knex.js";
 import { normalizeSqlForPostgres } from "./lib/sqlNormalizer.js";
 import { migrations } from "./migrations/index.js";
 import { setUserColor } from "./settings/colors.js";
@@ -32,7 +33,7 @@ export const isRemoteMessageClientRequestId = (value) =>
 export const isRemoteMessageRow = (row) =>
   isRemoteMessageClientRequestId(row?.client_request_id || row?.clientRequestId);
 
-function isPostgresMode() {
+export function isPostgresMode() {
   const client = (
     process.env.DB_CLIENT ||
     (process.env.POSTGRES_URL || process.env.DATABASE_URL ? "postgres" : "sqlite3")
@@ -186,6 +187,11 @@ export async function restoreDatabase(fileBuffer) {
 }
 
 function createPreMigrationBackup(fromVersion, toVersion) {
+  if (isPostgresMode()) {
+    // Postgres has no local db file to check — always attempt the backup.
+    return createPostgresPreMigrationBackup(fromVersion, toVersion);
+  }
+
   if (!fileExists || !fs.existsSync(dbPath)) return null;
 
   try {
@@ -206,6 +212,101 @@ function createPreMigrationBackup(fromVersion, toVersion) {
         error?.message || error
       }`,
     );
+  }
+}
+
+// Best-effort logical backup (pg_dump) before migrations change the schema in
+// Postgres mode. Never blocks or fails the migration: if pg_dump is not
+// installed or fails, we warn loudly and continue, because a missing backup
+// must not make an already delicate migration worse.
+// pg_dump runs with a hard time limit and a connect timeout: a pg_dump stuck
+// on a lock or an unreachable server must not freeze the whole updater
+// synchronously BEFORE the migration watchdog even starts.
+function getPostgresBackupTimeoutMs() {
+  const raw = Number(process.env.DB_BACKUP_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 120_000; // 2 minutes is enough for any reasonably sized logical dump
+}
+
+function createPostgresPreMigrationBackup(fromVersion, toVersion) {
+  try {
+    const probe = spawnSync("pg_dump", ["--version"], {
+      encoding: "utf8",
+      timeout: 15_000,
+    });
+    if (probe.status !== 0 || probe.error) {
+      console.warn(
+        "[db-migrations] Pre-migration backup skipped: pg_dump is not installed on this host. " +
+          "Install the postgresql-client package (matching your server major version) to enable automatic backups.",
+      );
+      return null;
+    }
+
+    const explicitUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+    const target = describePgTarget();
+    const backupTimeoutMs = getPostgresBackupTimeoutMs();
+
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(
+      backupDir,
+      `chatdesk-pre-migration-v${fromVersion}-to-v${toVersion}-${stamp}.sql`,
+    );
+
+    const args = ["--file", backupPath, "--no-owner", "--no-privileges"];
+    const env = {
+      ...process.env,
+      // pg_dump honors this even when the target is a full connection URL.
+      PGCONNECT_TIMEOUT: String(
+        Math.ceil(getPostgresTimeouts().connectionTimeoutMs / 1000) || 10,
+      ),
+    };
+
+    if (explicitUrl) {
+      args.push("--dbname", explicitUrl);
+    } else {
+      args.push(
+        "--host", String(target.host),
+        "--port", String(target.port),
+        "--username", String(target.user),
+        "--dbname", String(target.database),
+      );
+      env.PGPASSWORD = process.env.POSTGRES_PASSWORD || "postgres";
+      if (process.env.POSTGRES_SSL === "true") {
+        env.PGSSLMODE = "require";
+      }
+    }
+
+    const result = spawnSync("pg_dump", args, {
+      env,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: backupTimeoutMs,
+    });
+    const timedOut = result.error && /ETIMEDOUT|timed out/i.test(String(result.error.code || result.error.message || ""));
+    if (result.status !== 0 || result.error) {
+      try {
+        if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+      } catch {}
+      console.warn(
+        `[db-migrations] Pre-migration backup FAILED${
+          timedOut ? ` (timed out after ${backupTimeoutMs}ms)` : result.error ? ` (${String(result.error.code || result.error.message || "")})` : ` (pg_dump exit ${result.status})`
+        }: ${
+          String(result.stderr || "").trim().slice(0, 500)
+        }. Continuing with migrations WITHOUT a backup — make one manually first if this database matters.`,
+      );
+      return null;
+    }
+
+    console.log(`[db-migrations] Pre-migration backup written: ${backupPath}`);
+    return backupPath;
+  } catch (error) {
+    console.warn(
+      `[db-migrations] Pre-migration backup skipped (unexpected error): ${error?.message || error}`,
+    );
+    return null;
   }
 }
 
@@ -520,7 +621,165 @@ async function setSchemaVersion(version) {
   }
 }
 
+// Tables that must exist for ChatDesk to boot. Derived from the CREATE TABLE
+// statements in server/migrations/*.js (excluding the temporary *_new rebuild
+// tables used by table-rebuild migrations). Used to decide whether the
+// idempotent self-heal re-run is needed; see runDatabaseMigrations below.
+const CRITICAL_TABLES = [
+  "admin_audit_logs",
+  "app_settings",
+  "chat_left_members",
+  "chat_members",
+  "chat_message_files",
+  "chat_message_reads",
+  "chat_messages",
+  "chat_mutes",
+  "chats",
+  "departments",
+  "group_removed_members",
+  "hidden_chat_messages",
+  "hidden_chats",
+  "meta",
+  "pending_presigned_uploads",
+  "push_subscriptions",
+  "remote_channel_provider_state",
+  "remote_channel_queue",
+  "remote_channel_sources",
+  "sessions",
+  "users",
+];
+
+async function missingCriticalTables() {
+  if (isPostgresMode()) {
+    const rows = await getAll(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",
+    );
+    const existing = new Set(
+      (Array.isArray(rows) ? rows : []).map((row) =>
+        String(row?.table_name || "").toLowerCase(),
+      ),
+    );
+    return CRITICAL_TABLES.filter((table) => !existing.has(table));
+  }
+
+  const rows = getAll("SELECT name FROM sqlite_master WHERE type = 'table'");
+  const existing = new Set(
+    (Array.isArray(rows) ? rows : []).map((row) =>
+      String(row?.name || "").toLowerCase(),
+    ),
+  );
+  return CRITICAL_TABLES.filter((table) => !existing.has(table));
+}
+
+// ---------------------------------------------------------------------------
+// Postgres connectivity preflight + migration watchdog (v1.1.0-dev.10).
+// A tiny database can still hang forever if the DB server is unreachable or a
+// query stalls on a lock — every knob below fails fast with an actionable
+// message instead of freezing the updater at "Running database migrations".
+// ---------------------------------------------------------------------------
+
+function describePostgresConnectivityError(error, target, timeouts) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || error || "");
+  const at = `${target.host}:${target.port} (database: ${target.database})`;
+
+  const causeLines = [];
+  if (/ECONNREFUSED/i.test(code) || /ECONNREFUSED/i.test(message)) {
+    causeLines.push("nothing is listening at " + at + " — is PostgreSQL actually running there?");
+  } else if (/ETIMEDOUT/i.test(code) || /timeout/i.test(message) || /Connection terminated/i.test(message)) {
+    causeLines.push("the connection attempt timed out after " + timeouts.connectionTimeoutMs + "ms — check firewall rules, VPC/VPN routing and SSL settings for " + at);
+  } else if (/ENOTFOUND|EAI_AGAIN/i.test(code + " " + message)) {
+    causeLines.push("the hostname in your Postgres configuration could not be resolved — check DNS");
+  } else if (/28P01/i.test(code) || /password authentication failed/i.test(message)) {
+    causeLines.push("password authentication failed for user '" + target.user + "' — check the credentials in .env");
+  } else if (/3D000/i.test(code) || /does not exist/i.test(message)) {
+    causeLines.push("the database '" + target.database + "' does not exist on " + at);
+  } else if (/42704|role/i.test(code + " " + message)) {
+    causeLines.push("a role or object referenced by the server is missing — check the Postgres logs");
+  } else {
+    causeLines.push("unexpected driver error: " + message.slice(0, 300));
+  }
+
+  return (
+    "[db-migrations] Cannot connect to PostgreSQL at " + at + " after 3 attempts.\n" +
+    "  Cause: " + causeLines.join(" ") + "\n" +
+    "  Configured via: " + (target.mode === "url" ? "POSTGRES_URL/DATABASE_URL in .env" : "POSTGRES_* parts in .env") + "\n" +
+    "  Fail-fast timeouts: connect=" + timeouts.connectionTimeoutMs + "ms, acquire=" + timeouts.acquireTimeoutMs + "ms, statement=" + timeouts.statementTimeoutMs + "ms\n" +
+    "  Nothing was modified. Fix the connection settings, then re-run the update."
+  );
+}
+
+async function ensurePostgresConnectivity() {
+  const target = describePgTarget();
+  const timeouts = getPostgresTimeouts();
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const startedAt = Date.now();
+    try {
+      await dbKnex.raw("SELECT 1");
+      const elapsed = Date.now() - startedAt;
+      console.log(
+        `[db-migrations] Postgres connection OK (${target.host}:${target.port}, database: ${target.database}) in ${elapsed}ms.`,
+      );
+      return;
+    } catch (error) {
+      if (attempt < maxAttempts) {
+        console.warn(
+          `[db-migrations] Postgres connection attempt ${attempt}/${maxAttempts} failed (${String(error?.code || error?.message || error).slice(0, 120)}); retrying...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      } else {
+        throw new Error(describePostgresConnectivityError(error, target, timeouts));
+      }
+    }
+  }
+}
+
+export function getMigrationTimeoutMs() {
+  const rawSetting = process.env.DB_MIGRATION_TIMEOUT_MS;
+  // Explicit 0 disables the watchdog entirely — documented and honoured here.
+  // An empty value (DB_MIGRATION_TIMEOUT_MS=) is treated as unset so a blank
+  // line in .env can never accidentally turn the watchdog off.
+  if (
+    rawSetting !== undefined &&
+    String(rawSetting).trim() !== "" &&
+    Number(rawSetting) === 0
+  ) {
+    return 0;
+  }
+  const raw = Number(rawSetting);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 120_000; // 2 minutes per migration is generous even for big tables
+}
+
+export function withMigrationTimeout(migrationLabel, promise) {
+  const timeoutMs = getMigrationTimeoutMs();
+  if (!timeoutMs) return promise; // DB_MIGRATION_TIMEOUT_MS=0 disables the watchdog
+
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `[db-migrations] Migration ${migrationLabel} did not finish within ${timeoutMs}ms and was aborted. ` +
+              "A single migration on a small database should take milliseconds — this is a database-layer problem (connectivity, lock wait or storage stall), not a data-size problem. " +
+              "The schema version was NOT advanced for this migration; fix the database issue and re-run. " +
+              "If this migration genuinely needs longer on your dataset, raise DB_MIGRATION_TIMEOUT_MS (or set 0 to disable).",
+          ),
+        ),
+      timeoutMs,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function runDatabaseMigrations() {
+  if (isPostgresMode()) {
+    await ensurePostgresConnectivity();
+  }
+
   const tablesSet = new Set();
   const columnsSet = new Set();
 
@@ -622,7 +881,9 @@ async function runDatabaseMigrations() {
     : 0;
   const startingVersion = await getSchemaVersion();
 
-  if (startingVersion < latestVersion && !isPostgresMode()) {
+  if (startingVersion < latestVersion) {
+    // createPreMigrationBackup handles both SQLite (file copy) and Postgres
+    // (best-effort pg_dump) internally.
     createPreMigrationBackup(startingVersion, latestVersion);
   }
 
@@ -632,18 +893,49 @@ async function runDatabaseMigrations() {
     const currentVersion = await getSchemaVersion();
     if (currentVersion >= migration.version) continue;
 
-    await migration.up(migrationContext);
-    await migrationPromiseChain;
+    const migrationLabel = String(migration.version).padStart(3, "0");
+    const migrationStart = Date.now();
+    console.log(`[db-migrations] Applying migration ${migrationLabel} ...`);
+    await withMigrationTimeout(
+      migrationLabel,
+      Promise.resolve().then(async () => {
+        await migration.up(migrationContext);
+        await migrationPromiseChain;
+      }),
+    );
     await setSchemaVersion(migration.version);
     appliedMigration = true;
+    console.log(
+      `[db-migrations] Migration ${migrationLabel} applied in ${Date.now() - migrationStart}ms`,
+    );
   }
 
   // Self-heal schemas where PRAGMA user_version advanced but tables are missing.
   // All migrations are written to be idempotent (CREATE IF NOT EXISTS / guarded ALTERs),
-  // so re-applying ensures critical tables exist.
-  for (const migration of orderedMigrations) {
-    await migration.up(migrationContext);
-    await migrationPromiseChain;
+  // but re-applying every migration on every startup is expensive on large
+  // databases, so first run a cheap existence check and only re-apply when a
+  // critical table is actually missing.
+  const missingTables = await missingCriticalTables();
+  if (missingTables.length > 0) {
+    console.log(
+      `[db-migrations] Self-heal: missing tables (${missingTables.join(", ")}); re-applying idempotent migrations...`,
+    );
+    for (const migration of orderedMigrations) {
+      const healLabel = `heal/${String(migration.version).padStart(3, "0")}`;
+      await withMigrationTimeout(
+        healLabel,
+        Promise.resolve().then(async () => {
+          await migration.up(migrationContext);
+          await migrationPromiseChain;
+        }),
+      );
+    }
+    const stillMissing = await missingCriticalTables();
+    if (stillMissing.length > 0) {
+      console.error(
+        `[db-migrations] Self-heal finished but tables are still missing: ${stillMissing.join(", ")}`,
+      );
+    }
   }
 
   const currentVersion = await getSchemaVersion();
@@ -3838,6 +4130,32 @@ export function setUserRole(userId, role) {
   return run(dbKnex("users").where({ id: userId }).update({ role }));
 }
 
+// ─── Per-user interface language ─────────────────────────────────────────────
+// Supported UI languages. 'fa' (Persian) is the system default; each account
+// can switch from Settings and the choice follows the user across devices.
+export const UI_LANGUAGES = ["fa", "en"];
+export const DEFAULT_UI_LANGUAGE = "fa";
+
+export function normalizeUiLanguage(value) {
+  const lang = String(value || "").trim().toLowerCase();
+  return UI_LANGUAGES.includes(lang) ? lang : null;
+}
+
+export async function getUserLanguage(userId) {
+  const row = await getRow(
+    dbKnex("users").where({ id: userId }).select("language").first(),
+  );
+  return normalizeUiLanguage(row?.language) || DEFAULT_UI_LANGUAGE;
+}
+
+export function updateUserLanguage(userId, language) {
+  const lang = normalizeUiLanguage(language);
+  if (!userId || !lang) return isPostgresMode() ? Promise.resolve(false) : false;
+  const res = run(dbKnex("users").where({ id: userId }).update({ language: lang }));
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
 export async function getUserRole(userId) {
   const row = await getRow(dbKnex("users").where({ id: userId }).select("role").first());
   return row?.role || "user";
@@ -3952,7 +4270,7 @@ export function adminListUsers({ limit = 200, offset = 0, search = "", sortBy = 
   const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
 
   let qb = dbKnex("users").select(
-    "id", "username", "nickname", "avatar_url", "color", "status", "role", "banned", "verified", "created_at", "last_seen",
+    "id", "username", "nickname", "avatar_url", "color", "status", "role", "banned", "verified", "created_at", "last_seen", "department_id",
     dbKnex.raw("CASE WHEN status = 'online' THEN 1 ELSE 0 END AS online"),
     dbKnex.raw("COUNT(*) OVER() AS _total")
   );
@@ -4103,11 +4421,18 @@ export function adminListChats({
   const safeSortBy  = ["id", "name", "type", "group_visibility", "created_at", "member_count", "message_count"].includes(sortBy) ? sortBy : "id";
   const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
 
+  // DM chats have no meaningful name of their own; expose the member
+  // usernames so the admin panel can label and search direct conversations.
+  const participantsExpr = isPostgresMode()
+    ? dbKnex.raw("(SELECT string_agg(pu.username, ', ' ORDER BY pu.username) FROM chat_members pcm JOIN users pu ON pu.id = pcm.user_id WHERE pcm.chat_id = c.id) AS participants")
+    : dbKnex.raw("(SELECT GROUP_CONCAT(pu.username, ', ') FROM chat_members pcm JOIN users pu ON pu.id = pcm.user_id WHERE pcm.chat_id = c.id) AS participants");
+
   let qb = dbKnex("chats as c")
     .leftJoin("users as owner", "owner.id", dbKnex.raw("(SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1)"))
     .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
     .select(
       "c.id", "c.name", "c.type", "c.group_username", "c.group_visibility", "c.group_color", "c.group_avatar_url", "c.created_at", "c.verified", "c.auto_add_new_users",
+      participantsExpr,
       dbKnex.raw("(SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count"),
       dbKnex.raw("(SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count"),
       "owner.id as owner_id", "owner.username as owner_username", "owner.nickname as owner_nickname",
@@ -4116,16 +4441,19 @@ export function adminListChats({
       "rcs.enabled as remote_enabled", "rcs.paused as remote_paused",
       dbKnex.raw("COUNT(*) OVER() AS _total")
     )
-    .whereIn("c.type", ["group", "channel"]);
+    .whereIn("c.type", ["group", "channel", "dm"]);
 
   if (search) {
     const like = `%${escapeLikePattern(search)}%`;
     qb = qb.where((builder) => {
       builder.whereRaw("c.name LIKE ? ESCAPE '\\'", [like])
-        .orWhereRaw("c.group_username LIKE ? ESCAPE '\\'", [like]);
+        .orWhereRaw("c.group_username LIKE ? ESCAPE '\\'", [like])
+        // Direct chats carry the generic name "dm"; match their members too
+        // so admins can find a conversation by participant username/nickname.
+        .orWhereRaw("EXISTS (SELECT 1 FROM chat_members scm JOIN users su ON su.id = scm.user_id WHERE scm.chat_id = c.id AND (su.username LIKE ? ESCAPE '\\' OR su.nickname LIKE ? ESCAPE '\\'))", [like, like]);
     });
   }
-  if (typeFilter === "group" || typeFilter === "channel") {
+  if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
   }
   if (visibilityFilter === "public" || visibilityFilter === "private") {
@@ -4190,16 +4518,17 @@ export function adminCountChats({
   let qb = dbKnex("chats as c")
     .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
     .count({ count: "*" })
-    .whereIn("c.type", ["group", "channel"]);
+    .whereIn("c.type", ["group", "channel", "dm"]);
 
   if (search) {
     const like = `%${escapeLikePattern(search)}%`;
     qb = qb.where((builder) => {
       builder.whereRaw("c.name LIKE ? ESCAPE '\\'", [like])
-        .orWhereRaw("c.group_username LIKE ? ESCAPE '\\'", [like]);
+        .orWhereRaw("c.group_username LIKE ? ESCAPE '\\'", [like])
+        .orWhereRaw("EXISTS (SELECT 1 FROM chat_members scm JOIN users su ON su.id = scm.user_id WHERE scm.chat_id = c.id AND (su.username LIKE ? ESCAPE '\\' OR su.nickname LIKE ? ESCAPE '\\'))", [like, like]);
     });
   }
-  if (typeFilter === "group" || typeFilter === "channel") {
+  if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
   }
   if (visibilityFilter === "public" || visibilityFilter === "private") {

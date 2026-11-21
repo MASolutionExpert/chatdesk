@@ -1,0 +1,140 @@
+name: Promote dev to Stable
+
+# DevOps two-space pipeline — the ONLY way code reaches the Stable channel (main).
+#
+#   Test channel (dev branch):  every dev push produces a prerelease vX.Y.Z-dev.N
+#                               installed/updated by the Test install command.
+#   Stable channel (main):      frozen until YOU promote an approved dev tag.
+#
+# Run this workflow from the GitHub "Actions" tab after you have tested and
+# approved a dev version (e.g. v1.1.0-dev.6). It merges that tag into main,
+# rewrites VERSION / installer header / CHANGELOG to the stable form (X.Y.Z),
+# tags vX.Y.Z on main and publishes the stable release. Stable-channel
+# installs (installed from main) then receive it through CLI Update.
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      dev_tag:
+        description: "Dev tag to promote (e.g. v1.1.0-dev.6)"
+        required: true
+        type: string
+
+concurrency:
+  group: promote-stable
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate input
+        run: |
+          TAG="${{ inputs.dev_tag }}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$ ]]; then
+            echo "::error::dev_tag must look like v1.1.0-dev.6 (got: $TAG)"
+            exit 1
+          fi
+          echo "DEV_TAG=$TAG" >> "$GITHUB_ENV"
+          STABLE_VERSION="${TAG#v}"
+          STABLE_VERSION="${STABLE_VERSION%-dev.*}"
+          echo "STABLE_VERSION=$STABLE_VERSION" >> "$GITHUB_ENV"
+          echo "Promoting $TAG -> stable v$STABLE_VERSION"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          # A PAT is required so pushed tags are attributed to a real user
+          # (same reason release.yml uses RELEASE_TOKEN).
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Verify dev tag exists and is not already promoted
+        run: |
+          git fetch origin dev --tags --prune
+          if ! git rev-parse -q --verify "$DEV_TAG^{commit}" >/dev/null; then
+            echo "::error::Tag $DEV_TAG does not exist on the remote."
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$STABLE_TAG" >/dev/null; then
+            echo "::error::Stable tag $STABLE_TAG already exists — refusing to overwrite a released version."
+            exit 1
+          fi
+
+      - name: Merge dev tag into main
+        run: |
+          git config user.name "chatdesk-release-bot"
+          git config user.email "noreply@github.com"
+          # main is frozen between promotions, so any conflict can only be in
+          # files dev owns (VERSION/CHANGELOG/installer header) — prefer dev,
+          # then the next step rewrites them to the stable form anyway.
+          git merge --no-ff -X theirs "$DEV_TAG" -m "Promote $DEV_TAG to stable $STABLE_VERSION"
+
+      - name: Rewrite VERSION, installer header and CHANGELOG to stable form
+        run: |
+          node <<'EOF'
+          const fs = require("fs");
+          const stable = process.env.STABLE_VERSION;
+          const devTag = process.env.DEV_TAG;
+          const devVersion = devTag.replace(/^v/, "");
+
+          fs.writeFileSync("VERSION", stable + "\n");
+
+          let install = fs.readFileSync("scripts/install.sh", "utf8");
+          install = install.replace(
+            /^# chatdesk-deploy-version:.*$/m,
+            `# chatdesk-deploy-version: ${stable}`
+          );
+          fs.writeFileSync("scripts/install.sh", install);
+
+          let changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+          // Rename the promoted dev section heading to the stable version
+          changelog = changelog.replace(
+            new RegExp(`^## ${devVersion.replace(/\./g, "\\.")}\\s*$`, "m"),
+            `## ${stable}`
+          );
+          fs.writeFileSync("CHANGELOG.md", changelog);
+          console.log(`Stable form written: ${stable}`);
+          EOF
+
+      - name: Verify release-sync gate passes for the stable tree
+        run: bash scripts/verify-release-sync.sh
+
+      - name: Commit, tag and push stable release
+        run: |
+          git add VERSION scripts/install.sh CHANGELOG.md
+          git commit -m "Release $STABLE_TAG (promoted from $DEV_TAG)"
+          git tag "$STABLE_TAG"
+          git push origin main
+          git push origin "$STABLE_TAG"
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          node <<'EOF' > notes.md
+          const fs = require("fs");
+          const stable = process.env.STABLE_VERSION;
+          const text = fs.readFileSync("CHANGELOG.md", "utf8");
+          const heading = new RegExp(`^## ${stable.replace(/\./g, "\\.")}\\s*$`, "m");
+          const start = text.search(heading);
+          if (start === -1) {
+            console.log(`ChatDesk ${stable} — stable release.`);
+          } else {
+            const next = text.slice(start + 1).search(/^## /m);
+            const section = next === -1
+              ? text.slice(start)
+              : text.slice(start, start + 1 + next);
+            console.log(section.replace(/^## .*$/m, `ChatDesk ${stable} — Stable Release`).trim());
+          }
+          EOF
+
+      - name: Create stable GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          gh release create "$STABLE_TAG" \
+            --target main \
+            --title "ChatDesk $STABLE_VERSION — Stable Release" \
+            --notes-file notes.md

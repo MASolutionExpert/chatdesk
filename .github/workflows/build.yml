@@ -5,10 +5,24 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
 
 jobs:
+  # ── Release-sync gate (DevOps law) ──────────────────────────────────────────
+  # VERSION, the installer/CLI header and CHANGELOG must agree on every push.
+  # A stale installer header would freeze the chatdesk-deploy CLI and leave
+  # installs on old versions forever.
+  release-sync:
+    name: Installer/CLI version sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify VERSION, installer header and CHANGELOG are in sync
+        run: bash scripts/verify-release-sync.sh
+
   # ── Shell script tests (bats) ─────────────────────────────────────────────────
   test-scripts:
     name: Shell script tests

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Eye, EyeOff, LoaderCircle } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { USERNAME_INPUT_PATTERN, useNameLimits } from "../../utils/nameLimits.js";
+import { useI18n } from "../../i18n/index.js";
 
 export default function AuthFormFields({
   isLogin,
@@ -19,6 +20,7 @@ export default function AuthFormFields({
   onReset,
 }) {
   const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
+  const { t } = useI18n();
   const [nicknameHasPersian, setNicknameHasPersian] = useState(false);
   const [usernameHasPersian, setUsernameHasPersian] = useState(false);
   return (
@@ -34,7 +36,7 @@ export default function AuthFormFields({
       {!isLogin && canSignup ? (
         <label className="block">
           <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
-            Nickname
+            {t("modals.auth.nickname")}
           </span>
           <div className="relative mt-1 sm:mt-2">
             <input
@@ -70,7 +72,7 @@ export default function AuthFormFields({
 
       <label className="block">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
-          Username
+          {t("modals.auth.username")}
         </span>
         <div className="relative mt-1 sm:mt-2">
           <input
@@ -78,7 +80,7 @@ export default function AuthFormFields({
             type="text"
             required
             pattern={USERNAME_INPUT_PATTERN}
-            title="Use english letters, numbers, dot (.), and underscore (_)."
+            title={t("modals.auth.usernameHint")}
             autoCapitalize="none"
             placeholder="chatdesk.sage"
             maxLength={USERNAME_MAX}
@@ -110,7 +112,7 @@ export default function AuthFormFields({
 
       <label className="block">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
-          Password
+          {t("modals.auth.password")}
         </span>
         <div className="relative mt-1 sm:mt-2">
           <input
@@ -125,7 +127,11 @@ export default function AuthFormFields({
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
             className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10 sm:h-9 sm:w-9"
-            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-label={
+              showPassword
+                ? t("modals.auth.hidePassword")
+                : t("modals.auth.showPassword")
+            }
           >
             {showPassword ? (
               <EyeOff size={16} className="icon-anim-peek" />
@@ -139,7 +145,7 @@ export default function AuthFormFields({
       {!isLogin && canSignup ? (
         <label className="block">
           <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 sm:text-sm">
-            Confirm password
+            {t("modals.auth.confirmPassword")}
           </span>
           <div className="relative mt-1 sm:mt-2">
             <input
@@ -156,8 +162,8 @@ export default function AuthFormFields({
               className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10 sm:h-9 sm:w-9"
               aria-label={
                 showConfirmPassword
-                  ? "Hide confirm password"
-                  : "Show confirm password"
+                  ? t("modals.auth.hideConfirmPassword")
+                  : t("modals.auth.showConfirmPassword")
               }
             >
               {showConfirmPassword ? (
@@ -176,7 +182,9 @@ export default function AuthFormFields({
         className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] disabled:cursor-not-allowed disabled:opacity-70 sm:px-4 sm:py-3 sm:text-sm"
       >
         {loading ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-        {isLogin ? "Sign in" : "Create account"}
+        {isLogin
+          ? t("modals.auth.signIn")
+          : t("modals.auth.createAccount")}
       </button>
     </form>
   );

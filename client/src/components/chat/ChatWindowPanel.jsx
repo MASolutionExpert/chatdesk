@@ -40,6 +40,7 @@ import {
   readIdbCache,
 } from "../../utils/chatCache.js";
 import { isCallSupported } from "../../utils/callCapabilities.js";
+import { useI18n } from "../../i18n/index.js";
 
 export default function ChatWindowPanel({
   mobileTab,
@@ -131,6 +132,7 @@ export default function ChatWindowPanel({
   isDmChat = false,
   showFloatingLabel = false,
 }) {
+  const { t } = useI18n();
   const MEDIA_CACHE_VERSION = 1;
   const MEDIA_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
   const VIDEO_POSTER_CACHE_KEY = MEDIA_POSTER_CACHE_KEY;
@@ -1162,7 +1164,7 @@ export default function ChatWindowPanel({
                     ? "md:hidden"
                     : "md:invisible md:pointer-events-none"
                 }`}
-                aria-label="Back to chats"
+                aria-label={t("chat.header.backToChats")}
               >
                 <ArrowLeft size={18} />
               </button>
@@ -1172,14 +1174,14 @@ export default function ChatWindowPanel({
                     <Tooltip
                       label={
                         callsDisabled
-                          ? "Calls are disabled by the server"
+                          ? t("chat.call.disabledServer")
                           : isDeletedPeer
-                            ? "Calls unavailable for deleted account"
+                            ? t("chat.call.deletedPeer")
                             : !callSupported
-                              ? "Calls require a secure connection"
+                              ? t("chat.call.needSecure")
                               : isInCall
-                                ? "Already in a call"
-                                : "Voice call"
+                                ? t("chat.call.alreadyInCall")
+                                : t("chat.call.voice")
                       }
                       placement="bottom"
                     >
@@ -1192,7 +1194,7 @@ export default function ChatWindowPanel({
                             ? "opacity-40 cursor-not-allowed hover:shadow-none hover:border-emerald-200 dark:hover:border-emerald-500/30"
                             : "hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] cursor-pointer"
                         }`}
-                        aria-label="Voice call"
+                        aria-label={t("chat.call.voice")}
                       >
                         <Phone size={20} className={isVoiceCallDisabled ? "" : "icon-anim-pop"} />
                       </button>
@@ -1202,14 +1204,14 @@ export default function ChatWindowPanel({
                     <Tooltip
                       label={
                         videoCallsDisabled
-                          ? "Video calls are disabled by the server"
+                          ? t("chat.call.videoDisabledServer")
                           : isDeletedPeer
-                            ? "Calls unavailable for deleted account"
+                            ? t("chat.call.deletedPeer")
                             : !callSupported
-                              ? "Calls require a secure connection"
+                              ? t("chat.call.needSecure")
                               : isInCall
-                                ? "Already in a call"
-                                : "Video call"
+                                ? t("chat.call.alreadyInCall")
+                                : t("chat.call.video")
                       }
                       placement="bottom"
                     >
@@ -1222,7 +1224,7 @@ export default function ChatWindowPanel({
                             ? "opacity-40 cursor-not-allowed hover:shadow-none hover:border-emerald-200 dark:hover:border-emerald-500/30"
                             : "hover:border-emerald-300 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] cursor-pointer"
                         }`}
-                        aria-label="Video call"
+                        aria-label={t("chat.call.video")}
                       >
                         <Video size={20} className={isVideoCallDisabled ? "" : "icon-anim-pop"} />
                       </button>
@@ -1286,7 +1288,7 @@ export default function ChatWindowPanel({
                     {!isConnected ? (
                       <>
                         <LoaderCircle className="h-4 w-4 animate-spin text-emerald-500" />
-                        Connecting...
+                        {t("chat.header.connecting")}
                       </>
                     ) : isTypingActive ? (
                       <>
@@ -1333,7 +1335,7 @@ export default function ChatWindowPanel({
                       <Tooltip label={peerStatusLabel} placement="bottom" asChild>
                         <span
                           className={`block min-w-0 truncate leading-[1.2] ${
-                            peerStatusLabel === "online"
+                            peerStatusLabel === t("common.states.online")
                               ? "font-semibold text-emerald-500 dark:text-emerald-300"
                               : ""
                           } ${
@@ -1513,7 +1515,7 @@ export default function ChatWindowPanel({
             style={chatScrollStyle}
           >
             <div className="rounded-full border border-emerald-200 bg-white/80 px-4 py-2 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-              Select a chat to start
+              {t("chat.empty.selectChat")}
             </div>
           </div>
         ) : (
@@ -1596,7 +1598,7 @@ export default function ChatWindowPanel({
         >
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/70 bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30">
             <Copy size={14} strokeWidth={2.4} className="icon-anim-pop" />
-            Copied
+            {t("common.actions.copied")}
           </div>
         </div>
       ) : null}
@@ -1615,7 +1617,7 @@ export default function ChatWindowPanel({
             onClick={() => onToggleChannelMute?.()}
             className="inline-flex h-11 items-center rounded-2xl border border-emerald-200 bg-white px-6 text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
-            {isChannelMuted ? "Unmute" : "Mute"}
+            {isChannelMuted ? t("chat.footer.unmute") : t("chat.footer.mute")}
           </button>
         </div>
       ) : null}
@@ -1634,7 +1636,7 @@ export default function ChatWindowPanel({
             right: "0.85rem",
             transform: "none",
           }}
-          aria-label="Back to latest message"
+          aria-label={t("chat.jump.backAria")}
         >
           <span className="text-lg leading-none">
             <ArrowDown size={18} className="icon-anim-bob" />

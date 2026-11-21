@@ -336,4 +336,4 @@ If you encounter any of the issues mentioned below, reinstalling the app via the
 
 ## Still stuck?
 
-If none of the above resolves the issue, gather the relevant log output and open an issue at the [project repository](https://github.com/miladalefbusiness/chatdesk/issues).
+If none of the above resolves the issue, gather the relevant log output and open an issue at the [project repository](https://github.com/MASolutionExpert/chatdesk/issues).

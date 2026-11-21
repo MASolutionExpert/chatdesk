@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useI18n } from "../../../i18n/index.js";
 import ChatsListPanel from "../list/ChatsListPanel.jsx";
 import CallsPanel from "../../call/CallsPanel.jsx";
 import {
@@ -113,6 +114,7 @@ export default function ChatSidebar({
   permissionsPrompt = null,
   insecureConnection = false,
 }) {
+  const { t } = useI18n();
   const chatsScrollRef = useRef(null);
   const chatsContentRef = useRef(null);
   const [isChatsScrollable, setIsChatsScrollable] = useState(false);
@@ -209,12 +211,16 @@ export default function ChatSidebar({
           selectedChatsCount={
             mobileTab === "calls" ? selectedCalls.length : selectedChats.length
           }
-          title={mobileTab === "calls" ? "Calls" : "Chats"}
+          title={mobileTab === "calls" ? t("sidebar.header.calls") : t("sidebar.header.chats")}
           editAriaLabel={
-            mobileTab === "calls" ? "Edit call list" : "Edit chat list"
+            mobileTab === "calls"
+              ? t("sidebar.header.editCallsAria")
+              : t("sidebar.header.editChatsAria")
           }
           deleteAriaLabel={
-            mobileTab === "calls" ? "Delete calls" : "Delete chats"
+            mobileTab === "calls"
+              ? t("sidebar.header.deleteCallsAria")
+              : t("sidebar.header.deleteChatsAria")
           }
           onEnterCallsEditMode={onEnterCallsEditMode}
           onExitCallsEditMode={onExitCallsEditMode}

@@ -8,6 +8,7 @@ function registerAppRoutes(app, deps) {
     res.json({
       version: appMeta.version,
       normalizedVersion: appMeta.normalizedVersion,
+      channel: appMeta.channel,
       changelog: appMeta.changelog,
       changelogSections: appMeta.changelogSections,
       currentChangelog: appMeta.currentChangelog,

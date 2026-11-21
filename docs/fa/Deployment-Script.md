@@ -13,7 +13,7 @@
 این دستور تک‌خطی را روی سرور خود اجرا کنید:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/miladalefbusiness/chatdesk/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh | bash
 ```
 
 این دستور اسکریپت را دانلود می‌کند، منو را باز می‌کند و یک دستور سراسری `chatdesk-deploy` را نصب می‌کند. از آن پس، هر زمان که خواستید آن را با این دستور اجرا کنید:
@@ -27,15 +27,31 @@ chatdesk-deploy
 | گزینه | اقدام | توضیح |
 |---|---|---|
 | 1 | 📥 Install ChatDesk | نصب کامل راهنمایی شده: وابستگی ها، بیلد، Nginx، SSL و `.env`. |
-| 2 | 🔄 Update ChatDesk | به روزرسانی به جدیدترین نسخه یا دانگرید به یک نسخه مشخص، بازسازی و راه اندازی مجدد (پشتیبان گیری اختیاری پیش از به روزرسانی). |
+| 2 | 🔄 Update ChatDesk | به‌روزرسانی داخل همان کانال فعلی، یا دانگرید به یک نسخه مشخص، بازسازی و راه اندازی مجدد (پشتیبان گیری اختیاری پیش از به روزرسانی). |
 | 3 | ♻️ Restart ChatDesk | راه اندازی مجدد `chatdesk.service`. |
-| 4 | ⚙️ Edit Settings (.env) | تغییر پورت ها، آپلودها، نگه داری، ثبت نام و دیگر مقادیر محیطی، سپس بازسازی/اعمال. |
-| 5 | 🗃️ Manage Database | باز کردن زیرمنوی پایگاه داده (به پایین مراجعه کنید). |
-| 6 | 🗑️ Remove ChatDesk | حذف نصب ChatDesk، با امکان اختیاری حذف دستور سراسری. |
-| 7 | 🔄 Update menu | بررسی GitHub برای نسخه جدیدتر اسکریپت و به‌روزرسانی دستور سراسری (یا نصب مجدد منوی فعلی). |
-| 8 | 🌐 Configure mirrors | تنظیم mirrorهای NodeSource، apt و رجیستری npm برای شبکه های محدودشده. |
-| 9 | 📋 View Logs | باز کردن زیرمنوی لاگ ها (اسکریپت، سرویس، دسترسی/خطای Nginx). |
+| 4 | 🔀 Switch Test / Stable channel | انتقال نصب بین کانال Test (dev) و کانال Stable (main) با اجرای کامل پایپ‌لاین آپدیت. |
+| 5 | ⚙️ Edit Settings (.env) | تغییر پورت ها، آپلودها، نگه داری، ثبت نام و دیگر مقادیر محیطی، سپس بازسازی/اعمال. |
+| 6 | 🗃️ Manage Database | باز کردن زیرمنوی پایگاه داده (به پایین مراجعه کنید). |
+| 7 | 🗑️ Remove ChatDesk | حذف نصب ChatDesk، با امکان اختیاری حذف دستور سراسری. |
+| 8 | 🔄 Update menu | بررسی GitHub برای نسخه جدیدتر اسکریپت و به‌روزرسانی دستور سراسری (یا نصب مجدد منوی فعلی). |
+| 9 | 🌐 Configure mirrors | تنظیم mirrorهای NodeSource، apt و رجیستری npm برای شبکه های محدودشده. |
+| l | 📋 View Logs | باز کردن زیرمنوی لاگ ها (اسکریپت، سرویس، دسترسی/خطای Nginx). |
 | 0 | 🚪 Exit | خروج از منو. |
+
+## کانال‌های انتشار (تست و اصلی)
+
+ChatDesk دو کانال انتشار کاملاً جدا دارد — نصب تست هرگز نسخه پایدار نمی‌گیرد و
+نصب اصلی هرگز نسخه تست نمی‌گیرد:
+
+| کانال | برنچ | نسخه‌ها | دستور نصب |
+|---|---|---|---|
+| **اصلی / Stable** (پروداکشن) | `main` | `vX.Y.Z` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh \| bash` |
+| **تست / Test** (پیش‌انتشار) | `dev` | `vX.Y.Z-dev.N` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/dev/scripts/install.sh \| REPO_BRANCH=dev bash` |
+
+- نصب‌کننده کانال نصب را به خاطر می‌سپارد؛ **Update** همیشه داخل همان کانال می‌ماند و چک به‌روزرسانی داخل خود اپ هم از همین قانون پیروی می‌کند.
+- بنر منو نسخه و کانال نصب‌شده را نشان می‌دهد؛ `chatdesk-deploy --status` همین اطلاعات را بدون منو چاپ می‌کند.
+- گزینه **Switch Test / Stable channel** بکاپ می‌گیرد، برنچ دیگر را checkout می‌کند و کل پایپ‌لاین را اجرا می‌کند (وابستگی‌ها، مایگریشن‌ها، build کلاینت، ری‌استارت سرویس و health check).
+- نسخه dev فقط از طریق ورک‌فلوی **«Promote dev to Stable»** در اکشن‌های گیت‌هاب با یک تگ dev تأییدشده به کانال اصلی می‌رود — در غیر این صورت `main` قفل است.
 
 ## روند نصب
 

@@ -47,7 +47,7 @@ volta install node@24.22.1 npm@11.6.4
 ```bash
 sudo mkdir -p /opt/chatdesk
 cd /opt/chatdesk
-git clone https://github.com/miladalefbusiness/chatdesk.git .
+git clone https://github.com/MASolutionExpert/chatdesk.git .
 ```
 
 :::info

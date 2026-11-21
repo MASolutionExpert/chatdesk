@@ -50,7 +50,6 @@ While we strive for comprehensive coverage, some areas are actively being enhanc
 
 We welcome feedback on the accessibility of ChatDesk. If you encounter an accessibility barrier or have suggestions for improvement, please let us know:
 
-* **Email:** [pouyakhalili83@gmail.com](mailto:pouyakhalili83@gmail.com) (Subject: `[ChatDesk Accessibility] <Description>`)
-* **GitHub Issues:** Submit a report via [GitHub Issues](https://github.com/miladalefbusiness/chatdesk/issues) with the tag `accessibility`.
+* **GitHub Issues:** Submit a report via [GitHub Issues](https://github.com/MASolutionExpert/chatdesk/issues) with the tag `accessibility`.
 
 We aim to acknowledge feedback within 48 to 72 hours and work toward addressing identified issues in upcoming releases.

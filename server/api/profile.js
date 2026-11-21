@@ -35,6 +35,10 @@ function registerProfileRoutes(app, deps) {
     updateUserProfile,
     updateUserStatus,
     uploadAvatar,
+    normalizeUiLanguage,
+    getUserLanguage,
+    updateUserLanguage,
+    DEFAULT_UI_LANGUAGE = "fa",
   } = deps;
 
   const emitProfileUpdate = async (user, options = {}) => {
@@ -319,6 +323,25 @@ function registerProfileRoutes(app, deps) {
       sizeBytes: Number(file?.size || 0),
       maxFileSizeBytes: AVATAR_FILE_LIMITS?.maxFileSizeBytes || 10 * 1024 * 1024,
     });
+  });
+
+  app.get("/api/profile/language", async (req, res) => {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const language = await getUserLanguage(session.id);
+    res.json({ language });
+  });
+
+  app.put("/api/profile/language", async (req, res) => {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const requested = String(req.body?.language || "").trim().toLowerCase();
+    const language = normalizeUiLanguage(requested);
+    if (!language) {
+      return res.status(400).json({ error: "Unsupported language." });
+    }
+    await updateUserLanguage(session.id, language);
+    res.json({ ok: true, language });
   });
 
   app.put("/api/password", async (req, res) => {

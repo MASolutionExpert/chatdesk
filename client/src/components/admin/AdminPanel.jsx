@@ -13,6 +13,7 @@ import {
   Wrench,
 } from "../../icons/lucide.js";
 import { api } from "./adminShared.js";
+import { useI18n } from "../../i18n/index.js";
 import { GaugeIcon, LayoutDashboardIcon } from "../../icons/AnimatedIcons.jsx";
 import { useAdminCache } from "../../hooks/useAdminCache.js";
 import Tooltip from "../common/Tooltip.jsx";
@@ -25,15 +26,16 @@ import SettingsTab from "./SettingsTab.jsx";
 import ServicesTab from "./ServicesTab.jsx";
 import HelpdeskTab from "./HelpdeskTab.jsx";
 
+// `label` holds an i18n key (admin.tabs.*) — translated at render time.
 const TABS = [
-  { id: "dashboard", label: "Dashboard", icon: GaugeIcon,         anim: "" },
-  { id: "helpdesk",  label: "Helpdesk",  icon: Headset,            anim: "icon-anim-bob" },
-  { id: "users",     label: "Users",     icon: Users,             anim: "icon-anim-pop" },
-  { id: "chats",     label: "Chats",     icon: Chat,              anim: "icon-anim-bob" },
-  { id: "actions",   label: "Actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
-  { id: "services",  label: "Services",  icon: Blocks,            anim: "icon-anim-bob" },
-  { id: "settings",  label: "Settings",  icon: Settings,          anim: "icon-anim-spin-dir" },
-  { id: "logs",      label: "Logs",      icon: ScrollText,        anim: "icon-anim-sway" },
+  { id: "dashboard", label: "admin.tabs.dashboard", icon: GaugeIcon,         anim: "" },
+  { id: "helpdesk",  label: "admin.tabs.helpdesk",  icon: Headset,            anim: "icon-anim-bob" },
+  { id: "users",     label: "admin.tabs.users",     icon: Users,             anim: "icon-anim-pop" },
+  { id: "chats",     label: "admin.tabs.chats",     icon: Chat,              anim: "icon-anim-bob" },
+  { id: "actions",   label: "admin.tabs.actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
+  { id: "services",  label: "admin.tabs.services",  icon: Blocks,            anim: "icon-anim-bob" },
+  { id: "settings",  label: "admin.tabs.settings",  icon: Settings,          anim: "icon-anim-spin-dir" },
+  { id: "logs",      label: "admin.tabs.logs",      icon: ScrollText,        anim: "icon-anim-sway" },
 ];
 
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
@@ -58,6 +60,7 @@ export default function AdminPanel({ user, onBack }) {
   const [tab, setTab]                 = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(getInitialSidebarOpen);
   const tabRefs = useRef({});
+  const { t } = useI18n();
 
   // ── Centralised cache ────────────────────────────────────────────────────
   // Each fetcher returns raw data that gets stored in the cache and passed
@@ -231,10 +234,10 @@ export default function AdminPanel({ user, onBack }) {
           {showLabels && (
             <label className="flex cursor-default items-center gap-2 overflow-hidden">
               <LayoutDashboardIcon size={14} className="shrink-0 text-emerald-500" />
-              <span className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">Admin Panel</span>
+              <span className="truncate text-sm font-bold text-slate-700 dark:text-slate-200">{t("admin.panel.title")}</span>
             </label>
           )}
-          <Tooltip label={sidebarOpen ? "Collapse" : "Expand"} className="shrink-0">
+          <Tooltip label={sidebarOpen ? t("admin.panel.collapse") : t("admin.panel.expand")} className="shrink-0">
             <button type="button" onClick={toggleSidebar}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-emerald-200/60 hover:bg-emerald-50/50 hover:text-emerald-600 dark:text-slate-500 dark:hover:border-emerald-500/20 dark:hover:bg-emerald-500/5 dark:hover:text-emerald-400">
               {sidebarOpen ? <ArrowLeftFromLine size={15} className="icon-anim-nudge" /> : <ArrowRightFromLine size={15} className="icon-anim-nudge" />}
@@ -244,7 +247,7 @@ export default function AdminPanel({ user, onBack }) {
 
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {TABS.map(({ id, label, icon: Icon, anim }) => (
-            <Tooltip key={id} label={!showLabels ? label : ""} className="w-full">
+            <Tooltip key={id} label={!showLabels ? t(label) : ""} className="w-full">
               <button type="button"
                 onClick={() => selectTab(id)}
                 className={`flex h-9 w-full items-center rounded-xl border transition
@@ -254,20 +257,20 @@ export default function AdminPanel({ user, onBack }) {
                     : "border-transparent text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 dark:text-slate-100 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                   }`}>
                 <Icon size={15} className={`shrink-0 text-emerald-500 ${anim}`} />
-                {showLabels && <span className="truncate">{label}</span>}
+                {showLabels && <span className="truncate">{t(label)}</span>}
               </button>
             </Tooltip>
           ))}
         </div>
 
         <div className="shrink-0 border-t border-slate-100 p-2 dark:border-white/5">
-          <Tooltip label={!showLabels ? "Exit" : ""} className="w-full">
+          <Tooltip label={!showLabels ? t("admin.panel.exit") : ""} className="w-full">
             <button type="button" onClick={onBack}
               className={`flex h-9 w-full items-center rounded-xl text-rose-600 transition
                 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-500/10
                 ${showLabels ? "gap-2.5 px-3 text-sm font-semibold" : "justify-center"}`}>
               <ArrowLeft size={15} className="shrink-0 icon-anim-slide" />
-              {showLabels && <span className="truncate">Exit</span>}
+              {showLabels && <span className="truncate">{t("admin.panel.exit")}</span>}
             </button>
           </Tooltip>
         </div>
@@ -282,12 +285,12 @@ export default function AdminPanel({ user, onBack }) {
         ${mobileView === "menu" ? "translate-x-0" : "-translate-x-full"}
       `}>
         <div className="flex h-[72px] shrink-0 items-center gap-3 border-b border-slate-300/80 bg-white px-4 py-4 dark:border-emerald-500/20 dark:bg-slate-900">
-          <button type="button" onClick={onBack} aria-label="Exit admin panel"
+          <button type="button" onClick={onBack} aria-label={t("admin.panel.exitAria")}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-white/80 text-rose-600 transition hover:border-rose-300 hover:shadow-md dark:border-rose-500/30 dark:bg-slate-950 dark:text-rose-200">
             <ArrowLeft size={18} />
           </button>
           <span className="flex min-w-0 flex-1 items-center justify-center gap-2">
-            <span className="truncate text-base font-semibold text-slate-700 dark:text-slate-200">Admin Panel</span>
+            <span className="truncate text-base font-semibold text-slate-700 dark:text-slate-200">{t("admin.panel.title")}</span>
           </span>
           <span className="h-9 w-9 shrink-0" aria-hidden="true" />
         </div>
@@ -300,7 +303,7 @@ export default function AdminPanel({ user, onBack }) {
                 className={`flex h-14 w-full items-center gap-3 px-4 text-left transition active:bg-emerald-50 dark:active:bg-emerald-500/10
                   ${index > 0 ? "border-t border-slate-100 dark:border-white/5" : ""}`}>
                 <Icon size={22} className={`shrink-0 text-emerald-500 ${anim}`} />
-                <span className="flex-1 truncate text-base font-semibold text-slate-700 dark:text-slate-100">{label}</span>
+                <span className="flex-1 truncate text-base font-semibold text-slate-700 dark:text-slate-100">{t(label)}</span>
                 <ArrowRight size={16} className="shrink-0 text-slate-300 dark:text-slate-600" />
               </button>
             ))}
@@ -322,12 +325,12 @@ export default function AdminPanel({ user, onBack }) {
         onTouchEnd={handleTouchEnd}
       >
         <div className="relative flex h-[72px] shrink-0 items-center gap-3 border-b border-slate-300/80 bg-white px-4 py-4 dark:border-emerald-500/20 dark:bg-slate-900 md:h-12 md:gap-2 md:border-slate-200/80 md:bg-white/80 md:px-3 md:py-0 md:backdrop-blur-xs md:dark:border-white/5 md:dark:bg-slate-900/80">
-          <button type="button" onClick={() => setMobileView("menu")} aria-label="Back to menu"
+          <button type="button" onClick={() => setMobileView("menu")} aria-label={t("admin.panel.backToMenu")}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 md:hidden">
             <ArrowLeft size={18} />
           </button>
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 px-16 md:px-14">
-            <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab?.label}</h1>
+            <h1 className="truncate text-base font-semibold text-slate-700 dark:text-slate-200 md:text-sm">{activeTab ? t(activeTab.label) : ""}</h1>
           </span>
         </div>
 

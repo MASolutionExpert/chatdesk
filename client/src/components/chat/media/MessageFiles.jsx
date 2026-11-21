@@ -4,6 +4,7 @@ import { CHAT_PAGE_CONFIG } from "../../../settings/chatPageConfig.js";
 import { CACHE_STORES } from "../../../utils/cacheDb.js";
 import { canUseIdb, readIdbCache, writeIdbCache } from "../../../utils/chatCache.js";
 import { isCrossOriginUrl, saveMedia } from "../../../utils/fileDownload.js";
+import { useI18n } from "../../../i18n/index.js";
 
 const VOICE_WAVEFORM_CACHE_KEY = "voice-waveform-cache-v1";
 const VOICE_WAVEFORM_CACHE_MAX = 160;
@@ -261,6 +262,7 @@ const loadAudioWaveform = async (
 
 const VoiceMessageChip = memo(
   ({ file }) => {
+    const { t } = useI18n();
     const serverUrl =
       file?.url && !String(file.url).startsWith("blob:")
         ? String(file.url)
@@ -800,7 +802,9 @@ const VoiceMessageChip = memo(
           disabled={!canPlay}
           className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-200 bg-emerald-100 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-200/70 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200"
           aria-label={
-            hasActivePlayback ? "Pause voice message" : "Play voice message"
+            hasActivePlayback
+              ? t("chat.voice.pause")
+              : t("chat.voice.play")
           }
         >
           {hasActivePlayback ? (
@@ -833,7 +837,7 @@ const VoiceMessageChip = memo(
               ? hasActivePlayback || hasProgressPosition
                 ? `${formatSeconds((progress || 0) * (duration || file?.durationSeconds || 0))} / ${formatSeconds(duration || file?.durationSeconds || 0)}`
                 : formatSeconds(duration || file?.durationSeconds || 0)
-              : "Processing..."}
+              : t("chat.media.processing")}
           </span>
           {debugInfo ? (
             <span className="text-[9px] text-slate-500">
@@ -879,6 +883,7 @@ export function MessageFiles({
   handleVideoThumbLoadedMetadata,
   getFileRenderType,
 }) {
+  const { t } = useI18n();
   const resolveFileRenderType = useMemo(
     () => getFileRenderType || (() => "document"),
     [getFileRenderType],
@@ -1212,7 +1217,9 @@ export function MessageFiles({
                 }}
                 className="relative block w-full overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/70 text-left transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70"
                 data-testid="offline-media-placeholder"
-                aria-label={`Image unavailable offline: ${file.name || ""}`.trim()}
+                aria-label={t("chat.media.imageOffline", {
+                  name: file.name || "",
+                }).trim()}
               >
                 <div className={imageFrameClass} style={mediaFrameStyle}>
                   <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
@@ -1220,7 +1227,7 @@ export function MessageFiles({
                       <WifiOff size={18} className="shrink-0" />
                     </div>
                     <span className="max-w-[220px] text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Media unavailable offline — tap to retry when online
+                      {t("chat.media.offlineRetry")}
                     </span>
                   </div>
                 </div>
@@ -1314,7 +1321,9 @@ export function MessageFiles({
                 }}
                 className="relative block w-full overflow-hidden rounded-xl border border-slate-200/80 bg-slate-100/70 text-left transition hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/70"
                 data-testid="offline-media-placeholder"
-                aria-label={`Video unavailable offline: ${file.name || ""}`.trim()}
+                aria-label={t("chat.media.videoOffline", {
+                  name: file.name || "",
+                }).trim()}
               >
                 <div className={videoFrameClass} style={mediaFrameStyle}>
                   <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
@@ -1322,7 +1331,7 @@ export function MessageFiles({
                       <WifiOff size={18} className="shrink-0" />
                     </div>
                     <span className="max-w-[220px] text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Media unavailable offline — tap to retry when online
+                      {t("chat.media.offlineRetry")}
                     </span>
                   </div>
                 </div>
@@ -1348,7 +1357,7 @@ export function MessageFiles({
                 })
               }
               className="relative block w-full overflow-hidden rounded-xl border border-emerald-200/70 bg-black/60 dark:border-emerald-500/30"
-              aria-label={`Open video ${file.name || ""}`.trim()}
+              aria-label={t("chat.media.openVideo", { name: file.name || "" }).trim()}
             >
               <div className={videoFrameClass} style={mediaFrameStyle}>
                 {cachedPoster ? (

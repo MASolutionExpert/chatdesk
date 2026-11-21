@@ -7,6 +7,10 @@ import { setNameLimits } from './utils/nameLimits.js'
 import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
+// App renders <LanguageProvider> itself, so it sits above the provider and
+// cannot use the useI18n() hook. translateKey() reads the active language
+// (mirrored to localStorage by the provider) at call time instead.
+import { LanguageProvider, translateKey } from './i18n/index.js'
 import {
   getSavedSessionUser,
   saveSessionUser,
@@ -61,8 +65,10 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
       style={{ backgroundColor: themeColor }}
     >
       <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
-        <img src={logo} alt="ChatDesk logo" className="h-10 w-10 animate-pulse" />
-        <p className="text-xs font-semibold tracking-wide">{`Loading${'.'.repeat(dots)}`}</p>
+        <img src={logo} alt={translateKey('auth.app.logoAlt')} className="h-10 w-10 animate-pulse" />
+        <p className="text-xs font-semibold tracking-wide">
+          {translateKey('auth.app.loading', { dots: '.'.repeat(dots) })}
+        </p>
       </div>
     </div>
   )
@@ -828,7 +834,7 @@ export default function App() {
         }
       }
       if (!res.ok) {
-        throw new Error(data?.error || 'Unable to sign in.')
+        throw new Error(data?.error || translateKey('auth.errors.unableToSignIn'))
       }
       const fallbackUser = {
         id: data.id,
@@ -871,7 +877,7 @@ export default function App() {
     const confirmPassword = formData.get('confirmPassword')?.toString() || ''
 
     if (password !== confirmPassword) {
-      setAuthStatus('Passwords do not match.')
+      setAuthStatus(translateKey('auth.errors.passwordMismatch'))
       setAuthLoading(false)
       return
     }
@@ -899,7 +905,7 @@ export default function App() {
         }
       }
       if (!registerRes.ok) {
-        throw new Error(registerData?.error || 'Unable to create account.')
+        throw new Error(registerData?.error || translateKey('auth.errors.unableToCreateAccount'))
       }
       // Signup creates the account only; user must explicitly sign in next.
       // After the first sign-in we guide new customers to pick a department.
@@ -941,6 +947,7 @@ export default function App() {
     : undefined
 
   return (
+    <LanguageProvider>
     <div className={appShellClass} style={appContainerStyle}>
       <div
         className={
@@ -1014,7 +1021,7 @@ export default function App() {
             <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
               <div className="flex items-center gap-1 text-black dark:text-white">
                 <div className="flex h-8 w-8 items-center justify-center sm:h-9 sm:w-9">
-                  <img src={logo} alt="ChatDesk logo" className="h-8 w-8" />
+                  <img src={logo} alt={translateKey('auth.app.logoAlt')} className="h-8 w-8" />
                 </div>
                 <div>
                   <p className="text-xl font-bold tracking-tight sm:text-2xl">ChatDesk</p>
@@ -1155,5 +1162,6 @@ export default function App() {
         onClose={() => setShowInstallGuide(false)}
       />
     </div>
+    </LanguageProvider>
   )
 }

@@ -44,21 +44,23 @@ import { api, cardCls, btnPrimary, btnSecondary } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Tooltip from "../common/Tooltip.jsx";
+import { useI18n } from "../../i18n/index.js";
 
 // ─── Group metadata ───────────────────────────────────────────────────────────
 
+// Group metadata — `label` holds an i18n key.
 const GROUP_META = {
-  diagnostics: { label: "Diagnostics", order: 0 },
-  registration: { label: "Registration", order: 1 },
-  uploads: { label: "File Uploads", order: 2 },
-  retention: { label: "Message Retention", order: 3 },
-  limits: { label: "Limits", order: 4 },
-  calls: { label: "Calls", order: 5 },
-  client: { label: "Client Behavior", order: 6 },
-  remote_channel: { label: "Remote Channel", order: 7 },
-  storage: { label: "Object Storage & Worker", order: 8 },
-  realtime: { label: "Realtime", order: 9 },
-  proxy: { label: "Proxies", order: 10 },
+  diagnostics: { label: "admin.settings.groups.diagnostics", order: 0 },
+  registration: { label: "admin.settings.groups.registration", order: 1 },
+  uploads: { label: "admin.settings.groups.uploads", order: 2 },
+  retention: { label: "admin.settings.groups.retention", order: 3 },
+  limits: { label: "admin.settings.groups.limits", order: 4 },
+  calls: { label: "admin.settings.groups.calls", order: 5 },
+  client: { label: "admin.settings.groups.client", order: 6 },
+  remote_channel: { label: "admin.settings.groups.remoteChannel", order: 7 },
+  storage: { label: "admin.settings.groups.storage", order: 8 },
+  realtime: { label: "admin.settings.groups.realtime", order: 9 },
+  proxy: { label: "admin.settings.groups.proxy", order: 10 },
 };
 
 // Icon for each setting key
@@ -202,13 +204,14 @@ const GROUP_CHILDREN = {
 // ─── iOS-style toggle — same pattern as NewGroupModal ────────────────────────
 
 function EnvLockBadge({ envVar }) {
+  const { t } = useI18n();
   return (
     <Tooltip label={envVar}>
       <span
         tabIndex={0}
         className="inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400"
       >
-        <KeyRound size={9} /> environment
+        <KeyRound size={9} /> {t("admin.common.envChip")}
       </span>
     </Tooltip>
   );
@@ -238,6 +241,7 @@ function Toggle({ checked, onChange, disabled = false }) {
 // ─── Styled number stepper ────────────────────────────────────────────────────
 
 function NumberInput({ value, onChange, min, max, disabled = false }) {
+  const { t } = useI18n();
   const num = Number(value) || 0;
 
   const step = (delta) => {
@@ -269,7 +273,7 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
         disabled={disabled || (min !== undefined && num <= min)}
         onClick={() => step(-1)}
         className="flex h-8 w-4 shrink-0 items-center justify-center text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400 sm:w-7"
-        aria-label="Decrease"
+        aria-label={t("admin.settings.decrease")}
       >
         <span className="select-none text-sm font-bold leading-none">−</span>
       </button>
@@ -289,7 +293,7 @@ function NumberInput({ value, onChange, min, max, disabled = false }) {
         disabled={disabled || (max !== undefined && num >= max)}
         onClick={() => step(1)}
         className="flex h-8 w-4 shrink-0 items-center justify-center text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-500 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-400 sm:w-7"
-        aria-label="Increase"
+        aria-label={t("admin.settings.increase")}
       >
         <span className="select-none text-sm font-bold leading-none">+</span>
       </button>
@@ -352,6 +356,7 @@ function SubRow({ def, localVal, onChange, masterDisabled = false }) {
 // ─── Single setting row ───────────────────────────────────────────────────────
 
 function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs = [], childVals = {}, onChildChange, masterOff = false }) {
+  const { t } = useI18n();
   const Icon = SETTING_ICONS[def.key] ?? Info;
   const iconAnim = SETTING_ICON_ANIM[def.key] ?? "icon-anim-sway";
   const isNullable = Boolean(def.nullable);
@@ -461,10 +466,10 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-              Retention period
+              {t("admin.settings.retentionPeriod")}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-              How many days to keep before auto-deletion.
+              {t("admin.settings.retentionDescription")}
             </p>
           </div>
           <div className="shrink-0">
@@ -491,12 +496,12 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-              {def.key.includes("WORKER") ? "Worker URL" : def.key.includes("PROXY") ? "Proxy URL" : "URL"}
+              {def.key.includes("WORKER") ? t("admin.settings.workerUrl") : def.key.includes("PROXY") ? t("admin.settings.proxyUrl") : t("admin.settings.url")}
             </p>
             <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
               {def.key.includes("WORKER")
-                ? "Base URL of the external media worker."
-                : "HTTPS, SOCKS4, or SOCKS5 proxy address."}
+                ? t("admin.settings.workerUrlDescription")
+                : t("admin.settings.proxyUrlDescription")}
             </p>
             <input
               type="text"
@@ -527,6 +532,7 @@ function SettingRow({ def, localVal, onChange, groupDisabled = false, childDefs 
 // ─── Group section ────────────────────────────────────────────────────────────
 
 function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
+  const { t } = useI18n();
   const meta       = GROUP_META[groupKey] ?? { label: groupKey };
   const masterKey  = GROUP_MASTER[groupKey];
   const childKeys  = new Set(GROUP_CHILDREN[groupKey] ?? []);
@@ -552,7 +558,7 @@ function SettingGroup({ groupKey, defs, effectiveVals, onChange }) {
 
   return (
     <div>
-      <SectionHeading>{meta.label}</SectionHeading>
+      <SectionHeading>{t(meta.label)}</SectionHeading>
       <div className="space-y-2">
         {standaloneDefs.map((def) => {
           const isMaster = def.key === masterKey;
@@ -586,26 +592,27 @@ const SECRET_ROWS = [
     id: "cronSecret",
     icon: KeyRound,
     iconAnim: "icon-anim-sway",
-    label: "Remote channel tick secret",
-    description: "Header x-chatdesk-cron-secret for POST /api/internal/remote-channel/tick.",
+    label: "admin.settings.cronSecretLabel",
+    description: "admin.settings.cronSecretDesc",
   },
   {
     id: "webhookSecret",
     icon: KeyRound,
     iconAnim: "icon-anim-sway",
-    label: "Worker webhook secret",
-    description: "Authenticates the media worker callbacks (x-chatdesk-webhook-secret).",
+    label: "admin.settings.webhookSecretLabel",
+    description: "admin.settings.webhookSecretDesc",
   },
   {
     id: "adminApiToken",
     icon: KeyRound,
     iconAnim: "icon-anim-sway",
-    label: "Admin API token",
-    description: "Token for the admin authentication and endpoint.",
+    label: "admin.settings.adminApiTokenLabel",
+    description: "admin.settings.adminApiTokenDesc",
   },
 ];
 
 function SecretCard({ row, value, visible, onToggle }) {
+  const { t } = useI18n();
   const Icon = row.icon ?? KeyRound;
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef(null);
@@ -630,10 +637,10 @@ function SecretCard({ row, value, visible, onToggle }) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            {row.label}
+            {t(row.label)}
           </p>
           <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
-            {row.description}
+            {t(row.description)}
           </p>
           <div className="relative mt-2">
             <input
@@ -641,7 +648,7 @@ function SecretCard({ row, value, visible, onToggle }) {
               value={value || ""}
               readOnly
               autoComplete="off"
-              placeholder="Not available yet — restart the server once."
+              placeholder={t("admin.settings.secretPlaceholder")}
               onFocus={(e) => e.target.select()}
               className="w-full cursor-text rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 pr-24 font-mono text-sm text-slate-500 outline-hidden transition select-text placeholder:font-sans placeholder:text-slate-300 focus:border-slate-300 dark:border-white/10 dark:bg-white/5 dark:text-slate-400 dark:placeholder-slate-600 dark:focus:border-white/20"
               style={{
@@ -654,8 +661,8 @@ function SecretCard({ row, value, visible, onToggle }) {
               type="button"
               onClick={handleCopy}
               disabled={!value}
-              aria-label={copied ? `${row.label} copied` : `Copy ${row.label}`}
-              title={copied ? "Copied" : "Copy"}
+              aria-label={copied ? t("admin.settings.secretCopied", { label: t(row.label) }) : t("admin.settings.secretCopy", { label: t(row.label) })}
+              title={copied ? t("admin.common.copied") : t("admin.common.copy")}
               className="absolute right-11 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
             >
               {copied ? <Check size={16} /> : <Copy size={16} />}
@@ -664,7 +671,7 @@ function SecretCard({ row, value, visible, onToggle }) {
               type="button"
               onClick={onToggle}
               disabled={!value}
-              aria-label={visible ? `Hide ${row.label}` : `Show ${row.label}`}
+              aria-label={visible ? t("admin.settings.secretHide", { label: t(row.label) }) : t("admin.settings.secretShow", { label: t(row.label) })}
               className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
             >
               {visible ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -679,6 +686,7 @@ function SecretCard({ row, value, visible, onToggle }) {
 // ─── Main tab ─────────────────────────────────────────────────────────────────
 
 const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cachedIsLoading, hasData: _hasData, currentUser, onMutated }, ref) {
+  const { t } = useI18n();
   const [settings, setSettings] = useState([]);
   const [localVals, setLocalVals] = useState({});
   const [loading, setLoading] = useState(true);
@@ -751,11 +759,11 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       // Don't reset localVals on a manual refresh — only save/reset actions
       // should clear unsaved edits.
     } catch {
-      setError("Failed to load settings.");
+      setError(t("admin.settings.loadError"));
     } finally {
       setLoading(false);
     }
-  }, []); // stable — no deps that change on background refresh
+  }, [t]); // t follows the active UI language
 
   useEffect(() => {
     fetchSettings();
@@ -776,10 +784,10 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
         else setSecrets(data);
       })
       .catch(() => {
-        if (!cancelled) setSecretsError("Failed to load secrets.");
+        if (!cancelled) setSecretsError(t("admin.settings.secretsLoadError"));
       });
     return () => { cancelled = true; };
-  }, [iAmOwner]);
+  }, [iAmOwner, t]);
 
 
   useImperativeHandle(ref, () => ({ refresh: fetchSettings }), [fetchSettings]);
@@ -822,7 +830,7 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         const firstError = d.errors ? Object.values(d.errors)[0] : d.error;
-        flash(firstError || "Save failed.", "error");
+        flash(firstError || t("admin.settings.saveFailed"), "error");
         if (d.settings) {
           setSettings(d.settings);
           setLocalVals({});
@@ -843,11 +851,11 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
           .then((r) => r.json().catch(() => ({})))
           .then((result) => {
             if (!result.ok && !result.dockerMode) {
-              flash("Settings saved, but nginx config update failed — update client_max_body_size manually.", "error");
+              flash(t("admin.settings.nginxFail"), "error");
             }
           })
           .catch(() => {
-            flash("Settings saved, but nginx config update failed — update client_max_body_size manually.", "error");
+            flash(t("admin.settings.nginxFail"), "error");
           });
       }
       setLocalVals({});
@@ -855,10 +863,10 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       if (needsRestart) {
         setRestartOpen(true);
       } else {
-        flash("Settings saved.");
+        flash(t("admin.settings.saved"));
       }
     } catch {
-      flash("Save failed.", "error");
+      flash(t("admin.settings.saveFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -868,9 +876,9 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
     setRestarting(true);
     try {
       await api.post("/api/admin/service/restart", {});
-      flash("Restarting… the app will be briefly unavailable.");
+      flash(t("admin.settings.restartingToast"));
     } catch {
-      flash("Restart failed.", "error");
+      flash(t("admin.settings.restartFailed"), "error");
     } finally {
       setRestarting(false);
       setRestartOpen(false);
@@ -889,9 +897,9 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       setSettings(data.settings ?? []);
       setLocalVals({});
       onMutated?.();
-      flash("All settings restored to defaults.");
+      flash(t("admin.settings.restoredToast"));
     } catch {
-      flash("Restore failed.", "error");
+      flash(t("admin.settings.restoreFailed"), "error");
     } finally {
       setResetting(false);
       setResetOpen(false);
@@ -935,7 +943,7 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
         <AlertCircle size={20} className="text-rose-400" />
         <span className="text-sm">{error}</span>
         <button type="button" onClick={fetchSettings} className={btnSecondary}>
-          <Refresh size={13} /> Retry
+          <Refresh size={13} /> {t("admin.settings.retry")}
         </button>
       </div>
     );
@@ -964,8 +972,7 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
           )}
           {!toast.msg && hasDirty && (
             <span className="text-xs text-amber-600 dark:text-amber-400">
-              {dirtyKeys.length} unsaved change
-              {dirtyKeys.length !== 1 ? "s" : ""}
+              {t("admin.settings.unsavedChanges", { count: dirtyKeys.length })}
             </span>
           )}
         </div>
@@ -979,7 +986,7 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
           }
         >
           <Rotate size={13} className="icon-anim-spin-full" />
-          Restore defaults
+          {t("admin.settings.restoreDefaults")}
         </button>
         <button
           type="button"
@@ -994,7 +1001,7 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
           ) : (
             <Check size={13} className="icon-anim-pop" />
           )}
-          Save
+          {t("admin.settings.save")}
         </button>
       </div>
 
@@ -1013,13 +1020,13 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       {iAmOwner && (
         <div>
           <SectionHeading>
-            Secrets
-            <Tooltip label="Only the server owner can see this section.">
+            {t("admin.settings.secrets")}
+            <Tooltip label={t("admin.settings.ownerOnlyTooltip")}>
               <span
                 tabIndex={0}
                 className="ml-2 inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-slate-500 dark:bg-white/10 dark:text-slate-400"
               >
-                <Lock size={9} /> owner only
+                <Lock size={9} /> {t("admin.settings.ownerOnly")}
               </span>
             </Tooltip>
           </SectionHeading>
@@ -1045,9 +1052,9 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       {/* ── Restore defaults modal ────────────────────────────────────────── */}
       <ConfirmModal
         open={resetOpen}
-        title="Restore defaults"
-        message="This will reset all customised settings back to their default values. Settings controlled by .env are not affected."
-        confirmLabel={resetting ? "Restoring…" : "Restore defaults"}
+        title={t("admin.settings.restoreDefaults")}
+        message={t("admin.settings.restoreMsg")}
+        confirmLabel={resetting ? t("admin.settings.restoring") : t("admin.settings.restoreDefaults")}
         busy={resetting}
         onConfirm={handleResetAll}
         onClose={() => {
@@ -1058,15 +1065,15 @@ const SettingsTab = forwardRef(function SettingsTab({ cachedData, isLoading: cac
       {/* ── Restart modal — shown after saving restart-required settings ───── */}
       <ConfirmModal
         open={restartOpen}
-        title="Restart required"
-        message="Settings saved. One or more changes require a service restart to take effect. Restart now?"
-        confirmLabel={restarting ? "Restarting…" : "Restart now"}
+        title={t("admin.settings.restartTitle")}
+        message={t("admin.settings.restartMsg")}
+        confirmLabel={restarting ? t("admin.settings.restarting") : t("admin.settings.restartNow")}
         busy={restarting}
         onConfirm={handleRestart}
         onClose={() => {
           if (!restarting) {
             setRestartOpen(false);
-            flash("Settings saved. Restart the service when ready.");
+            flash(t("admin.settings.savedRestartLater"));
           }
         }}
       />

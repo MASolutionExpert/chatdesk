@@ -3,12 +3,12 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/miladalefbusiness/chatdesk.git"
+    "url": "https://github.com/MASolutionExpert/chatdesk.git"
   },
   "bugs": {
-    "url": "https://github.com/miladalefbusiness/chatdesk/issues"
+    "url": "https://github.com/MASolutionExpert/chatdesk/issues"
   },
-  "homepage": "https://github.com/miladalefbusiness/chatdesk#readme",
+  "homepage": "https://github.com/MASolutionExpert/chatdesk#readme",
   "type": "module",
   "scripts": {
     "dev": "node --watch --watch-path=. --watch-path=../.env index.js",

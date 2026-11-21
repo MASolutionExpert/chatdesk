@@ -3,6 +3,7 @@ import { Close, LoaderCircle, PhoneCall } from "../../icons/lucide.js";
 import ForwardChatGridItem from "../forward/ForwardChatGridItem.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 import { getForwardChatDisplay } from "../forward/forwardChatUtils.js";
+import { useI18n } from "../../i18n/index.js";
 
 export default function NewCallModal({
   open,
@@ -11,6 +12,7 @@ export default function NewCallModal({
   onClose,
   onSubmit,
 }) {
+  const { t } = useI18n();
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const dialogRef = useRef(null);
@@ -73,14 +75,14 @@ export default function NewCallModal({
             id="new-call-modal-title"
             className="text-base font-semibold text-emerald-800 dark:text-emerald-200"
           >
-            Start voice call
+            {t("modals.newCall.title")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             disabled={submitting}
             className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-            aria-label="Close"
+            aria-label={t("common.actions.close")}
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
@@ -112,7 +114,7 @@ export default function NewCallModal({
           })}
           {!dmChats.length ? (
             <p className="col-span-4 px-2 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-              No chats to call yet.
+              {t("modals.newCall.noChats")}
             </p>
           ) : null}
         </div>
@@ -129,7 +131,7 @@ export default function NewCallModal({
             ) : (
               <PhoneCall size={16} className="icon-anim-slide" />
             )}
-            {submitting ? "Calling..." : "Call"}
+            {submitting ? t("modals.newCall.calling") : t("modals.newCall.call")}
           </button>
         </div>
       </div>

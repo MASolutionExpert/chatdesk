@@ -143,6 +143,10 @@ import {
   upsertRemoteChannelSource,
   purgeOldRemoteChannelQueueItems,
   setUserRole,
+  normalizeUiLanguage,
+  getUserLanguage,
+  updateUserLanguage,
+  DEFAULT_UI_LANGUAGE,
   // Departments & support routing (helpdesk layer)
   listDepartments,
   getDepartmentById,
@@ -1025,6 +1029,10 @@ const apiDeps = {
   sendPushNotificationToUsers,
   storageEncryption,
   setUserRole,
+  normalizeUiLanguage,
+  getUserLanguage,
+  updateUserLanguage,
+  DEFAULT_UI_LANGUAGE,
   // Departments & support routing (helpdesk layer)
   listDepartments,
   getDepartmentById,

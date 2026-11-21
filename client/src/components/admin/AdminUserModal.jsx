@@ -63,18 +63,21 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
   const [verified, setVerified]     = useState(Boolean(user?.verified));
   // Helpdesk: pick the account role and (for operators) their department
   const [role, setRole]             = useState(creating ? "user" : (user?.role || "user"));
-  const [departmentId, setDepartmentId] = useState("");
+  const [departmentId, setDepartmentId] = useState(user?.department_id ? String(user.department_id) : "");
   const [departments, setDepartments] = useState([]);
   const [profileErr, setProfileErr] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
 
+  // Target is the server owner — their role is managed by owner succession
+  // rules, not by this form.
+  const targetIsOwner = (user?.role || "user") === "owner";
+
   useEffect(() => {
-    if (!creating) return;
     apiFetch("/api/admin/departments")
       .then((r) => r.json())
       .then((d) => setDepartments(Array.isArray(d?.departments) ? d.departments.filter((x) => x.active) : []))
       .catch(() => undefined);
-  }, [creating]);
+  }, []);
 
   // Password fields — used for creation (required) and reset (optional)
   const [pw, setPw]                 = useState("");
@@ -168,6 +171,21 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
         verified,
       });
       if (!r.ok) { const d = await r.json(); setProfileErr(d.error || "Failed"); return; }
+      // Role change goes through the dedicated role endpoint (server enforces
+      // owner-only rules there); department only applies to operators.
+      if (!targetIsOwner && role !== (user.role || "user")) {
+        const rr = await api.post(`/api/admin/users/${user.id}/role`, { role });
+        if (!rr.ok) { const d = await rr.json(); setProfileErr(d.error || "Failed"); return; }
+      }
+      if (!targetIsOwner) {
+        const nextDepartmentId = role === "operator" && departmentId ? Number(departmentId) : null;
+        const hadDepartment = Boolean(user.department_id);
+        const wantsDepartment = role === "operator" && Boolean(departmentId);
+        if (hadDepartment !== wantsDepartment || (wantsDepartment && Number(departmentId) !== Number(user.department_id))) {
+          const dr = await api.patch(`/api/admin/users/${user.id}`, { department_id: nextDepartmentId });
+          if (!dr.ok) { const d = await dr.json(); setProfileErr(d.error || "Failed"); return; }
+        }
+      }
       if (fileUploadEnabled) {
         if (pendingAvatarFile) await uploadUserAvatar(user.id, pendingAvatarFile);
         else if (avatarRemoved) await deleteUserAvatar(user.id);
@@ -305,12 +323,15 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
               </div>
             </div>
 
-            {/* Role + department (create mode) */}
-            {creating ? (
+            {/* Role + department (create mode; edit mode allows role changes) */}
+            {creating || !targetIsOwner ? (
               <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Account type</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  {[["user", "Customer"], ["operator", "Operator"]].map(([value, label]) => (
+                <div className={`mt-2 grid gap-2 ${creating ? "grid-cols-2" : "grid-cols-3"}`}>
+                  {(creating
+                    ? [["user", "Customer"], ["operator", "Operator"]]
+                    : [["user", "Customer"], ["operator", "Operator"], ["admin", "Admin"]]
+                  ).map(([value, label]) => (
                     <button
                       key={value}
                       type="button"
@@ -341,6 +362,13 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
                     </select>
                   </label>
                 ) : null}
+              </div>
+            ) : targetIsOwner && !creating ? (
+              <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Account type</p>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Owner — the server owner role cannot be changed here.
+                </p>
               </div>
             ) : null}
 

@@ -10,8 +10,10 @@ import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { useI18n } from "../../i18n/index.js";
 
 const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMutated, onStatsChange }, ref) {
+  const { t } = useI18n();
   const [users, setUsers]             = useState([]);
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
@@ -114,24 +116,24 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   const userFilterSections = [
     {
       id: "role",
-      label: "Role",
+      label: t("admin.users.filters.role"),
       value: roleFilter,
       onChange: changeRoleFilter,
-      options: [["", "All roles"], ["user", "User"], ["admin", "Admin"], ["owner", "Owner"], ["banned", "Banned"]],
+      options: [["", t("admin.users.filters.allRoles")], ["user", t("admin.common.user")], ["admin", t("admin.common.admin")], ["owner", t("admin.common.owner")], ["banned", t("admin.common.banned")]],
     },
     {
       id: "status",
-      label: "Status",
+      label: t("admin.users.filters.status"),
       value: statusFilter,
       onChange: changeStatusFilter,
-      options: [["", "All statuses"], ["online", "Online"], ["offline", "Offline"]],
+      options: [["", t("admin.users.filters.allStatuses")], ["online", t("admin.common.online")], ["offline", t("admin.common.offline")]],
     },
     {
       id: "verified",
-      label: "Verified Status",
+      label: t("admin.users.filters.verifiedStatus"),
       value: verifiedFilter,
       onChange: changeVerifiedFilter,
-      options: [["", "All"], ["1", "Verified"], ["0", "Unverified"]],
+      options: [["", t("admin.common.all")], ["1", t("admin.common.verified")], ["0", t("admin.common.unverified")]],
     },
   ];
 
@@ -145,15 +147,15 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
   return (
     <div className="space-y-3">
       <TabToolbar>
-        <TabSearchInput value={search} onChange={changeSearch} placeholder="Search users…" />
+        <TabSearchInput value={search} onChange={changeSearch} placeholder="admin.users.search" />
         <FilterPopover sections={userFilterSections} onReset={resetUserFilters} />
         <button type="button" onClick={() => setCreateOpen(true)}
           className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
-          <UserPlus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New user</span>
+          <UserPlus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">{t("admin.users.newUser")}</span>
         </button>
       </TabToolbar>
 
-      {!initialized ? <LoadingRows /> : users.length === 0 ? <EmptyState message="No users found." /> : (
+      {!initialized ? <LoadingRows /> : users.length === 0 ? <EmptyState message={t("admin.users.empty")} /> : (
         <>
           {/* Mobile card list */}
           <div className="space-y-2 sm:hidden">
@@ -176,7 +178,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                         className="h-10 w-10 text-sm font-bold text-white"
                       />
                       {u.online ? (
-                        <Tooltip label="online" className="absolute -bottom-0.5 -right-0.5">
+                        <Tooltip label={t("admin.common.online")} className="absolute -bottom-0.5 -right-0.5">
                           <span className="h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />
                         </Tooltip>
                       ) : null}
@@ -197,50 +199,50 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                         <div className="flex shrink-0 items-center gap-1">
                           {isSelf ? (
                             <>
-                              <Tooltip label="Edit"><button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
-                              <Tooltip label="Cannot change your own role">
+                              <Tooltip label={t("admin.common.edit")}><button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label={t("admin.users.errSelfRole")}>
                                 <button type="button" disabled className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
                                   {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
                                 </button>
                               </Tooltip>
-                              <Tooltip label="Cannot ban yourself"><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
-                              <Tooltip label="Cannot delete yourself"><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
+                              <Tooltip label={t("admin.users.errBanSelf")}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label={t("admin.users.errDeleteSelf")}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </>
                           ) : actionsBlocked ? (
                             <>
-                              <Tooltip label={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><button type="button" disabled className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
-                              <Tooltip label={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errEditOwner") : t("admin.users.errEditAdmins")}><button type="button" disabled className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errRoleOwner") : t("admin.users.errRoleAdmins")}>
                                 <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")}>
                                   <ShieldOff size={16} />
                                 </button>
                               </Tooltip>
-                              <Tooltip label={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
-                              <Tooltip label={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errBanOwner") : t("admin.users.errBanAdmins")}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errDeleteOwner") : t("admin.users.errDeleteAdmins")}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </>
                           ) : (
                             <>
-                              <Tooltip label={u.banned ? "Cannot edit a banned user" : "Edit"}><button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
-                              <Tooltip label={u.banned ? "Cannot change role of a banned user" : isOwnerRow ? "Cannot demote the owner" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
+                              <Tooltip label={u.banned ? t("admin.users.errEditBanned") : t("admin.common.edit")}><button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label={u.banned ? t("admin.users.errRoleBanned") : isOwnerRow ? t("admin.users.errDemoteOwner") : u.role === "admin" ? t("admin.users.demote") : t("admin.users.promote")}>
                                 <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned || isOwnerRow}
                                   className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
                                   {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
                                 </button>
                               </Tooltip>
-                              <Tooltip label={u.banned ? "Unban" : "Ban"}>
+                              <Tooltip label={u.banned ? t("admin.users.unban") : t("admin.users.ban")}>
                                 <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")}>
                                   {u.banned ? <CirclePlus size={16} /> : <Ban size={16} />}
                                 </button>
                               </Tooltip>
-                              <Tooltip label="Delete"><button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
+                              <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </>
                           )}
                         </div>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
                         {u.online
-                          ? <span className="font-semibold text-emerald-500">online</span>
-                          : <span className="text-slate-400 dark:text-slate-500">Last seen {u.last_seen ? fmtDate(u.last_seen) : "—"}</span>}
-                        <span className="text-slate-400 dark:text-slate-500">Joined {fmtDate(u.created_at)}</span>
+                          ? <span className="font-semibold text-emerald-500">{t("admin.common.online")}</span>
+                          : <span className="text-slate-400 dark:text-slate-500">{t("admin.users.lastSeen", { date: u.last_seen ? fmtDate(u.last_seen) : "—" })}</span>}
+                        <span className="text-slate-400 dark:text-slate-500">{t("admin.users.joined", { date: fmtDate(u.created_at) })}</span>
                       </div>
                     </div>
                   </div>
@@ -255,11 +257,11 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-100 dark:border-white/5">
                   <tr>
-                    <SortTh field="nickname" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>User</SortTh>
-                    <SortTh field="role" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Role</SortTh>
-                    <SortTh field="last_seen" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Last seen</SortTh>
-                    <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Joined</SortTh>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
+                    <SortTh field="nickname" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.common.user")}</SortTh>
+                    <SortTh field="role" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.users.filters.role")}</SortTh>
+                    <SortTh field="last_seen" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.users.colLastSeen")}</SortTh>
+                    <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.users.colJoined")}</SortTh>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">{t("admin.common.actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-white/4">
@@ -285,7 +287,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                                 className="h-7 w-7 text-xs font-bold text-white"
                               />
                               {u.online ? (
-                                <Tooltip label="online" className="absolute -bottom-0.5 -right-0.5">
+                                <Tooltip label={t("admin.common.online")} className="absolute -bottom-0.5 -right-0.5">
                                   <span className="h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />
                                 </Tooltip>
                               ) : null}
@@ -307,7 +309,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                         </td>
                         <td className="px-4 py-2.5 text-[11px]">
                           {u.online
-                            ? <span className="font-semibold text-emerald-500">online</span>
+                            ? <span className="font-semibold text-emerald-500">{t("admin.common.online")}</span>
                             : <span className="text-slate-400 dark:text-slate-500">{u.last_seen ? fmtDate(u.last_seen) : "—"}</span>}
                         </td>
                         <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(u.created_at)}</td>
@@ -315,32 +317,32 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                           {isSelf ? (
                             /* Self — show edit + role (functional), ban + delete disabled */
                             <div className="flex items-center gap-1">
-                              <Tooltip label="Edit"><button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
-                              <Tooltip label="Cannot change your own role">
+                              <Tooltip label={t("admin.common.edit")}><button type="button" onClick={() => setEditUser(u)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
+                              <Tooltip label={t("admin.users.errSelfRole")}>
                                 <button type="button" disabled className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
                                   {u.role === "admin" ? <ShieldOff size={16} /> : <ShieldCheck size={16} />}
                                 </button>
                               </Tooltip>
-                              <Tooltip label="Cannot ban yourself"><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
-                              <Tooltip label="Cannot delete yourself"><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
+                              <Tooltip label={t("admin.users.errBanSelf")}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label={t("admin.users.errDeleteSelf")}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </div>
                           ) : actionsBlocked ? (
                             /* Owner row (for non-owners) or admin row (for non-owners) — all buttons disabled */
                             <div className="flex items-center gap-1">
-                              <Tooltip label={isOwnerRow ? "Cannot edit the owner" : "Cannot edit other admins"}><button type="button" disabled className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
-                              <Tooltip label={isOwnerRow ? "Cannot change the owner's role" : "Cannot change another admin's role"}>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errEditOwner") : t("admin.users.errEditAdmins")}><button type="button" disabled className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errRoleOwner") : t("admin.users.errRoleAdmins")}>
                                 <button type="button" disabled className={iconBtn(isOwnerRow ? "rose" : "slate")}>
                                   <ShieldOff size={16} />
                                 </button>
                               </Tooltip>
-                              <Tooltip label={isOwnerRow ? "Cannot ban the owner" : "Cannot ban other admins"}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
-                              <Tooltip label={isOwnerRow ? "Cannot delete the owner" : "Cannot delete other admins"}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errBanOwner") : t("admin.users.errBanAdmins")}><button type="button" disabled className={iconBtn("rose")}><Ban size={16} /></button></Tooltip>
+                              <Tooltip label={isOwnerRow ? t("admin.users.errDeleteOwner") : t("admin.users.errDeleteAdmins")}><button type="button" disabled className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                             </div>
                           ) : (
                             /* Normal row — full controls */
                             <div className="flex items-center gap-1">
-                              <Tooltip label={u.banned ? "Cannot edit a banned user" : "Edit"}><button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
-                              <Tooltip label={u.banned ? "Cannot change role of a banned user" : isOwnerRow ? "Cannot demote the owner" : u.role === "admin" ? "Demote from admin" : "Promote to admin"}>
+                              <Tooltip label={u.banned ? t("admin.users.errEditBanned") : t("admin.common.edit")}><button type="button" onClick={() => setEditUser(u)} disabled={!!u.banned} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
+                              <Tooltip label={u.banned ? t("admin.users.errRoleBanned") : isOwnerRow ? t("admin.users.errDemoteOwner") : u.role === "admin" ? t("admin.users.demote") : t("admin.users.promote")}>
                                 <button type="button" onClick={() => setPending({ type: "role", user: u })} disabled={!!u.banned || isOwnerRow}
                                   className={iconBtn(u.role === "admin" ? "rose" : "emerald")}>
                                   {u.role === "admin"
@@ -348,12 +350,12 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                                     : <ShieldCheck size={16} className="icon-anim-beat" />}
                                 </button>
                               </Tooltip>
-                              <Tooltip label={u.banned ? "Unban" : "Ban"}>
+                              <Tooltip label={u.banned ? t("admin.users.unban") : t("admin.users.ban")}>
                                 <button type="button" onClick={() => setPending({ type: "ban", user: u })} className={iconBtn(u.banned ? "emerald" : "rose")}>
                                   {u.banned ? <CirclePlus size={16} className="icon-anim-pop" /> : <Ban size={16} className="icon-anim-wiggle" />}
                                 </button>
                               </Tooltip>
-                              <Tooltip label="Delete"><button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
+                              <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPending({ type: "delete", user: u })} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
                             </div>
                           )}
                         </td>
@@ -376,31 +378,31 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
       {/* Role toggle confirm */}
       <ConfirmModal
         open={pending?.type === "role"}
-        title={pending?.user?.role === "admin" ? "Demote from admin" : "Promote to admin"}
+        title={pending?.user?.role === "admin" ? t("admin.users.demote") : t("admin.users.promote")}
         message={pending?.user?.role === "admin"
-          ? `Remove admin role from @${pending?.user?.username}? They will become a regular user.`
-          : `Grant admin access to @${pending?.user?.username}? They will be able to access the admin panel.`}
-        confirmLabel={pending?.user?.role === "admin" ? "Demote" : "Promote"}
+          ? t("admin.users.demoteMsg", { username: pending?.user?.username })
+          : t("admin.users.promoteMsg", { username: pending?.user?.username })}
+        confirmLabel={pending?.user?.role === "admin" ? t("admin.users.demote") : t("admin.users.promote")}
         onConfirm={async () => { await handleRoleToggle(pending.user); setPending(null); }}
         onClose={() => setPending(null)}
       />
       {/* Ban/unban confirm */}
       <ConfirmModal
         open={pending?.type === "ban"}
-        title={pending?.user?.banned ? "Unban user" : "Ban user"}
+        title={pending?.user?.banned ? t("admin.users.unbanTitle") : t("admin.users.banTitle")}
         message={pending?.user?.banned
-          ? `Unban @${pending?.user?.username}? They will regain access to the app.`
-          : `Ban @${pending?.user?.username}? They will be signed out and unable to log in.`}
-        confirmLabel={pending?.user?.banned ? "Unban" : "Ban"}
+          ? t("admin.users.unbanMsg", { username: pending?.user?.username })
+          : t("admin.users.banMsg", { username: pending?.user?.username })}
+        confirmLabel={pending?.user?.banned ? t("admin.users.unban") : t("admin.users.ban")}
         onConfirm={async () => { await handleBan(pending.user); setPending(null); }}
         onClose={() => setPending(null)}
       />
       {/* Delete confirm */}
       <ConfirmModal
         open={pending?.type === "delete"}
-        title="Delete user"
-        message={`Permanently delete @${pending?.user?.username}? This cannot be undone.`}
-        confirmLabel="Delete"
+        title={t("admin.users.deleteTitle")}
+        message={t("admin.users.deleteMsg", { username: pending?.user?.username })}
+        confirmLabel={t("admin.common.delete")}
         onConfirm={async () => { await handleDelete(pending.user); setPending(null); }}
         onClose={() => setPending(null)}
       />

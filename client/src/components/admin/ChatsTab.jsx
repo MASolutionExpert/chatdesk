@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Trash, Users } from "../../icons/lucide.js";
+import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Trash, User, Users } from "../../icons/lucide.js";
 import { api, cardCls, btnPrimary, iconBtn, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterPopover, SortTh, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
@@ -9,8 +9,10 @@ import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
+import { useI18n } from "../../i18n/index.js";
 
 const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
+  const { t } = useI18n();
   const [chats, setChats]             = useState([]);
   const [total, setTotal]             = useState(0);
   const [page, setPage]               = useState(1);
@@ -115,43 +117,43 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const chatFilterSections = [
     {
       id: "type",
-      label: "Chat Type",
+      label: t("admin.chats.filters.type"),
       value: typeFilter,
       onChange: changeTypeFilter,
-      options: [["", "All types"], ["group", "Groups"], ["channel", "Channels"]],
+      options: [["", t("admin.chats.filters.allTypes")], ["dm", t("admin.chats.filters.typeDm")], ["group", t("admin.chats.filters.typeGroup")], ["channel", t("admin.chats.filters.typeChannel")]],
     },
     {
       id: "visibility",
-      label: "Privacy / Visibility",
+      label: t("admin.chats.filters.visibility"),
       value: visibilityFilter,
       onChange: changeVisibilityFilter,
-      options: [["", "All privacy"], ["public", "Public"], ["private", "Private"]],
+      options: [["", t("admin.chats.filters.allPrivacy")], ["public", t("admin.chats.filters.visPublic")], ["private", t("admin.chats.filters.visPrivate")]],
     },
     {
       id: "verified",
-      label: "Verified Status",
+      label: t("admin.users.filters.verifiedStatus"),
       value: verifiedFilter,
       onChange: changeVerifiedFilter,
-      options: [["", "All"], ["1", "Verified"], ["0", "Unverified"]],
+      options: [["", t("admin.common.all")], ["1", t("admin.common.verified")], ["0", t("admin.common.unverified")]],
     },
     {
       id: "autoAdd",
-      label: "Auto-Add New Users",
+      label: t("admin.chats.filters.autoAdd"),
       value: autoAddFilter,
       onChange: changeAutoAddFilter,
-      options: [["", "All"], ["1", "Enabled"], ["0", "Disabled"]],
+      options: [["", t("admin.common.all")], ["1", t("admin.common.enabled")], ["0", t("admin.common.disabled")]],
     },
     {
       id: "remote",
-      label: "Remote Channel State",
+      label: t("admin.chats.filters.remote"),
       value: remoteFilter,
       onChange: changeRemoteFilter,
       options: [
-        ["", "All remote states"],
-        ["active", "Active"],
-        ["paused", "Paused"],
-        ["disabled", "Disabled"],
-        ["none", "No remote source"],
+        ["", t("admin.chats.filters.allRemote")],
+        ["active", t("admin.chats.filters.remoteActive")],
+        ["paused", t("admin.chats.filters.remotePaused")],
+        ["disabled", t("admin.common.disabled")],
+        ["none", t("admin.chats.filters.remoteNone")],
       ],
     },
   ];
@@ -168,43 +170,46 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   return (
     <div className="space-y-3">
       <TabToolbar>
-        <TabSearchInput value={search} onChange={changeSearch} placeholder="Search chats…" />
+        <TabSearchInput value={search} onChange={changeSearch} placeholder="admin.chats.search" />
         <FilterPopover sections={chatFilterSections} onReset={resetChatFilters} />
         <div ref={createMenuRef} className="relative shrink-0">
           <button type="button" onClick={() => setCreateMenuOpen((o) => !o)} aria-expanded={createMenuOpen}
             className={btnPrimary + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
-            <Plus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">New chat</span>
+            <Plus size={16} className="icon-anim-pop shrink-0" /> <span className="hidden sm:inline">{t("admin.chats.newChat")}</span>
             <ChevronDown size={12} className={`hidden transition-transform sm:inline-flex ${createMenuOpen ? "rotate-180" : ""}`} />
           </button>
           {createMenuOpen ? (
             <div className="absolute right-0 z-50 mt-1.5 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
               <button type="button" onClick={() => { setCreateMenuOpen(false); setCreateType("group"); }}
                 className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200">
-                <Users size={15} className="text-emerald-500 icon-anim-sway" /> New group
+                <Users size={15} className="text-emerald-500 icon-anim-sway" /> {t("admin.chats.newGroup")}
               </button>
               <button type="button" onClick={() => { setCreateMenuOpen(false); setCreateType("channel"); }}
                 className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200">
-                <Megaphone size={15} className="text-emerald-500 icon-anim-swing" /> New channel
+                <Megaphone size={15} className="text-emerald-500 icon-anim-swing" /> {t("admin.chats.newChannel")}
               </button>
             </div>
           ) : null}
         </div>
       </TabToolbar>
 
-      {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message="No chats found." /> : (
+      {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message={t("admin.chats.empty")} /> : (
         <>
           {/* Mobile card list */}
           <div className="space-y-2 sm:hidden">
             {chats.map((c) => {
-              const chatName = c.name || `Chat #${c.id}`;
+              const isDm = c.type === "dm";
+              const chatName = isDm
+                ? (c.participants || t("admin.chats.fallbackName", { id: c.id }))
+                : (c.name || t("admin.chats.fallbackName", { id: c.id }));
               const nameHasPersian = hasPersian(chatName);
               return (
               <div key={c.id} className={"p-3 " + cardCls}>
                 <div className="flex items-start gap-3">
                   <Avatar
-                    src={c.group_avatar_url}
-                    name={c.name || "Chat"}
-                    color={c.group_color || "#10b981"}
+                    src={isDm ? null : c.group_avatar_url}
+                    name={chatName}
+                    color={isDm ? "#10b981" : (c.group_color || "#10b981")}
                     className="h-10 w-10 shrink-0 text-sm font-bold text-white"
                   />
                   <div className="min-w-0 flex-1">
@@ -217,19 +222,21 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                         {c.group_username && <p className="truncate text-[11px] text-slate-400">@{c.group_username}</p>}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <Tooltip label="Edit"><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>
-                        <Tooltip label="Delete"><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
+                        {!isDm && <Tooltip label={t("admin.common.edit")}><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>}
+                        <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <span className="flex items-center gap-1 capitalize">
-                        {c.type === "channel" ? <Megaphone size={12} className="text-emerald-500" /> : <Users size={12} className="text-emerald-500" />}
-                        {c.type}
+                        {c.type === "channel" ? <Megaphone size={12} className="text-emerald-500" /> : isDm ? <User size={12} className="text-emerald-500" /> : <Users size={12} className="text-emerald-500" />}
+                        {isDm ? t("admin.chats.filters.typeDm") : c.type}
                       </span>
-                      <span className="flex items-center gap-1 capitalize">
-                        {(c.group_visibility || "public") === "private" ? <Lock size={12} className="text-emerald-500" /> : <Globe size={12} className="text-emerald-500" />}
-                        {c.group_visibility || "public"}
-                      </span>
+                      {!isDm && (
+                        <span className="flex items-center gap-1 capitalize">
+                          {(c.group_visibility || "public") === "private" ? <Lock size={12} className="text-emerald-500" /> : <Globe size={12} className="text-emerald-500" />}
+                          {(c.group_visibility || "public") === "private" ? t("admin.chats.filters.visPrivate") : t("admin.chats.filters.visPublic")}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
                       <span className="flex items-center gap-1"><MessageCircleMore size={11} className="text-slate-400" />{c.message_count}</span>
                       <span className="text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</span>
@@ -247,27 +254,30 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-100 dark:border-white/5">
                   <tr>
-                    <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Chat</SortTh>
-                    <SortTh field="type" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Type</SortTh>
-                    <SortTh field="group_visibility" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Privacy</SortTh>
-                    <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Members</SortTh>
-                    <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Messages</SortTh>
-                    <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>Created</SortTh>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">Actions</th>
+                    <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colChat")}</SortTh>
+                    <SortTh field="type" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colType")}</SortTh>
+                    <SortTh field="group_visibility" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colPrivacy")}</SortTh>
+                    <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colMembers")}</SortTh>
+                    <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colMessages")}</SortTh>
+                    <SortTh field="created_at" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colCreated")}</SortTh>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">{t("admin.common.actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50 dark:divide-white/4">
                   {chats.map((c) => {
-                    const chatName = c.name || `Chat #${c.id}`;
+                    const isDm = c.type === "dm";
+                    const chatName = isDm
+                      ? (c.participants || t("admin.chats.fallbackName", { id: c.id }))
+                      : (c.name || t("admin.chats.fallbackName", { id: c.id }));
                     const nameHasPersian = hasPersian(chatName);
                     return (
                     <tr key={c.id} className="hover:bg-emerald-50/30 dark:hover:bg-emerald-500/5">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2.5">
                           <Avatar
-                            src={c.group_avatar_url}
-                            name={c.name || "Chat"}
-                            color={c.group_color || "#10b981"}
+                            src={isDm ? null : c.group_avatar_url}
+                            name={chatName}
+                            color={isDm ? "#10b981" : (c.group_color || "#10b981")}
                             className="h-7 w-7 shrink-0 text-xs font-bold text-white"
                           />
                           <div className="min-w-0">
@@ -281,15 +291,19 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       </td>
                       <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
                         <span className="flex items-center gap-1.5">
-                          {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
-                          {c.type}
+                          {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : isDm ? <User size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
+                          {isDm ? t("admin.chats.filters.typeDm") : c.type === "group" ? t("admin.chats.typeGroupSing") : c.type === "channel" ? t("admin.chats.typeChannelSing") : c.type}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
-                        <span className="flex items-center gap-1.5">
-                          {(c.group_visibility || "public") === "private" ? <Lock size={13} className="text-emerald-500" /> : <Globe size={13} className="text-emerald-500" />}
-                          {c.group_visibility || "public"}
-                        </span>
+                        {isDm ? (
+                          <span className="text-slate-400 dark:text-slate-500">—</span>
+                        ) : (
+                          <span className="flex items-center gap-1.5">
+                            {(c.group_visibility || "public") === "private" ? <Lock size={13} className="text-emerald-500" /> : <Globe size={13} className="text-emerald-500" />}
+                            {(c.group_visibility || "public") === "private" ? t("admin.chats.filters.visPrivate") : t("admin.chats.filters.visPublic")}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
                         <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
@@ -300,8 +314,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       <td className="px-4 py-2.5 text-[11px] text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1">
-                          <Tooltip label="Edit"><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
-                          <Tooltip label="Delete"><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
+                          {!isDm && (
+                            <Tooltip label={t("admin.common.edit")}><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
+                          )}
+                          <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
                         </div>
                       </td>
                     </tr>
@@ -321,9 +337,13 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
       {editChat && <AdminGroupModal mode="edit" chat={editChat} onClose={() => setEditChat(null)} onSaved={() => { refresh(); onMutated(); }} />}
       <ConfirmModal
         open={Boolean(pendingDelete)}
-        title="Delete chat"
-        message={`Permanently delete "${pendingDelete?.name || `Chat #${pendingDelete?.id}`}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        title={t("admin.chats.deleteTitle")}
+        message={t("admin.chats.deleteConfirm", {
+          name: pendingDelete?.type === "dm"
+            ? (pendingDelete?.participants || t("admin.chats.fallbackName", { id: pendingDelete?.id }))
+            : (pendingDelete?.name || t("admin.chats.fallbackName", { id: pendingDelete?.id })),
+        })}
+        confirmLabel={t("admin.common.delete")}
         onConfirm={async () => { await handleDelete(pendingDelete); setPendingDelete(null); }}
         onClose={() => setPendingDelete(null)}
       />

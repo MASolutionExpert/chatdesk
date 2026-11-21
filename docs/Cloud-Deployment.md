@@ -209,8 +209,8 @@ Remote Channel continuous polling prevents the app from sleeping and burns the m
 
 You can run ChatDesk in containerized environments using the official pre-built Docker images from Docker Hub:
 
-- **Main Application (Frontend + Backend):** `miladalefbusiness/chatdesk:latest`
-- **Standalone Media Worker (FFmpeg Transcoder):** `miladalefbusiness/chatdesk-worker:latest`
+- **Main Application (Frontend + Backend):** `MASolutionExpert/chatdesk:latest`
+- **Standalone Media Worker (FFmpeg Transcoder):** `MASolutionExpert/chatdesk-worker:latest`
 
 ### Container Configuration
 

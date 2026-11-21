@@ -38,6 +38,21 @@ describe("GET /api/app/info", () => {
     });
   });
 
+  // ── Release channel ────────────────────────────────────────────────────────
+
+  test("exposes the release channel derived from the VERSION file", async () => {
+    const { app } = makeApp();
+    const res = await request(app).get("/api/app/info");
+    expect(res.status).toBe(200);
+    // The installed tree's VERSION decides the channel: prerelease
+    // (X.Y.Z-dev.N) = dev channel, plain (X.Y.Z) = stable channel.
+    const expectedChannel = /-dev(\.\d+)?$/i.test(res.body.version)
+      ? "dev"
+      : "stable";
+    expect(res.body.channel).toBe(expectedChannel);
+    expect(["dev", "stable"]).toContain(res.body.channel);
+  });
+
   // ── Registration ───────────────────────────────────────────────────────────
 
   test('SIGN_UP=false → accountCreationEnabled is false', async () => {

@@ -4,6 +4,7 @@ import { Close, LoaderCircle, LifeBuoy } from "../../icons/lucide.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 import { listDepartments, createSupportRequest } from "../../api/chatApi.js";
+import { useI18n } from "../../i18n/index.js";
 
 /**
  * SupportRequestModal — the helpdesk entry point.
@@ -21,6 +22,7 @@ export default function SupportRequestModal({
 }) {
   const dialogRef = useRef(null);
   useFocusTrap(dialogRef, open);
+  const { t } = useI18n();
 
   const [departments, setDepartments] = useState([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
@@ -43,7 +45,7 @@ export default function SupportRequestModal({
         if (isMounted) setDepartments(Array.isArray(data?.departments) ? data.departments : []);
       })
       .catch(() => {
-        if (isMounted) setError("Could not load departments.");
+        if (isMounted) setError(t("modals.support.loadError"));
       })
       .finally(() => {
         if (isMounted) setDepartmentsLoading(false);
@@ -51,7 +53,7 @@ export default function SupportRequestModal({
     return () => {
       isMounted = false;
     };
-  }, [open]);
+  }, [open, t]);
 
   if (!open) return null;
   if (typeof document === "undefined") return null;
@@ -68,7 +70,7 @@ export default function SupportRequestModal({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data?.error || "Unable to start the conversation.");
+        throw new Error(data?.error || t("modals.support.startError"));
       }
       onCreated?.(data);
     } catch (err) {
@@ -103,26 +105,26 @@ export default function SupportRequestModal({
             className="flex items-center gap-2 text-lg font-semibold text-emerald-700 dark:text-emerald-200"
           >
             <LifeBuoy size={18} className="text-emerald-500" />
-            Contact support
+            {t("modals.support.title")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-            aria-label="Close support dialog"
+            aria-label={t("modals.support.close")}
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
         </div>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Pick a department — your message goes straight to its team.
+          {t("modals.support.subtitle")}
         </p>
 
         <div className="mt-4 space-y-2">
           {departmentsLoading ? (
             <div className="flex items-center justify-center gap-2 py-6 text-xs text-slate-500 dark:text-slate-400">
               <LoaderCircle size={16} className="animate-spin" />
-              Loading departments...
+              {t("modals.support.loadingDepartments")}
             </div>
           ) : departments.length ? (
             <div className="app-scroll max-h-56 space-y-2 overflow-y-auto pr-1">
@@ -154,14 +156,14 @@ export default function SupportRequestModal({
             </div>
           ) : (
             <p className="py-4 text-center text-xs text-slate-500 dark:text-slate-400">
-              No departments are available yet. Ask an administrator to create one.
+              {t("modals.support.noDepartments")}
             </p>
           )}
         </div>
 
         <div className="mt-4">
           <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Your message
+            {t("modals.support.messageLabel")}
           </label>
           <textarea
             value={message}
@@ -169,7 +171,7 @@ export default function SupportRequestModal({
               setMessage(event.target.value);
               setError("");
             }}
-            placeholder="Describe your issue..."
+            placeholder={t("modals.support.messagePlaceholder")}
             rows={3}
             lang={messageHasPersian ? "fa" : "en"}
             dir={messageHasPersian ? "rtl" : "ltr"}
@@ -193,7 +195,7 @@ export default function SupportRequestModal({
           className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? <LoaderCircle size={16} className="animate-spin" /> : null}
-          Start conversation
+          {t("modals.support.start")}
         </button>
       </div>
     </div>,

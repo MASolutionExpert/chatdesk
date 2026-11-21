@@ -14,6 +14,7 @@ import {
   Video,
 } from "../../../icons/lucide.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
+import { useI18n } from "../../../i18n/index.js";
 import { renderMarkdownInlinePlain } from "../../../utils/markdown.js";
 import {
   getCallLogLabel,
@@ -87,6 +88,7 @@ export function MessageComposer({
   onRequestMicrophonePermission,
   currentUsername = "",
 }) {
+  const { t } = useI18n();
   const composerRef = useRef(null);
   const fallbackInputRef = useRef(null);
   const messageInputRef = composerInputRef || fallbackInputRef;
@@ -182,18 +184,23 @@ export function MessageComposer({
     ? replyCallLogLabel
     : derivedReplyIcon === "voice"
       ? isGenericReplyVoiceText
-        ? "Sent a voice message"
-        : replyBodyText || "Message"
+        ? t("chat.preview.sentVoice")
+        : replyBodyText || t("chat.composer.message")
       : derivedReplyIcon === "video"
         ? isGenericReplyMediaText && !isPluralMediaSummary
-          ? "Sent a video"
-          : replyBodyText || "Message"
+          ? t("chat.preview.sentVideo")
+          : replyBodyText || t("chat.composer.message")
         : derivedReplyIcon === "image"
           ? isGenericReplyMediaText && !isPluralMediaSummary
-            ? "Sent a photo"
-            : replyBodyText || "Message"
-          : replyBodyText || "Message";
+            ? t("chat.preview.sentPhoto")
+            : replyBodyText || t("chat.composer.message")
+          : replyBodyText || t("chat.composer.message");
   const resolvedReplyHtml = renderMarkdownInlinePlain(resolvedReplyText);
+  const editMessageLabel = t("chat.composer.editMessage");
+  const replyWithName =
+    replyTarget?.displayName ||
+    replyTarget?.username ||
+    t("chat.composer.replyFallbackName");
 
   const hasText = Boolean(String(messageValue || "").trim());
   const hasPendingUploads = Boolean(pendingUploadFiles?.length);
@@ -695,16 +702,14 @@ export function MessageComposer({
             <div className="flex min-w-0 flex-1 flex-col">
               <span
                 className={`truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200 ${
-                  hasPersian(
-                    "Edit Message",
-                  )
+                  hasPersian(editMessageLabel)
                     ? "font-fa"
                     : ""
                 }`}
                 dir="auto"
                 style={{ unicodeBidi: "isolate" }}
               >
-                Edit Message
+                {editMessageLabel}
               </span>
               <span
                 className={`mt-1 min-w-0 truncate text-xs text-slate-600 dark:text-slate-300 ${
@@ -713,7 +718,7 @@ export function MessageComposer({
                 dir="auto"
                 style={{ unicodeBidi: "isolate" }}
               >
-                {editBodyText || "Message"}
+                {editBodyText || t("chat.composer.message")}
               </span>
             </div>
             <button
@@ -727,7 +732,7 @@ export function MessageComposer({
                 if (!isDesktop) event.preventDefault();
               }}
               className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-              aria-label="Cancel edit"
+              aria-label={t("chat.composer.cancelEdit")}
             >
               <Close size={20} className="icon-anim-pop" />
             </button>
@@ -740,27 +745,21 @@ export function MessageComposer({
               <Reply size={20} className="icon-anim-sway" />
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
-              <Tooltip
-                label={replyTarget.displayName || replyTarget.username || "message"}
-                asChild
-              >
+              <Tooltip label={replyWithName} asChild>
                 <span
                   className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200"
                   dir="ltr"
                 >
                   <span
                     className={`truncate ${
-                      hasPersian(
-                        replyTarget.displayName || replyTarget.username || "message",
-                      )
+                      hasPersian(replyWithName)
                         ? "font-fa"
                         : ""
                     }`}
                     dir="auto"
                     style={{ unicodeBidi: "isolate" }}
                   >
-                    Reply to{" "}
-                    {replyTarget.displayName || replyTarget.username || "message"}
+                    {t("chat.composer.replyTo", { name: replyWithName })}
                   </span>
                   {Boolean(replyTarget.verified) && <VerifiedBadge size={13} />}
                   <UserRoleBadge role={replyTarget.role} size={13} />
@@ -820,7 +819,7 @@ export function MessageComposer({
                 if (!isDesktop) event.preventDefault();
               }}
               className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-              aria-label="Cancel reply"
+              aria-label={t("chat.composer.cancelReply")}
             >
               <Close size={20} className="icon-anim-pop" />
             </button>
@@ -835,7 +834,7 @@ export function MessageComposer({
             </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
-                Voice message
+                {t("chat.composer.voiceMessage")}
               </span>
               <span className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                 {formatDuration(pendingVoiceMessage.durationSeconds || 0)}
@@ -852,7 +851,7 @@ export function MessageComposer({
                 if (!isDesktop) event.preventDefault();
               }}
               className="inline-flex h-9 w-9 items-center justify-center self-center rounded-full border border-rose-200 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-              aria-label="Cancel voice message"
+              aria-label={t("chat.composer.cancelVoice")}
             >
               <Close size={20} className="icon-anim-pop" />
             </button>
@@ -863,8 +862,13 @@ export function MessageComposer({
         <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
           <div className="mb-2 flex items-center justify-between px-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
             <span>
-              {pendingUploadType === "media" ? "Photo or Video" : "Document"} (
-              {pendingUploadFiles.length})
+              {t("chat.composer.pendingCount", {
+                type:
+                  pendingUploadType === "media"
+                    ? t("chat.composer.photoOrVideo")
+                    : t("chat.composer.document"),
+                count: pendingUploadFiles.length,
+              })}
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -890,7 +894,7 @@ export function MessageComposer({
                 }`}
               >
                 <Paperclip size={12} />
-                Add
+                {t("common.actions.add")}
               </button>
               <button
                 type="button"
@@ -905,7 +909,7 @@ export function MessageComposer({
                 className="inline-flex items-center gap-1 rounded-full border border-rose-200/70 px-2 py-0.5 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-900/30"
               >
                 <Close size={12} className="icon-anim-pop" />
-                Clear
+                {t("chat.composer.clear")}
               </button>
             </div>
           </div>
@@ -932,7 +936,7 @@ export function MessageComposer({
                       if (!isDesktop) event.preventDefault();
                     }}
                     className="absolute right-1 top-1 z-20 inline-flex h-5 w-5 items-center justify-center rounded-full border border-rose-200 bg-white/90 text-rose-600 dark:border-rose-500/30 dark:bg-slate-900 dark:text-rose-200"
-                    aria-label="Remove file"
+                    aria-label={t("chat.composer.removeFile")}
                   >
                     <Close size={11} className="icon-anim-pop" />
                   </button>
@@ -988,7 +992,7 @@ export function MessageComposer({
       {activeUploadProgress !== null ? (
         <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 px-3 py-2 dark:border-emerald-500/30 dark:bg-slate-950/70">
           <div className="mb-1 flex items-center justify-between text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
-            <span>Uploading files...</span>
+            <span>{t("chat.composer.uploading")}</span>
             <span>{Math.round(activeUploadProgress)}%</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-emerald-100 dark:bg-slate-800">
@@ -1020,7 +1024,7 @@ export function MessageComposer({
                     ? "text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:shadow-[0_0_16px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:border-emerald-500/30 dark:hover:bg-emerald-500/10"
                     : "cursor-not-allowed text-slate-400 dark:text-slate-500"
                 }`}
-                aria-label="Attach file"
+                aria-label={t("chat.composer.attachFile")}
               >
                 <Paperclip size={18} className="icon-anim-sway" />
               </button>
@@ -1039,7 +1043,7 @@ export function MessageComposer({
                     className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                   >
                     <ImageIcon size={18} className="shrink-0 text-emerald-500 icon-anim-sway" />
-                    Photo or Video
+                    {t("chat.composer.photoOrVideo")}
                   </button>
                   <button
                     type="button"
@@ -1054,7 +1058,7 @@ export function MessageComposer({
                     className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
                   >
                     <File size={18} className="shrink-0 text-emerald-500 icon-anim-lift" />
-                    Document
+                    {t("chat.composer.document")}
                   </button>
                 </div>
               ) : null}
@@ -1096,13 +1100,13 @@ export function MessageComposer({
               ref={messageInputRef}
               name="message"
               rows={1}
-              placeholder="Type a message"
+              placeholder={t("chat.composer.placeholder")}
               aria-label={
                 editTarget
-                  ? "Edit message"
+                  ? t("chat.composer.editAria")
                   : replyTarget
-                  ? `Reply to ${replyTarget.displayName || replyTarget.username || "message"}`
-                  : "Type a message"
+                  ? t("chat.composer.replyTo", { name: replyWithName })
+                  : t("chat.composer.placeholder")
               }
               value={messageValue}
               maxLength={
@@ -1158,7 +1162,7 @@ export function MessageComposer({
         ) : (
           <div className="flex min-w-0 flex-1 items-center justify-between rounded-2xl border border-emerald-200 bg-white px-4 py-2 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200">
             <span className="text-xs font-semibold uppercase tracking-wide">
-              Recording
+              {t("chat.composer.recording")}
             </span>
             <span className="flex items-center gap-2 text-sm font-semibold">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500" />
@@ -1188,12 +1192,12 @@ export function MessageComposer({
           }
           aria-label={
             isRecording
-              ? "Stop recording"
+              ? t("chat.composer.stopRecording")
               : micMode
-              ? "Record voice message"
+              ? t("chat.composer.recordVoice")
               : editTarget
-              ? "Save edit"
-              : "Send message"
+              ? t("chat.composer.saveEdit")
+              : t("chat.composer.sendMessage")
           }
           className={`inline-flex h-11 items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-70 ${
             isRecording

@@ -354,7 +354,7 @@ export default function RemoteChannelSetupModal({ open, onClose, onChanged }) {
             <p className="text-center text-[11px] text-slate-400 dark:text-slate-500">
               For more information visit the{" "}
               <a
-                href="https://github.com/miladalefbusiness/chatdesk/tree/main/docs/Remote-Channel-Setup"
+                href="https://github.com/MASolutionExpert/chatdesk/tree/main/docs/Remote-Channel-Setup"
                 target="_blank"
                 rel="noreferrer"
                 className="font-semibold text-emerald-600 hover:underline dark:text-emerald-400"

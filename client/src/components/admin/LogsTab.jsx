@@ -29,40 +29,42 @@ import { api, cardCls, btnDanger, fmtDateTime, DEFAULT_PAGE_SIZE } from "./admin
 import { LoadingRows, EmptyState, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
+import { useI18n } from "../../i18n/index.js";
 
+// `label` holds an i18n key (admin.logs.actions.*) — translated at render time.
 const LOG_ACTION_META = {
-  "user.create":                        { label: "User created",                color: "emerald", icon: UserPlus },
-  "user.edit":                          { label: "User edited",                 color: "slate",   icon: Pencil },
-  "user.delete":                        { label: "User deleted",                color: "rose",    icon: Trash },
-  "user.ban":                           { label: "User banned",                 color: "rose",    icon: Ban },
-  "user.unban":                         { label: "User unbanned",               color: "emerald", icon: CirclePlus },
-  "user.role":                          { label: "Role changed",                color: "emerald", icon: Tag },
-  "user.reset_password":                { label: "Password reset",              color: "slate",   icon: KeyRound },
-  "chat.create":                        { label: "Chat created",                color: "emerald", icon: Plus },
-  "chat.edit":                          { label: "Chat edited",                 color: "slate",   icon: Pencil },
-  "chat.delete":                        { label: "Chat deleted",                color: "rose",    icon: Trash },
-  "chat.member_add":                    { label: "Member added",                color: "emerald", icon: UserPlus },
-  "chat.member_remove":                 { label: "Member removed",              color: "rose",    icon: UserMinus },
-  "chat.member_role":                   { label: "Member role",                 color: "slate",   icon: Tag },
-  "db.vacuum":                          { label: "DB vacuumed",                 color: "emerald", icon: Brush },
-  "db.clear_messages":                  { label: "Messages cleared",            color: "rose",    icon: MessageCircleX },
-  "db.reset":                           { label: "DB reset",                    color: "rose",    icon: Rotate },
-  "db.backup":                          { label: "DB downloaded",               color: "emerald", icon: HardDriveDownload },
-  "db.restore":                         { label: "DB restored",                 color: "slate",   icon: HardDriveUpload },
-  "service.restart":                    { label: "Service restarted",           color: "emerald", icon: Refresh },
-  "service.stop":                       { label: "Service stopped",             color: "rose",    icon: Power },
-  "logs.clear":                         { label: "Logs cleared",                color: "rose",    icon: Trash },
-  "settings.update":                    { label: "Setting updated",             color: "emerald", icon: Settings },
-  "settings.reset":                     { label: "Setting reset",               color: "slate",   icon: Rotate },
-  "admin.claim_success":                { label: "Admin claimed",               color: "emerald", icon: ShieldCheck },
-  "admin.claim_failed":                 { label: "Failed to claim",             color: "rose",    icon: ShieldOff },
-  "remoteChannel.test":                 { label: "Remote channel tested",       color: "slate",   icon: Zap },
-  "remoteChannel.setup_code_sent":      { label: "Login code sent",             color: "emerald", icon: Send },
-  "remoteChannel.setup_code_failed":    { label: "Failed to send code",         color: "rose",    icon: Send },
-  "remoteChannel.setup_signed_in":      { label: "Telegram signed in",          color: "emerald", icon: LogIn },
-  "remoteChannel.setup_sign_in_failed": { label: "Failed to sign in",           color: "rose",    icon: LogIn },
-  "remoteChannel.disconnected":         { label: "Remote channel disconnected", color: "rose",    icon: Unplug },
-  "nginx.reload":                       { label: "Nginx reloaded",              color: "emerald", icon: Refresh },
+  "user.create":                        { label: "admin.logs.actions.userCreate",                color: "emerald", icon: UserPlus },
+  "user.edit":                          { label: "admin.logs.actions.userEdit",                 color: "slate",   icon: Pencil },
+  "user.delete":                        { label: "admin.logs.actions.userDelete",                color: "rose",    icon: Trash },
+  "user.ban":                           { label: "admin.logs.actions.userBan",                 color: "rose",    icon: Ban },
+  "user.unban":                         { label: "admin.logs.actions.userUnban",               color: "emerald", icon: CirclePlus },
+  "user.role":                          { label: "admin.logs.actions.userRole",                color: "emerald", icon: Tag },
+  "user.reset_password":                { label: "admin.logs.actions.userResetPassword",              color: "slate",   icon: KeyRound },
+  "chat.create":                        { label: "admin.logs.actions.chatCreate",                color: "emerald", icon: Plus },
+  "chat.edit":                          { label: "admin.logs.actions.chatEdit",                 color: "slate",   icon: Pencil },
+  "chat.delete":                        { label: "admin.logs.actions.chatDelete",                color: "rose",    icon: Trash },
+  "chat.member_add":                    { label: "admin.logs.actions.memberAdd",                color: "emerald", icon: UserPlus },
+  "chat.member_remove":                 { label: "admin.logs.actions.memberRemove",                 color: "rose",    icon: UserMinus },
+  "chat.member_role":                   { label: "admin.logs.actions.memberRole",                 color: "slate",   icon: Tag },
+  "db.vacuum":                          { label: "admin.logs.actions.dbVacuum",                 color: "emerald", icon: Brush },
+  "db.clear_messages":                  { label: "admin.logs.actions.dbClearMessages",            color: "rose",    icon: MessageCircleX },
+  "db.reset":                           { label: "admin.logs.actions.dbReset",                    color: "rose",    icon: Rotate },
+  "db.backup":                          { label: "admin.logs.actions.dbBackup",               color: "emerald", icon: HardDriveDownload },
+  "db.restore":                         { label: "admin.logs.actions.dbRestore",               color: "slate",   icon: HardDriveUpload },
+  "service.restart":                    { label: "admin.logs.actions.serviceRestart",           color: "emerald", icon: Refresh },
+  "service.stop":                       { label: "admin.logs.actions.serviceStop",             color: "rose",    icon: Power },
+  "logs.clear":                         { label: "admin.logs.actions.logsClear",                color: "rose",    icon: Trash },
+  "settings.update":                    { label: "admin.logs.actions.settingsUpdate",             color: "emerald", icon: Settings },
+  "settings.reset":                     { label: "admin.logs.actions.settingsReset",             color: "slate",   icon: Rotate },
+  "admin.claim_success":                { label: "admin.logs.actions.adminClaimSuccess",               color: "emerald", icon: ShieldCheck },
+  "admin.claim_failed":                 { label: "admin.logs.actions.adminClaimFailed",             color: "rose",    icon: ShieldOff },
+  "remoteChannel.test":                 { label: "admin.logs.actions.remoteTest",       color: "slate",   icon: Zap },
+  "remoteChannel.setup_code_sent":      { label: "admin.logs.actions.remoteCodeSent",             color: "emerald", icon: Send },
+  "remoteChannel.setup_code_failed":    { label: "admin.logs.actions.remoteCodeFailed",         color: "rose",    icon: Send },
+  "remoteChannel.setup_signed_in":      { label: "admin.logs.actions.remoteSignedIn",          color: "emerald", icon: LogIn },
+  "remoteChannel.setup_sign_in_failed": { label: "admin.logs.actions.remoteSignInFailed",           color: "rose",    icon: LogIn },
+  "remoteChannel.disconnected":         { label: "admin.logs.actions.remoteDisconnected", color: "rose",    icon: Unplug },
+  "nginx.reload":                       { label: "admin.logs.actions.nginxReload",               color: "emerald", icon: Refresh },
 };
 
 const LOG_COLORS = {
@@ -71,13 +73,13 @@ const LOG_COLORS = {
   slate:   { icon: "text-slate-500 dark:text-slate-400" },
 };
 
-// All possible log sources in display order.
+// All possible log sources in display order. `label` holds an i18n key.
 const ALL_LOG_SOURCES = [
-  { id: "admin",     label: "Admin Panel" },
-  { id: "installer", label: "Installer" },
-  { id: "service",   label: "Service" },
-  { id: "worker",    label: "Worker" },
-  { id: "nginx",     label: "Nginx" },
+  { id: "admin",     label: "admin.logs.sources.admin" },
+  { id: "installer", label: "admin.logs.sources.installer" },
+  { id: "service",   label: "admin.logs.sources.service" },
+  { id: "worker",    label: "admin.logs.sources.worker" },
+  { id: "nginx",     label: "admin.logs.sources.nginx" },
 ];
 
 // ─── Admin audit log ──────────────────────────────────────────────────────────
@@ -86,6 +88,7 @@ const ALL_LOG_SOURCES = [
 // `onFetched`   — parent callback to store fresh data: (page, pageSize, search, data) => void
 // `active`      — whether this tab is visible
 const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = true, cachedData, onFetched }, ref) {
+  const { t } = useI18n();
   const [page, setPage]               = useState(1);
   const [pageSize, setPageSize]       = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading]         = useState(false);
@@ -144,27 +147,27 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
   return (
     <div className="space-y-3">
       <TabToolbar>
-        <TabSearchInput value={search} onChange={changeSearch} placeholder="Search logs…" />
+        <TabSearchInput value={search} onChange={changeSearch} placeholder="admin.logs.search" />
         {isOwner && (
           <button type="button" onClick={() => setConfirmOpen(true)}
             className={btnDanger + " w-9 shrink-0 justify-center px-0 sm:w-auto sm:justify-start sm:px-3"}>
             <Trash size={16} className="icon-anim-slide shrink-0" />
-            <span className="hidden sm:inline">Clear</span>
+            <span className="hidden sm:inline">{t("admin.logs.clear")}</span>
           </button>
         )}
       </TabToolbar>
 
       <ConfirmModal
         open={confirmOpen}
-        title="Clear admin logs"
-        message="Clear all admin logs? This cannot be undone."
-        confirmLabel="Clear"
+        title={t("admin.logs.clearTitle")}
+        message={t("admin.logs.clearMsg")}
+        confirmLabel={t("admin.logs.clear")}
         busy={clearing}
         onConfirm={clearLogs}
         onClose={() => setConfirmOpen(false)}
       />
 
-      {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message="No log entries." /> : (
+      {!initialized ? <LoadingRows /> : logs.length === 0 ? <EmptyState message={t("admin.logs.empty")} /> : (
         <>
           <div className={"overflow-hidden " + cardCls}>
             {logs.map((entry, i) => {
@@ -180,13 +183,13 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{meta.label}</span>
-                      {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">failed</span>}
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{t(meta.label)}</span>
+                      {entry.status === "error" && <span className="text-[10px] font-semibold text-rose-500">{t("admin.logs.failed")}</span>}
                     </div>
                     <p className={`mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500 ${detailHasPersian ? "font-fa" : ""}`} dir="ltr">
                       <bdi>{detailText}</bdi>
                       {detailText ? " · " : ""}
-                      {entry.actorUsername ? `@${entry.actorUsername}` : "system"} · {fmtDateTime(entry.ts)}
+                      {entry.actorUsername ? `@${entry.actorUsername}` : t("admin.logs.system")} · {fmtDateTime(entry.ts)}
                     </p>
                   </div>
                 </div>
@@ -206,6 +209,7 @@ const AdminLogView = forwardRef(function AdminLogView({ currentUser, active = tr
 // `cachedData`  — { available, lines, reason, source } from parent cache (null = not yet loaded)
 // `onFetched`   — parent callback to store fresh data: (data) => void
 const SystemLogView = forwardRef(function SystemLogView({ source, cachedData, onFetched }, ref) {
+  const { t } = useI18n();
   const logContainerRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -213,9 +217,9 @@ const SystemLogView = forwardRef(function SystemLogView({ source, cachedData, on
       const d = await api.get(`/api/admin/logs/${source}`);
       onFetched?.(d);
     } catch {
-      onFetched?.({ available: false, lines: [], reason: "Failed to load." });
+      onFetched?.({ available: false, lines: [], reason: t("admin.logs.loadFailed") });
     }
-  }, [source, onFetched]);
+  }, [source, onFetched, t]);
 
   // Fetch on mount only if we have no cached data yet.
   useEffect(() => {
@@ -238,9 +242,9 @@ const SystemLogView = forwardRef(function SystemLogView({ source, cachedData, on
   return (
     <div className="space-y-3">
       {!initialized ? <LoadingRows /> : !cachedData?.available ? (
-        <EmptyState message={cachedData?.reason || "Logs not available."} />
+        <EmptyState message={cachedData?.reason || t("admin.logs.unavailable")} />
       ) : cachedData.lines.length === 0 ? (
-        <EmptyState message="Log is empty." />
+        <EmptyState message={t("admin.logs.emptyLog")} />
       ) : (
         <div className={"overflow-hidden " + cardCls}>
           <pre ref={logContainerRef} className="app-scroll max-h-[40vh] overflow-auto p-3 text-[10px] leading-relaxed text-slate-600 sm:max-h-[60vh] sm:p-4 sm:text-[11px] dark:text-slate-300">
@@ -250,7 +254,7 @@ const SystemLogView = forwardRef(function SystemLogView({ source, cachedData, on
       )}
       {cachedData?.source && (
         <p className="text-[11px] text-slate-400 dark:text-slate-500">
-          Source: <code className="rounded-sm bg-slate-100 px-1 py-0.5 dark:bg-white/10">{cachedData.source}</code>
+          {t("admin.logs.source")}: <code className="rounded-sm bg-slate-100 px-1 py-0.5 dark:bg-white/10">{cachedData.source}</code>
         </p>
       )}
     </div>
@@ -263,6 +267,7 @@ const SystemLogView = forwardRef(function SystemLogView({ source, cachedData, on
 const _logCache = {};
 
 const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref) {
+  const { t } = useI18n();
   const [source, setSource]                 = useState("admin");
   const [availableSources, setAvailableSources] = useState(null); // null = probing
 
@@ -356,7 +361,7 @@ const LogsTab = forwardRef(function LogsTab({ currentUser, active = true }, ref)
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
                 : "border-transparent text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5"
             }`}>
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>

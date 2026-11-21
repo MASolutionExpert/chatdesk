@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   DockerIcon,
   GithubIcon,
@@ -7,6 +6,7 @@ import {
 } from "../../../icons/BrandIcons.jsx";
 import { ABOUT_CONTENT } from "../../../settings/aboutContent.js";
 import Tooltip from "../../common/Tooltip.jsx";
+import { useI18n } from "../../../i18n/index.js";
 
 const SOCIAL_ICONS = {
   docker: DockerIcon,
@@ -22,10 +22,10 @@ export function AboutSettingsPanel({
   variant = "desktop",
 }) {
   const isMobile = variant === "mobile";
-  const versionLabel =
-    String(appInfo?.version || "Unknown").trim() || "Unknown";
+  const { t } = useI18n();
+  const versionLabel = String(appInfo?.version || "").trim();
   const ownerHref = ABOUT_CONTENT.copyright?.ownerHref || "";
-  const ownerLabel = ABOUT_CONTENT.copyright?.ownerLabel || "miladalefbusiness";
+  const ownerLabel = ABOUT_CONTENT.copyright?.ownerLabel || "MASolutionExpert";
   const year = new Date().getFullYear();
   const rowBase =
     "flex w-full items-center justify-between gap-3 rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-left text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200";
@@ -40,9 +40,11 @@ export function AboutSettingsPanel({
         }
       >
         <div className={rowBase}>
-          <p>Version</p>
+          <p>{t("settings.about.version")}</p>
           <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            {appInfoLoading ? "Loading..." : versionLabel}
+            {appInfoLoading
+              ? t("common.actions.loading")
+              : versionLabel || t("settings.about.unknown")}
           </span>
         </div>
 
@@ -80,8 +82,7 @@ export function AboutSettingsPanel({
             </a>
           </p>
           <p className="mt-1 text-center text-[11px] text-slate-500 dark:text-slate-400">
-            All rights reserved. ChatDesk is a free and open-source project,
-            licensed under the MIT License.
+            {t("settings.about.rights")}
           </p>
         </div>
       </div>
@@ -93,7 +94,7 @@ export function AboutSettingsPanel({
             onClick={() => onDone?.()}
             className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400"
           >
-            Done
+            {t("common.actions.done")}
           </button>
         </div>
       ) : null}

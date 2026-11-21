@@ -6,6 +6,7 @@ import { ChatSidebar } from "../components/sidebar/index.js";
 import AppContextMenu from "../components/context-menu/AppContextMenu.jsx";
 import { useAppContextMenu } from "../components/context-menu/useAppContextMenu.js";
 import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
+import { useI18n } from "../i18n/index.js";
 import { getAvatarInitials } from "../utils/avatarInitials.js";
 import { getRandomAvatarColor } from "../utils/avatarColor.js";
 import { NICKNAME_MAX, USERNAME_MAX, USERNAME_REGEX } from "../utils/nameLimits.js";
@@ -332,6 +333,7 @@ const buildInviteLinkForChat = (chat) => {
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
   /* eslint-disable react-hooks/exhaustive-deps */
+  const { t, lang } = useI18n();
   const messageMaxChars = useMessageMaxChars();
   const [profileError, setProfileError] = useState("");
   const [passwordError, setPasswordError] = useState("");
@@ -962,7 +964,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setEditTarget(null);
     // In channel chats, show the channel name instead of the message author's name
     const replyName = isActiveChannelChat
-      ? (activeChat?.name || "Channel")
+      ? (activeChat?.name || t("chat.chat.channel"))
       : (msg.nickname || msg.username || msg.replyTo?.nickname || msg.replyTo?.username || "");
     const replyColor = isActiveChannelChat
       ? (activeChat?.group_color || "#10b981")
@@ -974,7 +976,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       nickname: msg.nickname || "",
       body: preview.text,
       icon: preview.icon,
-      displayName: replyName || "Unknown",
+      displayName: replyName || t("chat.chat.unknown"),
       color: replyColor,
       verified: isActiveChannelChat ? Boolean(activeChat?.verified) : Boolean(msg.user_verified),
       role: isActiveChannelChat ? null : (msg.user_role || null),
@@ -997,7 +999,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       username: msg.username || "",
       nickname: msg.nickname || "",
       displayName:
-        msg.nickname || msg.username || activeChat?.name || "Unknown",
+        msg.nickname || msg.username || activeChat?.name || t("chat.chat.unknown"),
       body: msg.body || "",
       files: Array.isArray(msg.files) ? msg.files : [],
     });
@@ -1020,7 +1022,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             savedChat = {
               id: data.id,
               type: "saved",
-              name: "Saved messages",
+              name: t("chat.chat.savedMessages"),
               members: [],
               group_color: "#10b981",
               group_avatar_url: "",
@@ -1188,7 +1190,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         targetChat = {
           id: String(data?.id || numericChatId),
           type: data?.type || "group",
-          name: data?.name || "Chat",
+          name: data?.name || t("chat.chat.fallbackName"),
           group_username: data?.username || "",
           group_visibility: data?.visibility || "public",
           group_color: data?.color || "#10b981",
@@ -1203,7 +1205,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         setMentionProfile({
           kind: "group",
           chatId: numericChatId,
-          name: target.label || "Chat",
+          name: target.label || t("chat.chat.fallbackName"),
           username: "",
           visibility: "private",
           color: target.color || "#10b981",
@@ -1232,7 +1234,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMentionProfile({
       kind: String(targetChat.type || "group").toLowerCase(),
       chatId: Number(targetChat.id || 0),
-      name: targetChat.name || "Chat",
+      name: targetChat.name || t("chat.chat.fallbackName"),
       username: targetChat.group_username || "",
       visibility: targetChat.group_visibility || "public",
       color: targetChat.group_color || "#10b981",
@@ -1357,7 +1359,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [502, 503, 504].includes(Number(status || 0));
 
   const createAmbiguousSendError = (status, message) => {
-    const error = new Error(message || `Unable to confirm delivery (HTTP ${status}).`);
+    const error = new Error(
+      message || t("chat.errors.unconfirmedDelivery", { code: status }),
+    );
     error._ambiguousSendStatus = Number(status || 0);
     return error;
   };
@@ -1698,7 +1702,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     document.title =
       totalUnreadCount > 0
-        ? `ChatDesk | ${totalUnread} new message${totalUnreadCount === 1 ? "" : "s"}`
+        ? t(
+            totalUnreadCount === 1
+              ? "chat.documentTitle.unreadOne"
+              : "chat.documentTitle.unreadOther",
+            { count: totalUnread },
+          )
         : "ChatDesk";
     if (navigator?.setAppBadge) {
       if (totalUnreadCount > 0) {
@@ -2211,26 +2220,29 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const formatLastSeenLabel = (lastSeenInput) => {
     const parsed = parsePresenceDate(lastSeenInput);
     const seenAt = parsed?.getTime?.() || 0;
-    if (!Number.isFinite(seenAt) || seenAt <= 0) return "last seen recently";
+    if (!Number.isFinite(seenAt) || seenAt <= 0) return t("chat.presence.lastSeen.recently");
     const elapsedMs = Math.max(0, Date.now() - seenAt);
     const minuteMs = 60 * 1000;
     const hourMs = 60 * minuteMs;
     const dayMs = 24 * hourMs;
     const weekMs = 7 * dayMs;
-    if (elapsedMs < 10 * minuteMs) return "last seen recently";
-    if (elapsedMs < 90 * minuteMs) return "last seen an hour ago";
+    if (elapsedMs < 10 * minuteMs) return t("chat.presence.lastSeen.recently");
+    if (elapsedMs < 90 * minuteMs) return t("chat.presence.lastSeen.anHourAgo");
     if (elapsedMs < dayMs) {
       const hours = Math.max(2, Math.round(elapsedMs / hourMs));
-      return `last seen ${hours.toLocaleString("en-US")} hours ago`;
+      return t("chat.presence.lastSeen.hoursAgo", { hours: hours.toLocaleString("en-US") });
     }
-    if (elapsedMs < 2 * dayMs) return "last seen yesterday";
+    if (elapsedMs < 2 * dayMs) return t("chat.presence.lastSeen.yesterday");
     if (elapsedMs < 7 * dayMs) {
-      return `last seen ${parsed.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase()}`;
+      const weekday = parsed
+        .toLocaleDateString(lang === "fa" ? "fa-IR" : "en-US", { weekday: "long" })
+        .toLowerCase();
+      return t("chat.presence.lastSeen.weekday", { weekday });
     }
-    if (elapsedMs < 2 * weekMs) return "last seen a week ago";
-    if (elapsedMs < 4 * weekMs) return "last seen two weeks ago";
-    if (elapsedMs < 8 * weekMs) return "last seen a month ago";
-    return "last seen a long time ago";
+    if (elapsedMs < 2 * weekMs) return t("chat.presence.lastSeen.aWeekAgo");
+    if (elapsedMs < 4 * weekMs) return t("chat.presence.lastSeen.twoWeeksAgo");
+    if (elapsedMs < 8 * weekMs) return t("chat.presence.lastSeen.aMonthAgo");
+    return t("chat.presence.lastSeen.aLongTimeAgo");
   };
   const applyPresenceUpdate = (payload = {}) => {
     const targetUsername = String(payload?.username || "").toLowerCase();
@@ -2495,11 +2507,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
   }, [activeHeaderPeer?.username, setUser]);
   const peerStatusLabel = !activeHeaderPeer || activeHeaderPeer?.isDeleted
-    ? "last seen recently"
+    ? t("chat.presence.lastSeen.recently")
     : String(peerPresence.rawStatus || peerPresence.status || "").toLowerCase() === "invisible"
-      ? "last seen recently"
+      ? t("chat.presence.lastSeen.recently")
       : peerPresence.status === "online"
-        ? "online"
+        ? t("common.states.online")
         : formatLastSeenLabel(peerPresence.lastSeen);
   const activeTypingUsers = useMemo(() => {
     const chatId = String(activeChatId || "");
@@ -2560,7 +2572,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         return {
           type: "group_single",
           name,
-          label: `${name} typing`,
+          label: t("chat.typing.one", { name }),
           fullLabel: activeTypingUsers[0].displayName,
         };
       }
@@ -2571,27 +2583,39 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           type: "group_pair",
           firstName: first,
           secondName: second,
-          label: `${first} and ${second} typing`,
-          fullLabel: `${activeTypingUsers[0].displayName} and ${activeTypingUsers[1].displayName}`,
+          label: t("chat.typing.pair", { first, second }),
+          fullLabel: t("chat.typing.pairFull", {
+            first: activeTypingUsers[0].displayName,
+            second: activeTypingUsers[1].displayName,
+          }),
         };
       }
       const first = buildTypingDisplayName(activeTypingUsers[0].displayName, 18);
       const othersCount = activeTypingUsers.length - 1;
+      const othersCountLabel = othersCount.toLocaleString("en-US");
       return {
         type: "group_multi",
-        label: `${first} and ${othersCount.toLocaleString("en-US")} others typing`,
-        fullLabel: `${activeTypingUsers[0].displayName} and ${othersCount.toLocaleString("en-US")} others`,
+        label: t("chat.typing.multi", { first, count: othersCountLabel }),
+        fullLabel: t("chat.typing.multiFull", {
+          first: activeTypingUsers[0].displayName,
+          count: othersCountLabel,
+        }),
       };
     }
     return {
       type: "dm",
-      label: "typing",
+      label: t("chat.typing.dm"),
     };
-  }, [activeTypingUsers, buildTypingDisplayName, isActiveChannelChat, isActiveGroupChat]);
+  }, [activeTypingUsers, buildTypingDisplayName, isActiveChannelChat, isActiveGroupChat, t]);
   const activeMembersLabel = Number(activeMembers.length || 0)
     .toLocaleString("en-US");
   const activeHeaderSubtitle = isActiveGroupChat || isActiveChannelChat
-    ? `${activeMembersLabel} member${activeMembers.length === 1 ? "" : "s"}`
+    ? t(
+        activeMembers.length === 1
+          ? "chat.header.membersOne"
+          : "chat.header.membersOther",
+        { count: activeMembersLabel },
+      )
     : isActiveSavedChat
       ? ""
       : peerStatusLabel;
@@ -2791,7 +2815,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             const nextChat = {
               id: data?.id || chatId,
               type: data?.type || "group",
-              name: data?.name || "Chat",
+              name: data?.name || t("chat.chat.fallbackName"),
               group_username: data?.username || "",
               group_visibility: data?.visibility || "public",
               group_color: data?.color || "#10b981",
@@ -2867,7 +2891,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             liveMentionProfileChat?.name ||
             mentionProfile.name ||
             mentionProfile.username ||
-            "Chat",
+            t("chat.chat.fallbackName"),
           group_username:
             liveMentionProfileChat?.group_username ||
             mentionProfile.username ||
@@ -3187,10 +3211,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         forwardMessageTarget?.username ||
         user?.nickname ||
         user?.username ||
-        "yourself",
+        t("chat.chat.yourself"),
     ).trim();
     const originalForwardLabel = isActiveChannelChat
-      ? String(activeChat?.name || activeFallbackTitle || "Channel").trim()
+      ? String(activeChat?.name || activeFallbackTitle || t("chat.chat.channel")).trim()
       : originalAuthorLabel;
 
     const body = String(forwardMessageTarget?.body || "");
@@ -3231,11 +3255,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Unable to forward message.");
+        throw new Error(data?.error || t("chat.errors.forwardFailed"));
       }
       await loadChats({ silent: true });
     } catch (error) {
-      setUploadError(String(error?.message || "Unable to forward message."));
+      setUploadError(String(error?.message || t("chat.errors.forwardFailed")));
     }
   }
 
@@ -3747,7 +3771,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Unable to delete message.");
+        throw new Error(data?.error || t("chat.errors.deleteFailed"));
       }
       await loadChats({ silent: true });
     } catch (error) {
@@ -3755,7 +3779,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (snapshotMessages) {
         setMessages(snapshotMessages);
       }
-      setUploadError(String(error?.message || "Unable to delete message."));
+      setUploadError(String(error?.message || t("chat.errors.deleteFailed")));
     }
   }
 
@@ -3803,7 +3827,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (pageFocused) return;
       const chat = chats.find((conv) => String(conv.id) === payloadChatId);
       if (chat?._muted) return;
-      let title = "New message";
+      let title = t("chat.notification.newMessageTitle");
       if (chat) {
         if (chat.type === "dm") {
           const other = (chat.members || []).find(
@@ -3811,9 +3835,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
               String(member?.username || "").toLowerCase() !==
               String(user?.username || "").toLowerCase(),
           );
-          title = other?.nickname || other?.username || "Deleted account";
+          title = other?.nickname || other?.username || t("chat.chat.deletedAccount");
         } else if (chat.type === "group") {
-          const groupName = chat.name || "Group";
+          const groupName = chat.name || t("chat.chat.group");
           const senderLabel = senderName
             ? (() => {
                 const senderMember = (chat.members || []).find(
@@ -3829,9 +3853,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
                 );
               })()
             : "";
-          title = senderLabel ? `${groupName} (${senderLabel})` : groupName;
+          title = senderLabel
+            ? t("chat.notification.groupTitle", { name: groupName, sender: senderLabel })
+            : groupName;
         } else {
-          title = chat.name || "Chat";
+          title = chat.name || t("chat.chat.fallbackName");
         }
       } else if (senderName) {
         title = senderName;
@@ -3851,9 +3877,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         ? baseBody
           ? truncateText(baseBody, NOTIFICATION_PREVIEW_MAX_CHARS)
           : senderName
-            ? `New message from ${senderName}.`
-            : "New message"
-        : "New message.";
+            ? t("chat.notification.newMessageFrom", { name: senderName })
+            : t("chat.notification.newMessageTitle")
+        : t("chat.notification.newMessageBody");
       try {
         const notification = new Notification(title, {
           body,
@@ -3949,7 +3975,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           liveMentionProfileChat.type || prev.kind || "group",
         ).toLowerCase();
         const nextName =
-          liveMentionProfileChat.name || prev.name || prev.username || "Chat";
+          liveMentionProfileChat.name || prev.name || prev.username || t("chat.chat.fallbackName");
         const nextUsername = liveMentionProfileChat.group_username || prev.username || "";
         const nextVisibility =
           liveMentionProfileChat.group_visibility || prev.visibility || "public";
@@ -4033,7 +4059,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             ).toLowerCase();
             const isMember = Boolean(data?.isMember);
             const nextKind = String(data?.type || prev.kind || "group").toLowerCase();
-            const nextName = data?.name || prev.name || prev.username || "Chat";
+            const nextName = data?.name || prev.name || prev.username || t("chat.chat.fallbackName");
             const nextUsername = data?.username || prev.username || "";
             const nextColor = data?.color || prev.color || "#10b981";
             const nextAvatarUrl = data?.avatarUrl ?? prev.avatarUrl ?? null;
@@ -4183,8 +4209,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       };
 
       xhr.onerror = () =>
-        finalize(() => reject(new Error("Network error during file upload.")));
-      xhr.ontimeout = () => finalize(() => reject(new Error("Upload timed out.")));
+        finalize(() => reject(new Error(t("chat.errors.uploadNetwork"))));
+      xhr.ontimeout = () => finalize(() => reject(new Error(t("chat.errors.uploadTimeout"))));
       xhr.onload = async () => {
         const data = (() => {
           try {
@@ -4212,7 +4238,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             reject(
               createAmbiguousSendError(
                 xhr.status,
-                `Unable to confirm delivery (HTTP ${xhr.status}).`,
+                t("chat.errors.unconfirmedDelivery", { code: xhr.status }),
               ),
             ),
           );
@@ -4220,14 +4246,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         }
         if (xhr.status === 413) {
           finalize(() => reject(
-            new Error(
-              "Upload rejected (HTTP 413): request is too large. Increase proxy upload limit.",
-            ),
+            new Error(t("chat.errors.uploadTooLarge", { code: 413 })),
           ));
           return;
         }
         finalize(() =>
-          reject(new Error(`Unable to send message (HTTP ${xhr.status || "unknown"}).`)),
+          reject(
+            new Error(
+              t("chat.errors.sendFailedHttp", { code: xhr.status || "unknown" }),
+            ),
+          ),
         );
       };
 
@@ -4245,8 +4273,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!clientId || sendingClientIdsRef.current.has(clientId)) return;
 
     const maxMessageChars = messageMaxChars;
+    const messageTooLongError = t("chat.errors.messageTooLong", { limit: maxMessageChars });
     if (!hasFiles && String(pendingMessage.body || "").length > maxMessageChars) {
-      setUploadError(`Message must be ${maxMessageChars} characters or less.`);
+      setUploadError(messageTooLongError);
       setMessages((prev) =>
         prev.map((msg) =>
           msg?._clientId === clientId ? { ...msg, _delivery: "failed" } : msg,
@@ -4292,10 +4321,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           if (isAmbiguousSendStatus(res.status) && !isEditingExistingMessage) {
             throw createAmbiguousSendError(
               res.status,
-              `Unable to confirm delivery (HTTP ${res.status}).`,
+              t("chat.errors.unconfirmedDelivery", { code: res.status }),
             );
           }
-          throw new Error(data?.error || "Unable to send message.");
+          throw new Error(data?.error || t("chat.errors.sendFailed"));
         }
       }
 
@@ -4506,7 +4535,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             activeUploadProgressHideTimerRef.current = null;
           }
           setActiveUploadProgress(null);
-          setUploadError(String(error?.message || "Unable to upload files."));
+          setUploadError(String(error?.message || t("chat.errors.uploadFailed")));
           setMessages((prev) =>
             prev.map((msg) =>
               msg._clientId === clientId
@@ -5022,36 +5051,36 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   function handleVoiceRecorded(payload) {
     if (!payload?.file) return;
     if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
-      setUploadError("File uploads are disabled on this server.");
+      setUploadError(t("chat.errors.uploadsDisabled"));
       return;
     }
     if (fileUploadInProgress || activeUploadProgress !== null) {
-      setUploadError("Please wait for the current upload to finish.");
+      setUploadError(t("chat.errors.uploadInProgress"));
       return;
     }
     if (pendingVoiceMessage) {
-      setUploadError("Remove the voice message before attaching files.");
+      setUploadError(t("chat.errors.removeVoiceFirst"));
       return;
     }
     if (pendingUploadFiles.length) {
-      setUploadError("Remove attachments before adding a voice message.");
+      setUploadError(t("chat.errors.removeAttachmentsFirst"));
       return;
     }
     const file = payload.file;
     const sizeBytes = Number(file.size || 0);
     if (sizeBytes > CHAT_PAGE_CONFIG.maxFileSizeBytes) {
       setUploadError(
-        `Each file must be smaller than ${formatBytesAsMb(
-          CHAT_PAGE_CONFIG.maxFileSizeBytes,
-        )}.`,
+        t("chat.errors.fileTooLarge", {
+          size: formatBytesAsMb(CHAT_PAGE_CONFIG.maxFileSizeBytes),
+        }),
       );
       return;
     }
     if (sizeBytes > CHAT_PAGE_CONFIG.maxTotalUploadBytes) {
       setUploadError(
-        `Total upload size cannot exceed ${formatBytesAsMb(
-          CHAT_PAGE_CONFIG.maxTotalUploadBytes,
-        )}.`,
+        t("chat.errors.totalTooLarge", {
+          size: formatBytesAsMb(CHAT_PAGE_CONFIG.maxTotalUploadBytes),
+        }),
       );
       return;
     }
@@ -5224,11 +5253,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   async function handleUploadFilesSelected(fileList, uploadType, append = false) {
     if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
-      setUploadError("File uploads are disabled on this server.");
+      setUploadError(t("chat.errors.uploadsDisabled"));
       return;
     }
     if (fileUploadInProgress || activeUploadProgress !== null) {
-      setUploadError("Please wait for the current upload to finish.");
+      setUploadError(t("chat.errors.uploadInProgress"));
       return;
     }
     const incoming = Array.from(fileList || []);
@@ -5239,7 +5268,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       pendingUploadType &&
       uploadType !== pendingUploadType
     ) {
-      setUploadError("You can only add one type per message.");
+      setUploadError(t("chat.errors.oneTypePerMessage"));
       return;
     }
     const existing = append ? pendingUploadFiles : [];
@@ -5247,7 +5276,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
     if (combinedCount > CHAT_PAGE_CONFIG.maxFilesPerMessage) {
       setUploadError(
-        `Maximum ${CHAT_PAGE_CONFIG.maxFilesPerMessage} files per message.`,
+        t("chat.errors.maxFilesPerMessage", { count: CHAT_PAGE_CONFIG.maxFilesPerMessage }),
       );
       return;
     }
@@ -5256,9 +5285,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     );
     if (oversize) {
       setUploadError(
-        `Each file must be smaller than ${formatBytesAsMb(
-          CHAT_PAGE_CONFIG.maxFileSizeBytes,
-        )}.`,
+        t("chat.errors.fileTooLarge", {
+          size: formatBytesAsMb(CHAT_PAGE_CONFIG.maxFileSizeBytes),
+        }),
       );
       return;
     }
@@ -5270,9 +5299,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const totalBytes = existingBytes + incomingBytes;
     if (totalBytes > CHAT_PAGE_CONFIG.maxTotalUploadBytes) {
       setUploadError(
-        `Total upload size cannot exceed ${formatBytesAsMb(
-          CHAT_PAGE_CONFIG.maxTotalUploadBytes,
-        )}.`,
+        t("chat.errors.totalTooLarge", {
+          size: formatBytesAsMb(CHAT_PAGE_CONFIG.maxTotalUploadBytes),
+        }),
       );
       return;
     }
@@ -5283,7 +5312,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           !String(file.type || "").startsWith("video/"),
       );
       if (invalid) {
-        setUploadError("Photo or Video only accepts image/video files.");
+        setUploadError(t("chat.errors.mediaOnly"));
         return;
       }
     }
@@ -5324,7 +5353,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       const trimmed = String(value || "").trim();
       if (
         uploadError &&
-        String(uploadError).toLowerCase().includes("message must be") &&
+        uploadError ===
+          t("chat.errors.messageTooLong", { limit: messageMaxChars }) &&
         trimmed.length <= messageMaxChars
       ) {
         setUploadError("");
@@ -5376,6 +5406,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       messageMaxChars,
       sendTypingSignal,
       stopTypingIndicator,
+      t,
       uploadError,
       TYPING_IDLE_TIMEOUT_MS,
       TYPING_SIGNAL_THROTTLE_MS,
@@ -5401,7 +5432,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const formData = new FormData(form);
     const body = formData.get("message")?.toString() || "";
     if (body === "[object Object]") {
-      setUploadError("Invalid message body.");
+      setUploadError(t("chat.errors.invalidBody"));
       return;
     }
     const trimmedBody = body.trim();
@@ -5411,7 +5442,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!trimmedBody && !hasAnyPendingFiles) return;
     const maxMessageChars = messageMaxChars;
     if (String(body).length > maxMessageChars) {
-      setUploadError(`Message must be ${maxMessageChars} characters or less.`);
+      setUploadError(t("chat.errors.messageTooLong", { limit: maxMessageChars }));
       return;
     }
     if (uploadError) {
@@ -5625,22 +5656,24 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewChatError("");
     try {
       if (!isConnected) {
-        setNewChatError("Server not reachable.");
+        setNewChatError(t("chat.errors.serverUnreachable"));
         return;
       }
       const matched = newChatSelection;
       if (!matched) {
-        setNewChatError("Pick a user from the search results.");
+        setNewChatError(t("chat.errors.pickUserFromResults"));
         return;
       }
       const target = matched.username;
       const res = await createDmChat({ from: user.username, to: target });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || `Unable to start chat (${res.status}).`);
+        throw new Error(
+          data?.error || t("chat.errors.startChatFailed", { code: res.status }),
+        );
       }
       if (!data?.id) {
-        throw new Error("Server did not return a chat id.");
+        throw new Error(t("chat.errors.noChatId"));
       }
       setActiveChatId(data.id);
       setActivePeer(matched);
@@ -5671,7 +5704,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   async function handleAvatarChange(event) {
     if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
-      setProfileError("File uploads are disabled on this server.");
+      setProfileError(t("chat.errors.uploadsDisabled"));
       event.target.value = "";
       return;
     }
@@ -5680,15 +5713,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       return;
     }
     if (!String(file.type || "").toLowerCase().startsWith("image/")) {
-      setProfileError("Profile photo must be an image file.");
+      setProfileError(t("chat.profileErrors.photoMustBeImage"));
       event.target.value = "";
       return;
     }
     if (Number(file.size || 0) > CHAT_PAGE_CONFIG.maxFileSizeBytes) {
       setProfileError(
-        `Profile photo must be smaller than ${formatBytesAsMb(
-          CHAT_PAGE_CONFIG.maxFileSizeBytes,
-        )}.`,
+        t("chat.profileErrors.photoTooLarge", {
+          size: formatBytesAsMb(CHAT_PAGE_CONFIG.maxFileSizeBytes),
+        }),
       );
       event.target.value = "";
       return;
@@ -5720,28 +5753,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const trimmedNickname = profileForm.nickname.trim();
     const trimmedUsername = profileForm.username.trim().toLowerCase();
     if (trimmedNickname.length > NICKNAME_MAX) {
-      setProfileError(`Nickname must be ${NICKNAME_MAX} characters or less.`);
+      setProfileError(
+        t("chat.profileErrors.nicknameTooLong", { limit: NICKNAME_MAX }),
+      );
       return;
     }
     if (trimmedUsername.length > USERNAME_MAX) {
-      setProfileError(`Username must be ${USERNAME_MAX} characters or less.`);
+      setProfileError(
+        t("chat.profileErrors.usernameTooLong", { limit: USERNAME_MAX }),
+      );
       return;
     }
     if (trimmedUsername.length < 3) {
-      setProfileError("Username must be at least 3 characters.");
+      setProfileError(t("chat.profileErrors.usernameTooShort"));
       return;
     }
     if (!USERNAME_REGEX.test(trimmedUsername)) {
-      setProfileError(
-        "Username can only include english letters, numbers, dot (.), and underscore (_).",
-      );
+      setProfileError(t("chat.profileErrors.usernameInvalidChars"));
       return;
     }
     try {
       let avatarUrlToSave = profileForm.avatarUrl;
       if (pendingAvatarFile?.file) {
         if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
-          throw new Error("File uploads are disabled on this server.");
+          throw new Error(t("chat.errors.uploadsDisabled"));
         }
         const s3Upload = await uploadAvatarFile(pendingAvatarFile.file);
         if (s3Upload.directS3 && s3Upload.avatarUrl) {
@@ -5751,7 +5786,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           });
           const uploadData = await uploadRes.json();
           if (!uploadRes.ok) {
-            throw new Error(uploadData?.error || "Unable to upload profile photo.");
+            throw new Error(uploadData?.error || t("chat.profileErrors.photoUploadFailed"));
           }
           avatarUrlToSave = uploadData.avatarUrl || s3Upload.avatarUrl;
         } else {
@@ -5761,7 +5796,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           const uploadRes = await uploadAvatar(payload);
           const uploadData = await uploadRes.json();
           if (!uploadRes.ok) {
-            throw new Error(uploadData?.error || "Unable to upload profile photo.");
+            throw new Error(uploadData?.error || t("chat.profileErrors.photoUploadFailed"));
           }
           avatarUrlToSave = uploadData.avatarUrl || "";
         }
@@ -5774,7 +5809,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Unable to update profile.");
+        throw new Error(data?.error || t("chat.profileErrors.updateFailed"));
       }
       const nextUser = {
         ...user,
@@ -5806,12 +5841,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     event.preventDefault();
     setPasswordError("");
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      const message = "Passwords do not match.";
+      const message = t("chat.securityErrors.passwordMismatch");
       setPasswordError(message);
       return;
     }
     if (passwordForm.newPassword.length < 6) {
-      const message = "Password must be at least 6 characters.";
+      const message = t("chat.securityErrors.passwordTooShort");
       setPasswordError(message);
       return;
     }
@@ -5823,7 +5858,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Unable to update password.");
+        throw new Error(data?.error || t("chat.securityErrors.updateFailed"));
       }
       setPasswordForm({
         currentPassword: "",
@@ -6218,7 +6253,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             remoteChannelStatus: {
               available: false,
               source: null,
-              error: data?.error || "Unable to load Remote Channel settings.",
+              error: data?.error || t("chat.groupErrors.remoteSettingsLoadFailed"),
             },
             remoteChannelLoading: false,
           }));
@@ -6229,7 +6264,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           remoteChannelStatus: {
             available: false,
             source: null,
-            error: "Unable to load Remote Channel settings.",
+            error: t("chat.groupErrors.remoteSettingsLoadFailed"),
           },
           remoteChannelLoading: false,
         }));
@@ -6238,24 +6273,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   const handleGroupAvatarChange = (event) => {
-    const label = groupModalType === "channel" ? "Channel" : "Group";
+    const label = groupModalType === "channel"
+      ? t("chat.chat.channel")
+      : t("chat.chat.group");
     if (!CHAT_PAGE_CONFIG.fileUploadEnabled) {
-      setNewGroupError("File uploads are disabled on this server.");
+      setNewGroupError(t("chat.errors.uploadsDisabled"));
       event.target.value = "";
       return;
     }
     const file = event.target.files?.[0];
     if (!file) return;
     if (!String(file.type || "").toLowerCase().startsWith("image/")) {
-      setNewGroupError(`${label} avatar must be an image file.`);
+      setNewGroupError(t("chat.groupErrors.avatarNotImage", { label }));
       event.target.value = "";
       return;
     }
     if (Number(file.size || 0) > CHAT_PAGE_CONFIG.maxFileSizeBytes) {
       setNewGroupError(
-        `${label} avatar must be smaller than ${formatBytesAsMb(
-          CHAT_PAGE_CONFIG.maxFileSizeBytes,
-        )}.`,
+        t("chat.groupErrors.avatarTooLarge", {
+          label,
+          size: formatBytesAsMb(CHAT_PAGE_CONFIG.maxFileSizeBytes),
+        }),
       );
       event.target.value = "";
       return;
@@ -6292,13 +6330,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Unable to regenerate invite link.");
+        throw new Error(data?.error || t("chat.groupErrors.inviteRegenerateFailed"));
       }
       const nextLink = String(data?.inviteLink || "");
       setEditGroupInviteToken(String(data?.inviteToken || ""));
       setProfileInviteLink(nextLink);
     } catch (err) {
-      setNewGroupError(err.message || "Unable to regenerate invite link.");
+      setNewGroupError(err.message || t("chat.groupErrors.inviteRegenerateFailed"));
     } finally {
       setRegeneratingGroupInviteLink(false);
     }
@@ -6306,29 +6344,31 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
 
   async function handleCreateGroup() {
     const isChannel = groupModalType === "channel";
-    const label = isChannel ? "Channel" : "Group";
+    const label = isChannel ? t("chat.chat.channel") : t("chat.chat.group");
     const nickname = newGroupForm.nickname.trim();
     const username = newGroupForm.username.trim().toLowerCase();
     if (!nickname) {
-      setNewGroupError(`${label} nickname is required.`);
+      setNewGroupError(t("chat.groupErrors.nameRequired", { label }));
       return;
     }
     if (nickname.length > NICKNAME_MAX) {
-      setNewGroupError(`${label} nickname must be ${NICKNAME_MAX} characters or less.`);
+      setNewGroupError(
+        t("chat.groupErrors.nameTooLong", { label, limit: NICKNAME_MAX }),
+      );
       return;
     }
     if (username.length > USERNAME_MAX) {
-      setNewGroupError(`${label} username must be ${USERNAME_MAX} characters or less.`);
+      setNewGroupError(
+        t("chat.groupErrors.usernameTooLong", { label, limit: USERNAME_MAX }),
+      );
       return;
     }
     if (username.length < 3) {
-      setNewGroupError(`${label} username must be at least 3 characters.`);
+      setNewGroupError(t("chat.groupErrors.usernameTooShort", { label }));
       return;
     }
     if (!USERNAME_REGEX.test(username)) {
-      setNewGroupError(
-        `${label} username can only include english letters, numbers, dot (.), and underscore (_).`,
-      );
+      setNewGroupError(t("chat.groupErrors.usernameInvalidChars", { label }));
       return;
     }
     const remoteChannelSource = String(
@@ -6388,7 +6428,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             remoteChannelStreamMedia),
     );
     if (shouldSaveRemoteChannel && remoteChannelEnabled && !remoteChannelSource) {
-      setNewGroupError("Remote Channel source is required.");
+      setNewGroupError(t("chat.groupErrors.remoteSourceRequired"));
       return;
     }
     try {
@@ -6441,11 +6481,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         : await (isChannel ? createChannelChat : createGroupChat)(payload);
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Unable to create group.");
+        throw new Error(data?.error || t("chat.groupErrors.createFailed"));
       }
       const nextChatId = normalizeUuid(data?.id) || normalizeUuid(activeChat?.id) || null;
       if (!nextChatId) {
-        throw new Error("Server did not return a group id.");
+        throw new Error(t("chat.groupErrors.noGroupId"));
       }
       if (pendingGroupAvatarFile?.file) {
         const s3Upload = await uploadAvatarFile(pendingGroupAvatarFile.file);
@@ -6464,7 +6504,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const avatarData = await avatarRes.json();
         if (!avatarRes.ok) {
           throw new Error(
-            avatarData?.error || `Unable to upload ${label.toLowerCase()} avatar.`,
+            avatarData?.error ||
+              t("chat.groupErrors.avatarUploadFailed", { label: label.toLowerCase() }),
           );
         }
       } else if (editingGroup && groupAvatarMarkedForRemoval) {
@@ -6473,7 +6514,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         });
         const avatarData = await avatarRes.json();
         if (!avatarRes.ok) {
-          throw new Error(avatarData?.error || "Unable to remove group avatar.");
+          throw new Error(avatarData?.error || t("chat.groupErrors.avatarRemoveFailed"));
         }
       }
       if (shouldSaveRemoteChannel && editingGroup) {
@@ -6487,7 +6528,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         });
         const remoteData = await remoteRes.json();
         if (!remoteRes.ok) {
-          throw new Error(remoteData?.error || "Unable to update Remote Channel.");
+          throw new Error(remoteData?.error || t("chat.groupErrors.remoteUpdateFailed"));
         }
       }
       if (!editingGroup) {
@@ -6528,13 +6569,13 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const res = await createDmChat({ from: user.username, to: targetUsername });
         const data = await res.json();
         if (!res.ok) {
-          throw new Error(data?.error || "Unable to open direct chat.");
+          throw new Error(data?.error || t("chat.profileErrors.dmOpenFailed"));
         }
         nextChatId = normalizeUuid(data?.id) || null;
       }
 
       if (!nextChatId) {
-        throw new Error("Unable to resolve direct chat.");
+        throw new Error(t("chat.profileErrors.dmResolveFailed"));
       }
 
       if (typeof window !== "undefined") {
@@ -6552,7 +6593,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       );
       setActivePeer(nextPeer || member || null);
     } catch (err) {
-      setProfileError(err.message || "Unable to open direct chat.");
+      setProfileError(err.message || t("chat.profileErrors.dmOpenFailed"));
     }
   }
 
@@ -6587,7 +6628,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         window.dispatchEvent(new PopStateEvent("popstate"));
       }
     } catch (err) {
-      setNewChatError(err.message || "Unable to open group.");
+      setNewChatError(err.message || t("chat.errors.openGroupFailed"));
     }
   }
 
@@ -6658,12 +6699,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!user?.username) return;
     const trimmed = String(password || "").trim();
     if (!trimmed) {
-      throw new Error("Password is required.");
+      throw new Error(t("chat.securityErrors.passwordRequired"));
     }
     const res = await deleteAccount({ username: user.username, password: trimmed });
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data?.error || "Unable to delete account.");
+      throw new Error(data?.error || t("chat.securityErrors.deleteAccountFailed"));
     }
     setSettingsPanel(null);
     handleLogout();
@@ -6673,7 +6714,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     if (!activeChat || !["group", "channel"].includes(activeChat.type)) return;
     const trimmed = String(password || "").trim();
     if (!trimmed) {
-      throw new Error("Password is required.");
+      throw new Error(t("chat.securityErrors.passwordRequired"));
     }
     const res = await deleteGroupChat(activeChat.id, {
       username: user.username,
@@ -6681,7 +6722,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     });
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data?.error || "Unable to delete chat.");
+      throw new Error(data?.error || t("chat.groupErrors.deleteChatFailed"));
     }
     closeProfileModal();
     closeNewGroupModal();
@@ -7297,7 +7338,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         <Suspense fallback={null}>
           <DeleteChatsModal
             open={confirmDeleteCallOpen}
-            title="Delete calls"
+            title={t("chat.confirm.deleteCallsTitle")}
             pendingDeleteIds={pendingDeleteCallIds}
             selectedChats={[]}
             setConfirmDeleteOpen={setConfirmDeleteCallOpen}
@@ -7395,12 +7436,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             creatingGroup={creatingGroup}
             onCreate={handleCreateGroup}
             onClose={closeNewGroupModal}
-            title={
-              editingGroup
-                ? `Edit ${groupModalType === "channel" ? "channel" : "group"}`
-                : `New ${groupModalType === "channel" ? "channel" : "group"}`
+            title={editingGroup
+              ? (groupModalType === "channel"
+                  ? t("chat.groupModal.editChannel")
+                  : t("chat.groupModal.editGroup"))
+              : (groupModalType === "channel"
+                  ? t("chat.groupModal.newChannel")
+                  : t("chat.groupModal.newGroup"))
             }
-            submitLabel={editingGroup ? "Save" : "Create"}
+            submitLabel={editingGroup ? t("common.actions.save") : t("chat.groupModal.create")}
             avatarPreview={groupAvatarPreview}
             avatarColor={
               editingGroup
@@ -7410,7 +7454,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             avatarName={
               newGroupForm.nickname ||
               newGroupForm.username ||
-              (groupModalType === "channel" ? "Channel" : "Group")
+              (groupModalType === "channel"
+                ? t("chat.chat.channel")
+                : t("chat.chat.group"))
             }
             onAvatarChange={handleGroupAvatarChange}
             onAvatarRemove={handleGroupAvatarRemove}
@@ -7437,7 +7483,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             remoteChannelMediaStreamAllowed={Boolean(
               appInfo?.remoteChannels?.mediaStreamEnabled
             )}
-            entityLabel={groupModalType === "channel" ? "Channel" : "Group"}
+            entityLabel={
+              groupModalType === "channel"
+                ? t("chat.chat.channel")
+                : t("chat.chat.group")
+            }
             onDeleteChat={editingGroup ? handleDeleteActiveGroup : null}
             chatId={editingGroup ? activeChat?.id : null}
             username={user?.username || ""}

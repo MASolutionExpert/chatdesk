@@ -3,7 +3,7 @@
 #
 # What it does on the target VM (Ubuntu, hosts: all, become: yes):
 #   1. Installs Docker Engine + compose plugin, git and openssl.
-#   2. Clones miladalefbusiness/chatdesk into /root/chatdesk at the latest GitHub
+#   2. Clones MASolutionExpert/chatdesk into /root/chatdesk at the latest GitHub
 #      release (falls back to a pinned tag if the API is unreachable).
 #   3. Generates a self-signed TLS cert (certs/) if none exists, so the
 #      bundled nginx (443 -> chatdesk:5174) comes up without manual steps.
@@ -22,7 +22,7 @@
   hosts: all
   become: true
   vars:
-    chatdesk_repo: "https://github.com/miladalefbusiness/chatdesk.git"
+    chatdesk_repo: "https://github.com/MASolutionExpert/chatdesk.git"
     # "latest" resolves to the newest GitHub release tag at install time.
     # Set to an explicit tag (e.g. "v0.12.1") to pin a version instead.
     chatdesk_version: "latest"
@@ -73,7 +73,7 @@
 
     - name: Resolve latest ChatDesk release
       ansible.builtin.uri:
-        url: https://api.github.com/repos/miladalefbusiness/chatdesk/releases/latest
+        url: https://api.github.com/repos/MASolutionExpert/chatdesk/releases/latest
         return_content: yes
       register: chatdesk_release
       failed_when: false

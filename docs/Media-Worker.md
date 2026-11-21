@@ -111,7 +111,7 @@ To disable video transcoding or save CPU and memory resources on low-spec server
 ChatDesk provides an official, lightweight standalone Media Worker container image on Docker Hub:
 
 ```txt
-miladalefbusiness/chatdesk-worker:latest
+MASolutionExpert/chatdesk-worker:latest
 ```
 
 This dedicated Alpine Linux-based image (~120 MB) comes pre-configured with Node.js 24 and FFmpeg, running under a non-root user with an active healthcheck.
@@ -133,7 +133,7 @@ docker run -d \
   -e STORAGE_ACCESS_KEY_ID=your-access-key \
   -e STORAGE_SECRET_ACCESS_KEY=your-secret-key \
   -e STORAGE_FORCE_PATH_STYLE=true \
-  miladalefbusiness/chatdesk-worker:latest
+  MASolutionExpert/chatdesk-worker:latest
 ```
 
 #### Running with Docker Compose
@@ -167,7 +167,7 @@ STORAGE_FORCE_PATH_STYLE=true
 docker compose -f docker-compose.yaml up -d
 ```
 
-The pre-built `miladalefbusiness/chatdesk-worker:latest` image will be pulled automatically. (If you prefer to build from source locally, uncomment the `build:` section in `worker/docker-compose.yaml`).
+The pre-built `MASolutionExpert/chatdesk-worker:latest` image will be pulled automatically. (If you prefer to build from source locally, uncomment the `build:` section in `worker/docker-compose.yaml`).
 
 ### 3. Deploying on Cloud Platforms (Render, Railway, Fly.io, Koyeb)
 

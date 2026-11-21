@@ -111,7 +111,7 @@
 پروژه ChatDesk یک ایمیج رسمی و بسیار سبک از Media Worker را به صورت جداگانه در Docker Hub منتشر میکند:
 
 ```txt
-miladalefbusiness/chatdesk-worker:latest
+MASolutionExpert/chatdesk-worker:latest
 ```
 
 این ایمیج اختصاصی مبتنی بر Alpine Linux (با حجم تقریبی ۱۲۰ مگابایت) شامل Node.js 24 و FFmpeg بوده و با تدابیر امنیتی (کاربر غیر ریشه و Healthcheck فعال) آماده به کار است.
@@ -133,7 +133,7 @@ docker run -d \
   -e STORAGE_ACCESS_KEY_ID=your-access-key \
   -e STORAGE_SECRET_ACCESS_KEY=your-secret-key \
   -e STORAGE_FORCE_PATH_STYLE=true \
-  miladalefbusiness/chatdesk-worker:latest
+  MASolutionExpert/chatdesk-worker:latest
 ```
 
 #### اجرا با Docker Compose
@@ -167,7 +167,7 @@ STORAGE_FORCE_PATH_STYLE=true
 docker compose -f docker-compose.yaml up -d
 ```
 
-ایمیج آماده `miladalefbusiness/chatdesk-worker:latest` به صورت خودکار دریافت خواهد شد (چنانچه میخواهید ایمیج را از سورس کد بسازید، بخش `build:` را در `worker/docker-compose.yaml` از حالت کامنت خارج کنید).
+ایمیج آماده `MASolutionExpert/chatdesk-worker:latest` به صورت خودکار دریافت خواهد شد (چنانچه میخواهید ایمیج را از سورس کد بسازید، بخش `build:` را در `worker/docker-compose.yaml` از حالت کامنت خارج کنید).
 
 ### ۳. استقرار روی پلتفرم های ابری (Render, Railway, Fly.io, Koyeb)
 

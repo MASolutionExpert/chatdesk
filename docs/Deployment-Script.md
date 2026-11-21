@@ -13,7 +13,7 @@ The script targets Ubuntu (22.04+) and needs root privileges (it uses `sudo` aut
 Run the one-liner on your server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/miladalefbusiness/chatdesk/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh | bash
 ```
 
 This downloads the script, opens the menu, and installs a global `chatdesk-deploy` command. From then on, launch it anytime with:
@@ -27,15 +27,32 @@ chatdesk-deploy
 | Option | Action | Description |
 |---|---|---|
 | 1 | 📥 Install ChatDesk | Full guided install: dependencies, build, Nginx, SSL, and `.env`. |
-| 2 | 🔄 Update ChatDesk | Update to latest version or downgrade to a specific version, rebuild, and restart (optional pre-update backup). |
+| 2 | 🔄 Update ChatDesk | Update inside the current channel, or downgrade to a specific version, rebuild, and restart (optional pre-update backup). |
 | 3 | ♻️ Restart ChatDesk | Restart the `chatdesk.service`. |
-| 4 | ⚙️ Edit Settings (.env) | Change ports, uploads, retention, sign-up, and other env values, then rebuild/apply. |
-| 5 | 🗃️ Manage Database | Open the database submenu (see below). |
-| 6 | 🗑️ Remove ChatDesk | Uninstall ChatDesk, optionally removing the global command. |
-| 7 | 🔄 Update menu | Check GitHub for newer script versions and update the global command (or reinstall current). |
-| 8 | 🌐 Configure mirrors | Set NodeSource, apt, and npm registry mirrors for restricted networks. |
-| 9 | 📋 View Logs | Open the logs submenu (script, service, Nginx access/error). |
+| 4 | 🔀 Switch Test / Stable channel | Move the installation between the Test (dev) and Stable (main) channels through the full update pipeline. |
+| 5 | ⚙️ Edit Settings (.env) | Change ports, uploads, retention, sign-up, and other env values, then rebuild/apply. |
+| 6 | 🗃️ Manage Database | Open the database submenu (see below). |
+| 7 | 🗑️ Remove ChatDesk | Uninstall ChatDesk, optionally removing the global command. |
+| 8 | 🔄 Update menu | Check GitHub for newer script versions and update the global command (or reinstall current). |
+| 9 | 🌐 Configure mirrors | Set NodeSource, apt, and npm registry mirrors for restricted networks. |
+| l | 📋 View Logs | Open the logs submenu (script, service, Nginx access/error). |
 | 0 | 🚪 Exit | Leave the menu. |
+
+## Release channels (Test vs Stable)
+
+ChatDesk has two fully separated release channels — a test install never
+receives production releases and a production install never receives test
+builds:
+
+| Channel | Branch | Versions | Install command |
+|---|---|---|---|
+| **Stable** (production) | `main` | `vX.Y.Z` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh \| bash` |
+| **Test** (pre-release) | `dev` | `vX.Y.Z-dev.N` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/dev/scripts/install.sh \| REPO_BRANCH=dev bash` |
+
+- The installer remembers the channel it came from; **Update** always stays inside that channel, and the in-app update check follows the same rule.
+- The menu banner shows the installed version and channel; `chatdesk-deploy --status` prints the same information non-interactively.
+- **Switch Test / Stable channel** backs up, checks out the other branch, and runs the full pipeline (dependencies, migrations, client build, service restart, health check).
+- A dev build reaches the Stable channel only through the **"Promote dev to Stable"** GitHub Actions workflow, run manually with an approved dev tag — `main` is frozen otherwise.
 
 ## Installation flow
 

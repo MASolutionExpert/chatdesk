@@ -4,7 +4,6 @@
 
 # <img src="./client/public/chatdesk-logo.svg" alt="ChatDesk"> ChatDesk
 
-![Version](https://img.shields.io/badge/version-1.0.0-emerald)
 ![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)
 
 **پیام‌رسان پشتیبانی خودمیزبان — حس یک پیام‌رسان با موتور تیکتینگ پشت آن**
@@ -40,7 +39,7 @@ ChatDesk یک پلتفرم چت امن، سبک و خودمیزبان است ک�
 (22.04 به بالا) با دسترسی sudo اجرا کنید:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/miladalefbusiness/chatdesk/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh | bash
 ```
 
 اسکریپت وابستگی‌ها را نصب می‌کند، اپ را build می‌کند، Nginx را تنظیم می‌کند و
@@ -54,18 +53,32 @@ chatdesk-deploy
 > توصیه می‌شود یک دامنه به IP عمومی سرور متصل باشد. برای اعلان‌های فوری
 > HTTPS الزامی است (به‌جز روی `localhost`).
 
-### تست نسخه توسعه (dev)
+### کانال‌های انتشار (تست و اصلی)
 
-برنچ `dev` نسخه‌های در حال توسعه را قبل از رسیدن به `main` نگه می‌دارد. برای
-نصب نسخه فعلی dev روی یک سرور تست:
+ChatDesk با پایپ‌لاین DevOps دو کاناله کار می‌کند — نصب تست و نصب اصلی هرگز
+با هم قاطی نمی‌شوند:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/miladalefbusiness/chatdesk/dev/scripts/install.sh | bash
-```
+| کانال | برنچ | نسخه‌ها | دستور نصب |
+|-------|------|---------|-----------|
+| **اصلی / Stable** (پروداکشن) | `main` | `vX.Y.Z` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh \| bash` |
+| **تست / Test** (پیش‌انتشار) | `dev` | `vX.Y.Z-dev.N` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/dev/scripts/install.sh \| REPO_BRANCH=dev bash` |
 
-نصب‌کننده برنچ مبدا را به خاطر می‌سپارد؛ پس به‌روزرسانی‌ها با `chatdesk-deploy`
-روی همان برنچ باقی می‌مانند. بعد از تأیید نسخه dev، تغییرات به `main` منتقل و
-برای نصب‌های اصلی منتشر می‌شود.
+- نصب‌کننده کانال نصب را به خاطر می‌سپارد؛ `chatdesk-deploy` → **Update** همیشه
+  داخل همان کانال می‌ماند (نصب Stable هرگز نسخه `-dev` نمی‌گیرد و برعکس).
+  چک به‌روزرسانی داخل خود اپ هم از همین قانون پیروی می‌کند.
+- برای اینکه ببینید سرور چه نسخه‌ای از چه کانالی اجرا می‌کند:
+  `chatdesk-deploy --status` نسخه نصب‌کننده، نسخه نصب‌شده و کانال را چاپ
+  می‌کند؛ بنر منو هم همین اطلاعات را نشان می‌دهد.
+- برای انتقال یک نصب موجود به کانال دیگر: `chatdesk-deploy` →
+  **Switch Test (dev) / Stable channel**. این گزینه بکاپ می‌گیرد، برنچ را
+  عوض می‌کند و کل پایپ‌لاین آپدیت (وابستگی‌ها، مایگریشن‌ها، build کلاینت،
+  ری‌استارت سرویس و health check) را اجرا می‌کند.
+- نسخه dev فقط و فقط از طریق ورک‌فلوی **«Promote dev to Stable»** در اکشن‌های
+  گیت‌هاب به کانال اصلی می‌رود: بعد از تست و تأیید یک نسخه dev، ورک‌فلو را از
+  تب Actions با تگ آن اجرا کنید (مثلا `v1.1.0-dev.6`). این ورک‌فلو تگ را داخل
+  `main` مرج می‌کند، VERSION/نصب‌کننده/CHANGELOG را به فرم پایدار بازنویسی
+  می‌کند، تگ `vX.Y.Z` را روی `main` می‌زند و ریلیز پایدار منتشر می‌کند. هیچ
+  چیز دیگری هرگز به `main` نمی‌نویسد.
 
 ## مستندات
 
@@ -97,7 +110,7 @@ curl -fsSL https://raw.githubusercontent.com/miladalefbusiness/chatdesk/dev/scri
 
 مشارکت‌ها خوش‌آمد هستند. لطفاً [راهنمای مشارکت](/CONTRIBUTING.md) را بخوانید و
 قبل از شروع تغییرات بزرگ، یک ایشن در
-`https://github.com/miladalefbusiness/chatdesk/issues` باز کنید.
+`https://github.com/MASolutionExpert/chatdesk/issues` باز کنید.
 
 ## مجوز
 

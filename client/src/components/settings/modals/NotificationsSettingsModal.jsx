@@ -1,5 +1,6 @@
 import { Close } from "../../../icons/lucide.js";
 import { NotificationsSettingsPanel } from "../panels/NotificationsSettingsPanel.jsx";
+import { useI18n } from "../../../i18n/index.js";
 
 export function NotificationsSettingsModal({
   open,
@@ -12,6 +13,7 @@ export function NotificationsSettingsModal({
   onToggleMessagePreview,
   debugLine = "",
 }) {
+  const { t } = useI18n();
   if (!open) return null;
 
   return (
@@ -19,13 +21,13 @@ export function NotificationsSettingsModal({
       <div className="w-full max-w-sm rounded-3xl border border-emerald-100/70 bg-white p-6 shadow-xl dark:border-emerald-500/30 dark:bg-slate-950">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-emerald-800 dark:text-emerald-200">
-            Notifications
+            {t("settings.notifications.title")}
           </h3>
           <button
             type="button"
             onClick={onClose}
             className="flex items-center justify-center rounded-full border border-rose-200 p-2 text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_0_16px_rgba(244,63,94,0.2)] dark:border-rose-500/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
-            aria-label="Close"
+            aria-label={t("common.actions.close")}
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
@@ -49,7 +51,7 @@ export function NotificationsSettingsModal({
             onClick={onClose}
             className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400"
           >
-            Done
+            {t("common.actions.done")}
           </button>
         </div>
       </div>

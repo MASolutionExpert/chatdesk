@@ -59,7 +59,7 @@ docker run hello-world
 ```bash
 sudo mkdir -p /opt/chatdesk
 cd /opt/chatdesk
-git clone https://github.com/miladalefbusiness/chatdesk.git .
+git clone https://github.com/MASolutionExpert/chatdesk.git .
 ```
 
 ## ۳. پیکربندی محیط
@@ -76,7 +76,7 @@ nano .env
 :::
 
 :::info کانتینر Media Worker
-کانتینر یکپارچه (`miladalefbusiness/chatdesk:latest`) به صورت پیشفرض شامل پروسه ورکر محلی است و آن را خودکار اجرا و مدیریت میکند. برای محیط های با بار کاری سنگین یا توزیع شده، میتوانید پردازش ویدیوها را به کانتینر مجزای (`miladalefbusiness/chatdesk-worker:latest`) بسپارید یا سرویس اختیاری `media-worker` را در `docker-compose.yaml` از کامنت خارج نمایید. برای جزییات بیشتر به مستندات [ورکر مدیا](./Media-Worker.md) مراجعه کنید.
+کانتینر یکپارچه (`MASolutionExpert/chatdesk:latest`) به صورت پیشفرض شامل پروسه ورکر محلی است و آن را خودکار اجرا و مدیریت میکند. برای محیط های با بار کاری سنگین یا توزیع شده، میتوانید پردازش ویدیوها را به کانتینر مجزای (`MASolutionExpert/chatdesk-worker:latest`) بسپارید یا سرویس اختیاری `media-worker` را در `docker-compose.yaml` از کامنت خارج نمایید. برای جزییات بیشتر به مستندات [ورکر مدیا](./Media-Worker.md) مراجعه کنید.
 :::
 
 ## ۴. راه‌اندازی گواهی‌نامه TLS

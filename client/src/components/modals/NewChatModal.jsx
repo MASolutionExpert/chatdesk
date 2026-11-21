@@ -8,6 +8,7 @@ import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useI18n } from "../../i18n/index.js";
 
 export default function NewChatModal({
   open,
@@ -23,6 +24,7 @@ export default function NewChatModal({
   startDirectMessage,
   onClose,
 }) {
+  const { t } = useI18n();
   const dialogRef = useRef(null);
   useFocusTrap(dialogRef, open);
 
@@ -51,7 +53,7 @@ export default function NewChatModal({
       >
         <div className="flex items-center justify-between">
           <h3 id="new-chat-modal-title" className="text-lg font-semibold text-emerald-700 dark:text-emerald-200">
-            New DM
+            {t("modals.newChat.title")}
           </h3>
           <button
             type="button"
@@ -63,7 +65,7 @@ export default function NewChatModal({
         </div>
         <div className="mt-4">
           <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Username
+            {t("modals.newChat.usernameLabel")}
           </label>
           <div className="relative mt-2">
             <input
@@ -90,7 +92,7 @@ export default function NewChatModal({
                   setNewChatError("");
                 }}
                 className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-rose-600 transition hover:bg-rose-100 hover:shadow-[0_0_18px_rgba(244,63,94,0.22)] dark:text-rose-200 dark:hover:bg-rose-500/10"
-                aria-label="Clear search"
+                aria-label={t("modals.newChat.clearSearch")}
               >
                 <Close size={16} className="icon-anim-pop" />
               </button>
@@ -152,16 +154,16 @@ export default function NewChatModal({
             </div>
           ) : newChatLoading ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Searching...
+              {t("modals.search.searching")}
             </p>
           ) : newChatUsername.trim() ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              No users found.
+              {t("modals.search.noUsers")}
             </p>
           ) : null}
           {newChatLoading && newChatResults.length ? (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Searching...
+              {t("modals.search.searching")}
             </p>
           ) : null}
         </div>
@@ -169,7 +171,7 @@ export default function NewChatModal({
         newChatUsername.trim() &&
         newChatResults.length > 0 ? (
           <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-            Select a user from the list to start chatting.
+            {t("modals.newChat.selectUserHint")}
           </p>
         ) : null}
         {newChatError ? (
@@ -183,7 +185,7 @@ export default function NewChatModal({
           disabled={!canStartChat}
           className="mt-4 w-full rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Start chat
+          {t("modals.newChat.startChat")}
         </button>
       </div>
     </div>,

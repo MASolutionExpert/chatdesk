@@ -14,16 +14,13 @@ The ChatDesk team takes security seriously. If you discover a vulnerability or p
 
 You can privately report a vulnerability directly on GitHub:
 
-1. Go to the [Security Advisories](https://github.com/miladalefbusiness/chatdesk/security/advisories/new) page.
+1. Go to the [Security Advisories](https://github.com/MASolutionExpert/chatdesk/security/advisories/new) page.
 2. Click **Report a vulnerability**.
 3. Fill out the report form with full reproduction details.
 
-### Alternative Method: Email
-
-If you prefer email or cannot use GitHub Advisories, contact the maintainer directly:
-
-* **Email:** [pouyakhalili83@gmail.com](mailto:pouyakhalili83@gmail.com)
-* **Subject:** `[ChatDesk Security] <Summary of issue>`
+GitHub Private Vulnerability Reporting is the only supported reporting
+channel — it keeps reports private, notifies the maintainers directly, and
+lets us coordinate a fix and advisory in one place.
 
 ### What to Include in Your Report
 

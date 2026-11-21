@@ -9,6 +9,7 @@ import {
   Phone,
   Settings,
 } from "../../../icons/lucide.js";
+import { useI18n } from "../../../i18n/index.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 
 export default function UserMenuButton({
@@ -27,11 +28,12 @@ export default function UserMenuButton({
   handleLogout,
   onOpenOwnProfile,
 }) {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
 
   const resolvedName =
-    displayName || user?.nickname || user?.username || "User";
+    displayName || user?.nickname || user?.username || t("sidebar.userMenu.fallbackUser");
   const resolvedStatus = statusValue || user?.status || "online";
   const resolvedStatusClass =
     statusTextClass ||
@@ -71,7 +73,7 @@ export default function UserMenuButton({
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        aria-label="User menu"
+        aria-label={t("sidebar.userMenu.menuAriaLabel")}
         aria-expanded={isOpen}
         aria-haspopup="menu"
         className="group relative inline-flex items-center justify-center rounded-full transition hover:ring-2 hover:ring-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
@@ -89,7 +91,7 @@ export default function UserMenuButton({
       {isOpen && (
         <div
           role="menu"
-          aria-label="User menu options"
+          aria-label={t("sidebar.userMenu.optionsAriaLabel")}
           className="absolute top-full left-0 mt-3 z-30 w-72 max-w-[90vw] overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
         >
           {/* User header: avatar + nickname + status */}
@@ -146,7 +148,7 @@ export default function UserMenuButton({
                 size={18}
                 className="shrink-0 text-emerald-500 icon-anim-drop"
               />
-              Chats
+              {t("sidebar.header.chats")}
             </button>
           ) : (
             <button
@@ -162,7 +164,7 @@ export default function UserMenuButton({
                 size={18}
                 className="shrink-0 text-emerald-500 icon-anim-spin-dir"
               />
-              Settings
+              {t("sidebar.header.settings")}
             </button>
           )}
 
@@ -181,7 +183,7 @@ export default function UserMenuButton({
                 size={18}
                 className="shrink-0 text-emerald-500 icon-anim-drop"
               />
-              Chats
+              {t("sidebar.header.chats")}
             </button>
           ) : (
             <button
@@ -197,7 +199,7 @@ export default function UserMenuButton({
                 size={18}
                 className="shrink-0 text-emerald-500 icon-anim-bob"
               />
-              Calls
+              {t("sidebar.header.calls")}
             </button>
           )}
 
@@ -221,7 +223,7 @@ export default function UserMenuButton({
                 size={18}
                 className="shrink-0 text-emerald-500 icon-anim-sway"
               />
-              Edit
+              {t("common.actions.edit")}
             </button>
           ) : null}
 
@@ -241,7 +243,7 @@ export default function UserMenuButton({
               size={18}
               className="shrink-0 text-rose-500 icon-anim-slide"
             />
-            Log out
+            {t("sidebar.userMenu.logout")}
           </button>
         </div>
       )}

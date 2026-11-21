@@ -59,7 +59,7 @@ docker run hello-world
 ```bash
 sudo mkdir -p /opt/chatdesk
 cd /opt/chatdesk
-git clone https://github.com/miladalefbusiness/chatdesk.git .
+git clone https://github.com/MASolutionExpert/chatdesk.git .
 ```
 
 ## 3. Configure environment
@@ -76,7 +76,7 @@ ChatDesk defaults to SQLite (`DB_CLIENT=sqlite3`). To use PostgreSQL instead, ed
 :::
 
 :::info Media Worker Container
-ChatDesk automatically spawns and manages a local Media Worker child process inside the all-in-one container (`miladalefbusiness/chatdesk:latest`) by default. For distributed or high-load setups, you can offload media processing to the dedicated standalone image (`miladalefbusiness/chatdesk-worker:latest`) or uncomment the optional `media-worker` service in `docker-compose.yaml`. See [Media Worker](./Media-Worker.md) for details.
+ChatDesk automatically spawns and manages a local Media Worker child process inside the all-in-one container (`MASolutionExpert/chatdesk:latest`) by default. For distributed or high-load setups, you can offload media processing to the dedicated standalone image (`MASolutionExpert/chatdesk-worker:latest`) or uncomment the optional `media-worker` service in `docker-compose.yaml`. See [Media Worker](./Media-Worker.md) for details.
 :::
 
 ## 4. Set up TLS certificates

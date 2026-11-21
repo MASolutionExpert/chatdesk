@@ -16,6 +16,7 @@ import {
   VolumeX,
   Video,
 } from "../../../icons/lucide.js";
+import { useI18n } from "../../../i18n/index.js";
 import { getAvatarStyle } from "../../../utils/avatarColor.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
@@ -64,6 +65,7 @@ export default function ChatsListPanel({
   onOpenUserContextMenu,
   onOpenChatContextMenu,
 }) {
+  const { t } = useI18n();
   const SIDEBAR_INITIAL_RENDER = 40;
   const SIDEBAR_RENDER_BATCH = 24;
   const loadMoreRef = useRef(null);
@@ -203,12 +205,12 @@ export default function ChatsListPanel({
         >
           {discoverLoading ? (
             <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
-              Searching...
+              {t("sidebar.search.searching")}
             </p>
           ) : null}
           {showSearchEmptyState ? (
             <div className="px-4 text-center text-sm text-slate-500 dark:text-slate-400">
-              <p>Type to search users, groups, and channels.</p>
+              <p>{t("sidebar.search.hint")}</p>
             </div>
           ) : null}
           {!showSearchEmptyState &&
@@ -216,7 +218,7 @@ export default function ChatsListPanel({
           discoverUsers.length > 0 ? (
             <div className="space-y-0">
               <p className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
-                Users
+                {t("sidebar.discover.users")}
               </p>
               {discoverUsers.map((member, userIndex) => {
                 const label = member.nickname || member.username;
@@ -305,10 +307,10 @@ export default function ChatsListPanel({
           discoverGroups.length > 0 ? (
             <div className="space-y-0">
               <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
-                Groups
+                {t("sidebar.discover.groups")}
               </p>
               {discoverGroups.map((group, groupIndex) => {
-                const label = group.name || "Group";
+                const label = group.name || t("sidebar.discover.groupFallback");
                 const initials = getAvatarInitials(label);
                 const isActive = String(activeChatId || "") === String(group.id || "");
                 return (
@@ -359,15 +361,16 @@ export default function ChatsListPanel({
                             dir="auto"
                           >
                             @{group.username} •{" "}
-                            {Number(group.membersCount || 0).toLocaleString(
-                              "en-US",
-                            )}{" "}
-                            members
+                            {t("sidebar.discover.membersCount", {
+                              n: Number(group.membersCount || 0).toLocaleString(
+                                "en-US",
+                              ),
+                            })}
                           </p>
                         </div>
                         {group.isMember ? (
                           <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
-                            Joined
+                            {t("sidebar.discover.joined")}
                           </span>
                         ) : null}
                       </div>
@@ -385,10 +388,10 @@ export default function ChatsListPanel({
           discoverChannels.length > 0 ? (
             <div className="space-y-0">
               <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
-                Channels
+                {t("sidebar.discover.channels")}
               </p>
               {discoverChannels.map((channel, channelIndex) => {
-                const label = channel.name || "Channel";
+                const label = channel.name || t("sidebar.discover.channelFallback");
                 const initials = getAvatarInitials(label);
                 const isActive = String(activeChatId || "") === String(channel.id || "");
                 return (
@@ -439,15 +442,16 @@ export default function ChatsListPanel({
                             dir="auto"
                           >
                             @{channel.username} •{" "}
-                            {Number(channel.membersCount || 0).toLocaleString(
-                              "en-US",
-                            )}{" "}
-                            subscribers
+                            {t("sidebar.discover.subscribersCount", {
+                              n: Number(channel.membersCount || 0).toLocaleString(
+                                "en-US",
+                              ),
+                            })}
                           </p>
                         </div>
                         {channel.isMember ? (
                           <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-200">
-                            Joined
+                            {t("sidebar.discover.joined")}
                           </span>
                         ) : null}
                       </div>
@@ -463,7 +467,7 @@ export default function ChatsListPanel({
           {!showSearchEmptyState && discoverSaved ? (
             <div className="space-y-0">
               <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-200">
-                Saved Messages
+                {t("sidebar.discover.savedMessages")}
               </p>
               <div className="relative flex w-full flex-col px-2">
                 <ContextMenuSurface
@@ -490,10 +494,10 @@ export default function ChatsListPanel({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-base font-semibold">
-                      Saved messages
+                      {t("sidebar.list.savedMessages")}
                     </p>
                     <p className="truncate text-sm text-slate-500 dark:text-slate-400">
-                      Personal notes
+                      {t("sidebar.discover.savedMessagesSubtitle")}
                     </p>
                   </div>
                 </ContextMenuSurface>
@@ -505,7 +509,7 @@ export default function ChatsListPanel({
           !discoverLoading &&
           !hasDiscoverResults ? (
             <p className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
-              No results.
+              {t("sidebar.search.noResults")}
             </p>
           ) : null}
         </div>
@@ -560,10 +564,12 @@ export default function ChatsListPanel({
             conv.type === "dm"
               ? other?.nickname ||
                 other?.username ||
-                (isDeletedDm ? "Deleted account" : "Direct message")
+                (isDeletedDm
+                  ? t("sidebar.list.deletedAccount")
+                  : t("sidebar.list.directMessage"))
               : isSaved
-                ? conv.name || "Saved messages"
-                : conv.name || "Chat";
+                ? conv.name || t("sidebar.list.savedMessages")
+                : conv.name || t("sidebar.list.chatFallback");
           const avatarColor =
             isGroup || isChannel
               ? conv.group_color || "#10b981"
@@ -596,7 +602,7 @@ export default function ChatsListPanel({
             (conv.type === "saved" && isOwnLastMessage);
           const lastPreview = formatLastMessagePreview(conv);
           const lastPreviewHtml = renderMarkdownInlinePlain(
-            isOwnLastMessagePending ? "Processing..." : lastPreview.text,
+            isOwnLastMessagePending ? t("sidebar.list.processing") : lastPreview.text,
           );
 
           let unreadCount = conv.unread_count;
@@ -662,7 +668,7 @@ export default function ChatsListPanel({
                       <VolumeX
                         size={16}
                         className="-translate-y-px shrink-0 text-slate-400 dark:text-slate-500"
-                        aria-label="Muted chat"
+                        aria-label={t("sidebar.list.mutedChatAria")}
                       />
                     ) : null}
                   </p>
@@ -679,7 +685,7 @@ export default function ChatsListPanel({
                           style={{ unicodeBidi: "isolate" }}
                         >
                           <span className="shrink-0 font-bold text-slate-500 dark:text-slate-400">
-                            You:
+                            {t("sidebar.list.youPrefix")}
                           </span>
                           <span className="flex min-w-0 flex-1 items-baseline gap-1">
                             {lastPreview.icon === "voice" ? (
@@ -890,7 +896,7 @@ export default function ChatsListPanel({
                       requestDeleteChats([conv.id]);
                     }}
                     className="ml-2.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
-                    aria-label="Remove chat"
+                    aria-label={t("sidebar.list.removeChatAria")}
                   >
                     <Minus size={16} />
                   </button>
@@ -898,7 +904,14 @@ export default function ChatsListPanel({
                 <ContextMenuSurface
                   type="button"
                   as="button"
-                  aria-label={`${name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ""}`}
+                  aria-label={
+                    conv.unread_count > 0
+                      ? t("sidebar.list.chatAriaUnread", {
+                          name,
+                          n: conv.unread_count,
+                        })
+                      : t("sidebar.list.chatAria", { name })
+                  }
                   onClick={() => {
                     if (editMode) return;
                     setActiveChatId(conv.id);
@@ -952,7 +965,7 @@ export default function ChatsListPanel({
                         ? "border-emerald-500 bg-emerald-500 text-white"
                         : "border-emerald-200 text-emerald-600 dark:border-emerald-500/30 dark:text-emerald-200"
                     }`}
-                    aria-label="Select chat"
+                    aria-label={t("sidebar.list.selectChatAria")}
                   >
                     {selectedChats.includes(conv.id) ? <Check size={16} /> : null}
                   </button>
@@ -965,8 +978,8 @@ export default function ChatsListPanel({
       ) : !showSearchMode ? (
         <div className="flex min-h-full items-center justify-center px-4 py-8">
           <div className="text-center text-sm text-slate-500 dark:text-slate-400">
-            <p>Your chat list is empty.</p>
-            <p className="mt-1">Search or use + button to start chatting.</p>
+            <p>{t("sidebar.list.emptyTitle")}</p>
+            <p className="mt-1">{t("sidebar.list.emptyHint")}</p>
           </div>
         </div>
       ) : null}

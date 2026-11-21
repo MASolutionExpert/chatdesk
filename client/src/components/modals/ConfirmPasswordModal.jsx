@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Close, Eye, EyeOff } from "../../icons/lucide.js";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
+import { useI18n } from "../../i18n/index.js";
 
 export default function ConfirmPasswordModal({
   open,
@@ -14,6 +15,7 @@ export default function ConfirmPasswordModal({
   onConfirm,
 }) {
   const [step, setStep] = useState("confirm");
+  const { t } = useI18n();
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -76,7 +78,7 @@ export default function ConfirmPasswordModal({
               onClick={() => onClose?.()}
               className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
             >
-              Cancel
+              {t("common.actions.cancel")}
             </button>
             <button
               type="button"
@@ -92,7 +94,7 @@ export default function ConfirmPasswordModal({
           <div className="mt-4 space-y-3">
             <label className="block">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                Password
+                {t("modals.confirmPassword.password")}
               </span>
               <div className="relative mt-2">
                 <input
@@ -107,7 +109,11 @@ export default function ConfirmPasswordModal({
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
                   className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-label={
+                    showPassword
+                      ? t("modals.confirmPassword.hidePassword")
+                      : t("modals.confirmPassword.showPassword")
+                  }
                 >
                   {showPassword ? (
                     <EyeOff size={16} className="icon-anim-peek" />
@@ -131,7 +137,7 @@ export default function ConfirmPasswordModal({
                 className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
                 disabled={loading}
               >
-                Cancel
+                {t("common.actions.cancel")}
               </button>
               <button
                 type="button"
@@ -144,7 +150,9 @@ export default function ConfirmPasswordModal({
                     setLoading(false);
                     onClose?.();
                   } catch (err) {
-                    setError(String(err?.message || "Unable to delete."));
+                    setError(
+                      String(err?.message || t("modals.confirmPassword.deleteFailed")),
+                    );
                     setLoading(false);
                     return;
                   }
@@ -152,7 +160,9 @@ export default function ConfirmPasswordModal({
                 disabled={!canSubmit}
                 className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:shadow-[0_0_14px_rgba(244,63,94,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/30 dark:bg-rose-900/40 dark:text-rose-200"
               >
-                {loading ? "Deleting..." : deleteLabel}
+                {loading
+                  ? t("modals.confirmPassword.deleting")
+                  : deleteLabel}
               </button>
             </div>
           </div>

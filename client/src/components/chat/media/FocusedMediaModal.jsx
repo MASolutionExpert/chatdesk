@@ -10,6 +10,7 @@ import {
 } from "../../../icons/lucide.js";
 import Tooltip from "../../common/Tooltip.jsx";
 import { isCrossOriginUrl, saveMedia } from "../../../utils/fileDownload.js";
+import { useI18n } from "../../../i18n/index.js";
 
 export function FocusedMediaModal({
   focusedMedia,
@@ -40,6 +41,7 @@ export function FocusedMediaModal({
   focusExpiryWarning,
   getFocusAspectRatio,
 }) {
+  const { t } = useI18n();
   const [zoomScale, setZoomScale] = useState(1);
   const zoomScaleRef = useRef(1);
   const zoomOffsetRef = useRef({ x: 0, y: 0 });
@@ -366,7 +368,7 @@ export function FocusedMediaModal({
             type="button"
             onClick={closeFocusMedia}
             className="pointer-events-auto relative z-50 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-transparent text-white transition hover:border-white/60"
-            aria-label="Close"
+            aria-label={t("common.actions.close")}
           >
             <Close size={18} className="icon-anim-pop" />
           </button>
@@ -376,7 +378,7 @@ export function FocusedMediaModal({
             className="pointer-events-auto relative z-50 group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
           >
             <Download size={15} className="icon-anim-drop" />
-            Save
+            {t("common.actions.save")}
           </button>
         </div>
       ) : null}
@@ -393,7 +395,7 @@ export function FocusedMediaModal({
               type="button"
               onClick={closeFocusMedia}
               className="pointer-events-auto relative z-50 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-transparent text-white transition hover:border-white/60"
-              aria-label="Close"
+              aria-label={t("common.actions.close")}
             >
               <Close size={18} className="icon-anim-pop" />
             </button>
@@ -418,7 +420,7 @@ export function FocusedMediaModal({
               className="pointer-events-auto relative z-50 group inline-flex h-9 items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_22px_rgba(16,185,129,0.45)]"
             >
               <Download size={15} className="icon-anim-drop" />
-              Save
+              {t("common.actions.save")}
             </a>
           </div>
         </>
@@ -603,7 +605,7 @@ export function FocusedMediaModal({
                   Boolean(focusedMedia.processing) || !focusedMediaLoaded
                 }
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
-                aria-label={focusedVideoPlaying ? "Pause" : "Play"}
+                aria-label={focusedVideoPlaying ? t("chat.media.pause") : t("chat.media.play")}
               >
                 {focusedVideoPlaying ? <Pause size={15} /> : <Play size={15} />}
               </button>
@@ -614,7 +616,7 @@ export function FocusedMediaModal({
                   Boolean(focusedMedia.processing) || !focusedMediaLoaded
                 }
                 className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/30 bg-white/10"
-                aria-label={focusedVideoMuted ? "Unmute" : "Mute"}
+                aria-label={focusedVideoMuted ? t("chat.media.unmute") : t("chat.media.mute")}
               >
                 {focusedVideoMuted ? (
                   <VolumeX size={15} />
@@ -633,7 +635,7 @@ export function FocusedMediaModal({
                   Boolean(focusedMedia.processing) || !focusedMediaLoaded
                 }
                 className="h-1.5 flex-1 accent-emerald-400"
-                aria-label="Seek video"
+                aria-label={t("chat.media.seekVideo")}
               />
               <span className="w-20 text-right text-[11px]">
                 {formatSeconds(focusedVideoTime)} /{" "}

@@ -323,4 +323,4 @@ Acquire connection error: Error: self-signed certificate in certificate chain
 
 ## هنوز گیر کرده اید؟
 
-اگر هیچ یک از موارد بالا مشکل را حل نکرد، خروجی لاگ مرتبط را جمع آوری کرده و یک issue در [مخزن پروژه](https://github.com/miladalefbusiness/chatdesk/issues) باز کنید.
+اگر هیچ یک از موارد بالا مشکل را حل نکرد، خروجی لاگ مرتبط را جمع آوری کرده و یک issue در [مخزن پروژه](https://github.com/MASolutionExpert/chatdesk/issues) باز کنید.

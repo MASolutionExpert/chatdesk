@@ -19,6 +19,41 @@ function parseVersion(value) {
   };
 }
 
+// Compare a single prerelease identifier per SemVer 2.0 rules:
+// numeric identifiers are compared numerically (so 10 > 9 — a naive string
+// comparison would wrongly order dev.10 before dev.9), alphanumeric
+// identifiers lexically, and numeric identifiers always rank lower than
+// alphanumeric ones.
+function comparePrereleaseIdentifiers(a, b) {
+  const aIsNumeric = /^\d+$/.test(a);
+  const bIsNumeric = /^\d+$/.test(b);
+  if (aIsNumeric && bIsNumeric) {
+    const aNum = Number(a);
+    const bNum = Number(b);
+    if (aNum === bNum) return 0;
+    return aNum > bNum ? 1 : -1;
+  }
+  if (aIsNumeric) return -1;
+  if (bIsNumeric) return 1;
+  if (a === b) return 0;
+  return a > b ? 1 : -1;
+}
+
+// Dot-separated prerelease identifiers compare left to right; a prerelease
+// with fewer identifiers ranks lower when all shared identifiers are equal.
+function comparePrerelease(a, b) {
+  const aIds = a.split(".");
+  const bIds = b.split(".");
+  const length = Math.max(aIds.length, bIds.length);
+  for (let i = 0; i < length; i++) {
+    if (aIds[i] === undefined) return -1;
+    if (bIds[i] === undefined) return 1;
+    const result = comparePrereleaseIdentifiers(aIds[i], bIds[i]);
+    if (result !== 0) return result;
+  }
+  return 0;
+}
+
 function compareVersions(left, right) {
   const a = parseVersion(left);
   const b = parseVersion(right);
@@ -33,7 +68,7 @@ function compareVersions(left, right) {
   if (!a.prerelease && b.prerelease) return 1;
   if (a.prerelease && !b.prerelease) return -1;
   if (a.prerelease === b.prerelease) return 0;
-  return a.prerelease.localeCompare(b.prerelease);
+  return comparePrerelease(a.prerelease, b.prerelease);
 }
 
 function parseGitHubRepository(url) {
@@ -147,9 +182,17 @@ function readAppMeta({ fs, path, projectRootDir }) {
   const changelogSections = parseChangelogSections(changelog);
   const currentVersionSection = findChangelogVersionSection(changelog, version);
 
+  // Release channel derived from the VERSION file. Dev installs carry a
+  // prerelease suffix (X.Y.Z-dev.N) and run the Test channel; plain X.Y.Z
+  // runs the Stable channel. The client uses this so the update check only
+  // ever offers tags from the SAME channel (a stable install is never told
+  // to update to a -dev prerelease and vice versa).
+  const channel = /-dev(?:\.\d+)?$/i.test(version) ? "dev" : "stable";
+
   return {
     version,
     normalizedVersion: normalizeVersion(version),
+    channel,
     changelog,
     changelogSections,
     currentChangelog:

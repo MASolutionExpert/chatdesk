@@ -36,6 +36,7 @@ import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 import { isCallSupported } from "../../utils/callCapabilities.js";
+import { useI18n } from "../../i18n/index.js";
 
 const MEMBERS_BATCH_SIZE = 10;
 
@@ -71,6 +72,7 @@ export default function ChatProfileModal({
   initialRemoteChannelStatus = null,
   onRemoteChannelStatusChange,
 }) {
+  const { t } = useI18n();
   const [memberQuery, setMemberQuery] = useState("");
   const [memberLimit, setMemberLimit] = useState(membersBatchSize);
   const [remoteChannelStatus, setRemoteChannelStatus] = useState(initialRemoteChannelStatus);
@@ -286,10 +288,11 @@ export default function ChatProfileModal({
       String(currentUser?.username || "").toLowerCase();
   const profileName =
     isGroup || isChannel
-      ? chat?.name || (isChannel ? "Channel" : "Group")
+      ? chat?.name ||
+        (isChannel ? t("modals.names.channel") : t("modals.names.group"))
       : isSaved
-        ? "Saved messages"
-        : targetUser?.nickname || targetUser?.username || "User";
+        ? t("modals.names.savedMessages")
+        : targetUser?.nickname || targetUser?.username || t("modals.names.user");
   const profileUsername =
     isGroup || isChannel
       ? chat?.group_username || ""
@@ -382,7 +385,9 @@ export default function ChatProfileModal({
               type="button"
               onClick={onEditGroup}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-              aria-label={isChannel ? "Edit channel" : "Edit group"}
+              aria-label={isChannel
+                ? t("modals.profile.editChannel")
+                : t("modals.profile.editGroup")}
             >
               <Pencil size={16} className="icon-anim-sway" />
             </button>
@@ -391,7 +396,7 @@ export default function ChatProfileModal({
               type="button"
               onClick={onEditSelfProfile}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-              aria-label="Edit profile"
+              aria-label={t("modals.profile.editProfile")}
             >
               <Pencil size={16} className="icon-anim-sway" />
             </button>
@@ -402,7 +407,7 @@ export default function ChatProfileModal({
             type="button"
             onClick={handleClose}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 dark:border-rose-500/30 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-rose-500/10"
-            aria-label="Close profile"
+            aria-label={t("modals.profile.closeProfile")}
           >
             <Close size={16} className="icon-anim-pop" />
           </button>
@@ -461,7 +466,9 @@ export default function ChatProfileModal({
                 membersCount >= 1_000_000 ? "text-[10px] sm:text-xs" : "text-xs"
               }`}
             >
-              {membersCount.toLocaleString("en-US")} members
+              {t("modals.profile.membersCount", {
+                count: membersCount.toLocaleString("en-US"),
+              })}
             </p>
           ) : null}
         </div>
@@ -476,7 +483,7 @@ export default function ChatProfileModal({
               <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-full">
                 <LogIn size={24} className="icon-anim-bob" />
               </div>
-              <p className="mt-1 text-xs font-semibold">Join</p>
+              <p className="mt-1 text-xs font-semibold">{t("modals.profile.join")}</p>
             </button>
           </div>
         ) : !isReadOnly && !isSelfProfile && !isSaved ? (
@@ -497,7 +504,7 @@ export default function ChatProfileModal({
               <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-full">
                 <Chat size={24} className="icon-anim-bob" />
               </div>
-              <p className="mt-1 text-xs font-semibold">Chat</p>
+              <p className="mt-1 text-xs font-semibold">{t("modals.profile.chat")}</p>
             </button>
             {!isGroup && !isChannel && onStartVoiceCall ? (
               <button
@@ -505,13 +512,13 @@ export default function ChatProfileModal({
                 disabled={isVoiceCallDisabled}
                 title={
                   callsDisabled
-                    ? "Calls are disabled by the server"
+                    ? t("modals.profile.callsDisabled")
                     : isDeletedTarget
-                      ? "Calls unavailable for deleted account"
+                      ? t("modals.profile.callsUnavailableDeleted")
                       : !callSupported
-                        ? "Calls require a secure connection"
+                        ? t("modals.profile.callsInsecure")
                         : isInCall
-                          ? "Already in a call"
+                          ? t("modals.profile.alreadyInCall")
                           : undefined
                 }
                 onClick={
@@ -527,12 +534,12 @@ export default function ChatProfileModal({
                     ? "opacity-40 cursor-not-allowed"
                     : "hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 cursor-pointer"
                 }`}
-                aria-label="Voice call"
+                aria-label={t("modals.profile.voiceCallAria")}
               >
                 <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-full">
                   <Phone size={24} className={isVoiceCallDisabled ? "" : "icon-anim-pop"} />
                 </div>
-                <p className="mt-1 text-xs font-semibold">Call</p>
+                <p className="mt-1 text-xs font-semibold">{t("modals.profile.call")}</p>
               </button>
             ) : null}
             {!isGroup && !isChannel && onStartVideoCall ? (
@@ -541,13 +548,13 @@ export default function ChatProfileModal({
                 disabled={isVideoCallDisabled}
                 title={
                   videoCallsDisabled
-                    ? "Video calls are disabled by the server"
+                    ? t("modals.profile.videoCallsDisabled")
                     : isDeletedTarget
-                      ? "Calls unavailable for deleted account"
+                      ? t("modals.profile.callsUnavailableDeleted")
                       : !callSupported
-                        ? "Calls require a secure connection"
+                        ? t("modals.profile.callsInsecure")
                         : isInCall
-                          ? "Already in a call"
+                          ? t("modals.profile.alreadyInCall")
                           : undefined
                 }
                 onClick={
@@ -563,12 +570,12 @@ export default function ChatProfileModal({
                     ? "opacity-40 cursor-not-allowed"
                     : "hover:border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 cursor-pointer"
                 }`}
-                aria-label="Video call"
+                aria-label={t("modals.profile.videoCallAria")}
               >
                 <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-full">
                   <Video size={24} className={isVideoCallDisabled ? "" : "icon-anim-pop"} />
                 </div>
-                <p className="mt-1 text-xs font-semibold">Video</p>
+                <p className="mt-1 text-xs font-semibold">{t("modals.profile.video")}</p>
               </button>
             ) : null}
             <button
@@ -584,7 +591,7 @@ export default function ChatProfileModal({
                 )}
               </div>
               <p className="mt-1 text-xs font-semibold">
-                {muted ? "Unmute" : "Mute"}
+                {muted ? t("modals.shared.unmute") : t("modals.shared.mute")}
               </p>
             </button>
             {isGroup || isChannel ? (
@@ -596,7 +603,7 @@ export default function ChatProfileModal({
                 <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-full">
                   <LogOut size={24} className="icon-anim-slide" />
                 </div>
-                <p className="mt-1 text-xs font-semibold">Leave</p>
+                <p className="mt-1 text-xs font-semibold">{t("modals.profile.leave")}</p>
               </button>
             ) : null}
           </div>
@@ -605,23 +612,23 @@ export default function ChatProfileModal({
         {!isReadOnly && (isGroup || isChannel) && canViewInvite ? (
           <div className="mt-4 rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Invite link
+              {t("modals.shared.inviteLink")}
             </p>
             <button
               type="button"
               onClick={handleCopyInviteLink}
               disabled={!inviteLink || inviteLinkLoading}
               className="mt-2 flex w-full items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-left text-xs text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-hidden focus:ring-2 focus:ring-emerald-300/60 disabled:cursor-default disabled:opacity-70 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200 dark:hover:bg-emerald-500/15"
-              aria-label="Copy invite link"
+              aria-label={t("modals.shared.copyInviteLink")}
             >
               <span className="min-w-0 flex-1 break-all">
                 {inviteLinkLoading ? (
                   <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
                     <LoaderCircle size={13} className="animate-spin text-emerald-500" />
-                    Loading...
+                    {t("common.actions.loading")}
                   </span>
                 ) : (
-                  inviteLink || "No invite link available."
+                  inviteLink || t("modals.shared.noInviteLink")
                 )}
               </span>
               {inviteLink && !inviteLinkLoading ? (
@@ -637,12 +644,12 @@ export default function ChatProfileModal({
           <div className="mt-4 rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Connection
+                {t("modals.newGroup.connection")}
               </p>
               {remoteChannelStatus === null ? (
                 <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                   <LoaderCircle size={14} className="animate-spin text-emerald-500" />
-                  Loading...
+                  {t("common.actions.loading")}
                 </span>
               ) : null}
             </div>
@@ -652,7 +659,7 @@ export default function ChatProfileModal({
                   <div className="flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200">
                     <span className="flex items-center gap-3">
                       <SatelliteDish size={18} />
-                      Remote Channel
+                      {t("modals.newGroup.remoteChannel")}
                     </span>
                     <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
                       {remoteChannelStatus.source.provider === "telegram" ? (
@@ -693,7 +700,7 @@ export default function ChatProfileModal({
         {canSeeMembers ? (
           <div className="mt-4 rounded-2xl border border-emerald-200/80 p-3 dark:border-emerald-500/30">
             <p className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Members
+              {t("modals.profile.members")}
             </p>
             <div className="relative">
               <input
@@ -702,7 +709,7 @@ export default function ChatProfileModal({
                   setMemberQuery(event.target.value);
                   setMemberLimit(membersBatchSize);
                 }}
-                placeholder="Search members"
+                placeholder={t("modals.profile.searchMembers")}
                 lang={memberQueryHasPersian ? "fa" : "en"}
                 dir={memberQueryHasPersian ? "rtl" : "ltr"}
                 className={`w-full rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 pr-14 text-sm text-slate-700 outline-hidden transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-300/60 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100 ${
@@ -787,13 +794,15 @@ export default function ChatProfileModal({
                               : "text-slate-500 dark:text-slate-400"
                           }`}
                         >
-                          {memberIsOnline ? "online" : "last seen recently"}
+                          {memberIsOnline
+                            ? t("common.states.online")
+                            : t("modals.profile.lastSeenRecently")}
                         </p>
                       </div>
                     </button>
                     {memberIsOwner ? (
                       <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-                        Owner
+                        {t("modals.profile.owner")}
                       </span>
                     ) : null}
                     {isOwner && !memberIsOwner ? (
@@ -802,7 +811,7 @@ export default function ChatProfileModal({
                         onClick={() => onRemoveMember?.(member)}
                         className="rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-[0_0_14px_rgba(229,62,95,0.2)] dark:border-rose-500/30 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-500/10"
                       >
-                        Remove
+                        {t("common.actions.remove")}
                       </button>
                     ) : null}
                   </ContextMenuSurface>

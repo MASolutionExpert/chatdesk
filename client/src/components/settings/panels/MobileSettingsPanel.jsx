@@ -4,9 +4,11 @@ import {
   ArrowRight,
   Bell,
   Bookmark,
+  Check,
   Database,
   Eye,
   EyeOff,
+  Globe,
   Info,
   LogOut,
   Moon,
@@ -26,18 +28,22 @@ import { InlineError } from "../common/InlineError.jsx";
 import { AboutSettingsPanel } from "./AboutSettingsPanel.jsx";
 import { DataSettingsPanel } from "./DataSettingsPanel.jsx";
 import { NotificationsSettingsPanel } from "./NotificationsSettingsPanel.jsx";
+import { useI18n, LANGUAGES } from "../../../i18n/index.js";
 import ConfirmPasswordModal from "../../modals/ConfirmPasswordModal.jsx";
 import Avatar from "../../common/Avatar.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import Tooltip from "../../common/Tooltip.jsx";
 
-const DETAIL_TITLES = {
-  profile: "Edit profile",
-  security: "Security",
-  data: "Data",
-  notifications: "Notifications",
-  about: "About",
+// Module-level constants cannot call hooks, so panels map to i18n keys and
+// are translated at render time via t().
+const DETAIL_TITLE_KEYS = {
+  profile: "settings.profile.title",
+  security: "settings.security.title",
+  data: "settings.data.title",
+  notifications: "settings.notifications.title",
+  about: "settings.about.title",
+  language: "settings.language.title",
 };
 
 function MobileMenuRow({
@@ -142,6 +148,7 @@ export function MobileSettingsPanel({
   onNavigateCalls,
 }) {
   const { nicknameMax: NICKNAME_MAX, usernameMax: USERNAME_MAX } = useNameLimits();
+  const { lang, setLang, t } = useI18n();
   const handleClosePanel = useCallback(
     () => setSettingsPanel(null),
     [setSettingsPanel],
@@ -173,7 +180,7 @@ export function MobileSettingsPanel({
     Boolean(notificationsDisabledProp) || Boolean(notificationStatusLabel);
   const isAdmin = user?.role === "admin" || user?.role === "owner";
   const showAdminPanel = isAdmin && adminPanelEnabled;
-  const detailTitle = DETAIL_TITLES[settingsPanel] || "Settings";
+  const detailTitle = t(DETAIL_TITLE_KEYS[settingsPanel] || "settings.title");
 
   const goBackToMenu = useCallback(() => {
     setSettingsPanel(null);
@@ -230,7 +237,7 @@ export function MobileSettingsPanel({
     <form className="space-y-4" onSubmit={handleProfileSave}>
       <div className="py-2">
         <p className="text-center text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Profile photo
+          {t("settings.profile.photo")}
         </p>
         <div className="mt-3 flex justify-center">
           <div className="relative">
@@ -246,7 +253,7 @@ export function MobileSettingsPanel({
                   ? "cursor-pointer border-emerald-200 hover:border-emerald-300 hover:shadow-lg dark:border-emerald-500/30 dark:hover:border-emerald-400/60"
                   : "cursor-not-allowed border-slate-300 opacity-70 dark:border-slate-700"
               }`}
-              aria-label="Change profile photo"
+              aria-label={t("settings.profile.changePhoto")}
             >
               <Avatar
                 src={avatarPreview}
@@ -281,7 +288,7 @@ export function MobileSettingsPanel({
                   handleAvatarRemove();
                 }}
                 className="absolute -right-2 -top-2 z-10 inline-flex h-6 min-h-6 w-6 min-w-6 flex-none items-center justify-center rounded-full border border-rose-200 bg-rose-50 p-0 text-rose-600 shadow-md transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-lg dark:border-rose-500/30 dark:bg-rose-900 dark:text-rose-200 dark:hover:bg-rose-800"
-                aria-label="Remove photo"
+                aria-label={t("settings.profile.removePhoto")}
               >
                 <Trash size={12} className="icon-anim-sway" />
               </button>
@@ -292,7 +299,7 @@ export function MobileSettingsPanel({
 
       <label className="block">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-          Nickname
+          {t("settings.profile.nickname")}
         </span>
         <div className="relative mt-2">
           <input
@@ -318,7 +325,7 @@ export function MobileSettingsPanel({
       </label>
       <label className="block">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-          Username
+          {t("settings.profile.username")}
         </span>
         <div className="relative mt-2">
           <input
@@ -331,7 +338,7 @@ export function MobileSettingsPanel({
             }
             maxLength={USERNAME_MAX}
             pattern={USERNAME_INPUT_PATTERN}
-            title="Use english letters, numbers, dot (.), and underscore (_)."
+            title={t("settings.profile.usernameHint")}
             autoCapitalize="none"
             lang={usernameHasPersian ? "fa" : "en"}
             dir={usernameHasPersian ? "rtl" : "ltr"}
@@ -347,7 +354,7 @@ export function MobileSettingsPanel({
       </label>
       <div>
         <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-          Status
+          {t("settings.profile.status")}
         </p>
         <div className="mt-2 flex flex-row gap-2">
           {["online", "invisible"].map((value) => (
@@ -366,12 +373,16 @@ export function MobileSettingsPanel({
                   value === "online" ? "bg-emerald-400" : "bg-slate-400"
                 }`}
               />
-              <span>{value.charAt(0).toUpperCase() + value.slice(1)}</span>
+              <span>
+                {value === "online"
+                  ? t("settings.profile.statusOnline")
+                  : t("settings.profile.statusInvisible")}
+              </span>
             </button>
           ))}
         </div>
         <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-          Invisible makes you appear offline to others.
+          {t("settings.profile.invisibleHint")}
         </p>
       </div>
       {onDeleteAccount ? (
@@ -381,14 +392,14 @@ export function MobileSettingsPanel({
           className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200/80 bg-rose-50/70 px-3 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-900/30 dark:text-rose-200 dark:hover:bg-rose-900/50"
         >
           <Trash size={14} className="icon-anim-sway" />
-          Delete account
+          {t("settings.deleteAccount.title")}
         </button>
       ) : null}
       <button
         type="submit"
         className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
       >
-        Save profile
+        {t("settings.profile.save")}
       </button>
       <InlineError message={profileError} />
     </form>
@@ -398,7 +409,7 @@ export function MobileSettingsPanel({
     <form className="space-y-4" onSubmit={handlePasswordSave}>
       <label className="block">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-          Current password
+          {t("settings.security.currentPassword")}
         </span>
         <div className="relative mt-2">
           <input
@@ -418,7 +429,9 @@ export function MobileSettingsPanel({
             onClick={() => setShowCurrentPassword((prev) => !prev)}
             className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
             aria-label={
-              showCurrentPassword ? "Hide current password" : "Show current password"
+              showCurrentPassword
+                ? t("settings.security.hideCurrent")
+                : t("settings.security.showCurrent")
             }
           >
             {showCurrentPassword ? (
@@ -431,7 +444,7 @@ export function MobileSettingsPanel({
       </label>
       <label className="block">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-          New password
+          {t("settings.security.newPassword")}
         </span>
         <div className="relative mt-2">
           <input
@@ -450,7 +463,11 @@ export function MobileSettingsPanel({
             type="button"
             onClick={() => setShowNewPassword((prev) => !prev)}
             className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-            aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+            aria-label={
+              showNewPassword
+                ? t("settings.security.hideNew")
+                : t("settings.security.showNew")
+            }
           >
             {showNewPassword ? (
               <EyeOff size={16} className="icon-anim-peek" />
@@ -462,7 +479,7 @@ export function MobileSettingsPanel({
       </label>
       <label className="block">
         <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-          Confirm new password
+          {t("settings.security.confirmPassword")}
         </span>
         <div className="relative mt-2">
           <input
@@ -482,7 +499,9 @@ export function MobileSettingsPanel({
             onClick={() => setShowConfirmPassword((prev) => !prev)}
             className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-transparent bg-transparent text-emerald-700 transition hover:bg-emerald-100 hover:shadow-[0_0_18px_rgba(16,185,129,0.22)] dark:text-emerald-200 dark:hover:bg-emerald-500/10"
             aria-label={
-              showConfirmPassword ? "Hide confirm password" : "Show confirm password"
+              showConfirmPassword
+                ? t("settings.security.hideConfirm")
+                : t("settings.security.showConfirm")
             }
           >
             {showConfirmPassword ? (
@@ -497,15 +516,43 @@ export function MobileSettingsPanel({
         type="submit"
         className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]"
       >
-        Update password
+        {t("settings.security.update")}
       </button>
       <InlineError message={passwordError} />
     </form>
   );
 
+  const renderLanguagePanel = () => (
+    <div className="space-y-2">
+      <p className="px-1 text-xs text-slate-500 dark:text-slate-400">
+        {t("settings.language.hint")}
+      </p>
+      {LANGUAGES.map((language) => {
+        const selected = lang === language.code;
+        return (
+          <button
+            key={language.code}
+            type="button"
+            onClick={() => setLang(language.code)}
+            aria-pressed={selected}
+            className={`flex min-h-14 w-full items-center justify-between rounded-2xl border px-4 transition ${
+              selected
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700 shadow-sm dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200"
+                : "border-slate-200/80 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/50 dark:border-white/5 dark:bg-slate-950/60 dark:text-slate-100 dark:hover:bg-emerald-500/10"
+            }`}
+          >
+            <span className="text-base font-semibold">{language.label}</span>
+            {selected ? <Check size={18} className="text-emerald-500" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const renderDetailPanel = () => {
     if (settingsPanel === "profile") return renderProfilePanel();
     if (settingsPanel === "security") return renderSecurityPanel();
+    if (settingsPanel === "language") return renderLanguagePanel();
     if (settingsPanel === "data") {
       return (
         <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
@@ -537,7 +584,7 @@ export function MobileSettingsPanel({
               onClick={handleClosePanel}
               className="rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-400"
             >
-              Done
+              {t("common.actions.done")}
             </button>
           </div>
         </>
@@ -585,7 +632,7 @@ export function MobileSettingsPanel({
               </div>
             </div>
             <span className="truncate text-center text-base font-semibold text-slate-700 dark:text-slate-200">
-              Settings
+              {t("settings.title")}
             </span>
             <div className="flex items-center justify-end gap-2" />
           </div>
@@ -630,7 +677,7 @@ export function MobileSettingsPanel({
                   <button
                     type="button"
                     onClick={handleLogout}
-                    aria-label="Log out"
+                    aria-label={t("settings.menu.logout")}
                     className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:shadow-md dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200 dark:hover:bg-rose-500/20"
                   >
                     <LogOut size={16} className="icon-anim-slide" />
@@ -640,12 +687,12 @@ export function MobileSettingsPanel({
 
               <MobileMenuCard>
                 <MobileMenuRow
-                  label="Edit profile"
+                  label={t("settings.menu.editProfile")}
                   icon={<User size={22} className="icon-anim-sway" />}
                   onClick={() => setSettingsPanel("profile")}
                 />
                 <MobileMenuRow
-                  label="Saved messages"
+                  label={t("settings.menu.savedMessages")}
                   icon={<Bookmark size={22} className="icon-anim-drop" />}
                   onClick={() => onOpenSavedMessages?.()}
                   showArrow={false}
@@ -655,7 +702,7 @@ export function MobileSettingsPanel({
               {showAdminPanel ? (
                 <MobileMenuCard>
                   <MobileMenuRow
-                    label="Admin Panel"
+                    label={t("settings.menu.adminPanel")}
                     icon={<LayoutDashboardIcon size={22} />}
                     onClick={openAdminPanel}
                     showArrow={false}
@@ -665,22 +712,36 @@ export function MobileSettingsPanel({
 
               <MobileMenuCard>
                 <MobileMenuRow
-                  label="Security"
+                  label={t("settings.menu.security")}
                   icon={<ShieldCheck size={22} className="icon-anim-beat" />}
                   onClick={() => setSettingsPanel("security")}
                 />
                 <MobileMenuRow
-                  label="Data"
+                  label={t("settings.menu.data")}
                   icon={<Database size={22} className="icon-anim-bob" />}
                   onClick={() => setSettingsPanel("data")}
                 />
                 <MobileMenuRow
-                  label="Notifications"
+                  label={t("settings.menu.notifications")}
                   icon={<Bell size={22} className="icon-anim-swing" />}
                   onClick={openNotificationsPanel}
                 />
                 <MobileMenuRow
-                  label={isDark ? "Light mode" : "Dark mode"}
+                  label={t("settings.language.title")}
+                  icon={<Globe size={22} className="icon-anim-sway" />}
+                  onClick={() => setSettingsPanel("language")}
+                  trailing={
+                    <span className="shrink-0 text-xs font-semibold text-slate-400 dark:text-slate-500">
+                      {LANGUAGES.find((l) => l.code === lang)?.label}
+                    </span>
+                  }
+                />
+                <MobileMenuRow
+                  label={
+                    isDark
+                      ? t("settings.menu.theme.light")
+                      : t("settings.menu.theme.dark")
+                  }
                   icon={
                     isDark ? (
                       <Sun size={22} className="icon-anim-spin-dir" />
@@ -697,13 +758,13 @@ export function MobileSettingsPanel({
 
               <MobileMenuCard>
                 <MobileMenuRow
-                  label="What's new"
+                  label={t("settings.menu.whatsNew")}
                   icon={<Rocket size={22} className="icon-anim-lift" />}
                   onClick={() => onOpenWhatsNew?.()}
                   showArrow={false}
                 />
                 <MobileMenuRow
-                  label="About"
+                  label={t("settings.menu.about")}
                   icon={<Info size={22} className="icon-anim-pop" />}
                   onClick={() => setSettingsPanel("about")}
                 />
@@ -711,7 +772,7 @@ export function MobileSettingsPanel({
 
               <MobileMenuCard>
                 <MobileMenuRow
-                  label="Log out"
+                  label={t("settings.menu.logout")}
                   icon={<LogOut size={22} className="icon-anim-slide" />}
                   onClick={handleLogout}
                   danger
@@ -734,7 +795,7 @@ export function MobileSettingsPanel({
             <button
               type="button"
               onClick={goBackToMenu}
-              aria-label="Back to settings"
+              aria-label={t("settings.back")}
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-200 bg-white/80 text-emerald-700 transition hover:border-emerald-300 hover:shadow-md dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
             >
               <ArrowLeft size={18} />
@@ -755,10 +816,10 @@ export function MobileSettingsPanel({
 
       <ConfirmPasswordModal
         open={deleteModalOpen}
-        title="Delete account"
-        description="This permanently deletes your account, removes your messages, and transfers or deletes any groups/channels you own."
-        confirmLabel="Continue"
-        deleteLabel="Delete"
+        title={t("settings.deleteAccount.title")}
+        description={t("settings.deleteAccount.description")}
+        confirmLabel={t("common.actions.continue")}
+        deleteLabel={t("common.actions.delete")}
         onClose={() => setDeleteModalOpen(false)}
         onConfirm={async (password) => {
           await onDeleteAccount?.(password);

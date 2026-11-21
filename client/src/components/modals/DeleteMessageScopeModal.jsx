@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useRef } from "react";
 import { LoaderCircle } from "../../icons/lucide.js";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useI18n } from "../../i18n/index.js";
 
 const DELETE_FOR_EVERYONE_PREFERENCE_KEY =
   "chatdesk-delete-message-for-everyone";
@@ -22,6 +23,7 @@ export default function DeleteMessageScopeModal({
 }) {
   const dialogRef = useRef(null);
   useFocusTrap(dialogRef, open);
+  const { t } = useI18n();
   const offline =
     isOffline ||
     sseConnected === false ||
@@ -67,12 +69,12 @@ export default function DeleteMessageScopeModal({
         className="w-full max-w-sm rounded-2xl border border-rose-100/70 bg-white p-6 shadow-xl dark:border-rose-500/30 dark:bg-slate-950"
       >
         <h3 id="delete-message-modal-title" className="text-lg font-semibold text-rose-600 dark:text-rose-300">
-          Delete message
+          {t("modals.deleteMessage.title")}
         </h3>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           {allowDeleteForEveryone
-            ? "Delete this message now. You can also choose to remove it for everyone in this chat."
-            : "Delete this message now. This action removes it from this chat view."}
+            ? t("modals.deleteMessage.withEveryone")
+            : t("modals.deleteMessage.forSelf")}
         </p>
         {allowDeleteForEveryone ? (
           <button
@@ -83,7 +85,7 @@ export default function DeleteMessageScopeModal({
             disabled={submitting || offline}
             className="mt-4 flex w-full items-center justify-between rounded-2xl border border-emerald-200/70 bg-white/90 px-4 py-3 text-left text-sm font-semibold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_18px_rgba(16,185,129,0.18)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
           >
-            <span>Delete for everyone</span>
+            <span>{t("modals.deleteMessage.forEveryone")}</span>
             <span
               className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
                 effectiveDeleteForEveryone
@@ -105,7 +107,7 @@ export default function DeleteMessageScopeModal({
             disabled={submitting}
             className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:border-emerald-300 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200"
           >
-            Cancel
+            {t("common.actions.cancel")}
           </button>
           <button
             type="button"
@@ -116,7 +118,7 @@ export default function DeleteMessageScopeModal({
             {submitting ? (
               <LoaderCircle size={13} className="animate-spin" />
             ) : null}
-            Delete
+            {t("common.actions.delete")}
           </button>
         </div>
       </div>

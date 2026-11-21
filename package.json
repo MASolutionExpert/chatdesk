@@ -4,12 +4,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/miladalefbusiness/chatdesk.git"
+    "url": "https://github.com/MASolutionExpert/chatdesk.git"
   },
   "bugs": {
-    "url": "https://github.com/miladalefbusiness/chatdesk/issues"
+    "url": "https://github.com/MASolutionExpert/chatdesk/issues"
   },
-  "homepage": "https://github.com/miladalefbusiness/chatdesk#readme",
+  "homepage": "https://github.com/MASolutionExpert/chatdesk#readme",
   "scripts": {
     "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\" \"npm --prefix worker run dev\"",
     "test": "concurrently \"npm --prefix client run test\" \"npm --prefix server run test\" \"npm --prefix worker run test\"",

@@ -14,7 +14,7 @@ hero:
       link: /fa/Deployment-Script
     - theme: alt
       text: مشاهده در GitHub
-      link: https://github.com/miladalefbusiness/chatdesk
+      link: https://github.com/MASolutionExpert/chatdesk
 
 features:
   - icon: 🚀

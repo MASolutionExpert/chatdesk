@@ -4,7 +4,6 @@
 
 # <img src="./client/public/chatdesk-logo.svg" alt="ChatDesk"> ChatDesk
 
-![Version](https://img.shields.io/badge/version-1.0.0-emerald)
 ![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)
 
 **Self-hosted support messenger — a messenger feel with a ticketing engine behind it**
@@ -40,7 +39,7 @@ The easiest way to install ChatDesk is the deployment script. On an Ubuntu
 server (22.04+) with sudo access, run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/miladalefbusiness/chatdesk/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh | bash
 ```
 
 The script handles dependencies, builds the app, configures Nginx, and can set
@@ -54,18 +53,33 @@ chatdesk-deploy
 > A domain name pointing to your server's public IP is recommended, and HTTPS
 > is required for push notifications (except on `localhost`).
 
-### Testing a dev build
+### Release channels (Test vs Stable)
 
-The `dev` branch carries work-in-progress releases before they land on `main`.
-To install the current dev build on a test server:
+ChatDesk runs a two-channel DevOps pipeline — test installs and production
+installs never mix:
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/miladalefbusiness/chatdesk/dev/scripts/install.sh | bash
-```
+| Channel | Branch | Versions | Install command |
+|---------|--------|----------|-----------------|
+| **Stable** (production) | `main` | `vX.Y.Z` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh \| bash` |
+| **Test** (pre-release) | `dev` | `vX.Y.Z-dev.N` | `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/dev/scripts/install.sh \| REPO_BRANCH=dev bash` |
 
-The installer remembers which branch it came from, so updates pulled with
-`chatdesk-deploy` stay on the same branch. Once a dev build is verified, it is
-merged into `main` and released to production installs.
+- The installer remembers the channel it came from; `chatdesk-deploy` →
+  **Update** always stays inside that channel (a Stable install never receives
+  a `-dev` prerelease, and vice versa). The in-app update check follows the
+  same rule.
+- Check what a server is running anytime: `chatdesk-deploy --status` prints
+  the installer version, installed version and channel. The menu banner shows
+  the same information.
+- To move an existing install to the other channel, run `chatdesk-deploy` →
+  **Switch Test (dev) / Stable channel**. It backs up, switches branches and
+  runs the full update pipeline (dependencies, migrations, client build,
+  service restart, health check).
+- A dev build reaches the Stable channel **only** through the
+  **"Promote dev to Stable"** GitHub Actions workflow: after you test and
+  approve a dev version, run the workflow from the Actions tab with its tag
+  (e.g. `v1.1.0-dev.6`). It merges the tag into `main`, rewrites
+  VERSION/installer/CHANGELOG to the stable form, tags `vX.Y.Z` on `main` and
+  publishes the stable release. Nothing else ever writes to `main`.
 
 ## Documentation
 
@@ -105,7 +119,7 @@ Persian documentation is available under [docs/fa](/docs/fa).
 ## Contributing
 
 Contributions are welcome. Please read the [contributing guide](/CONTRIBUTING.md)
-and open an issue at `https://github.com/miladalefbusiness/chatdesk/issues`
+and open an issue at `https://github.com/MASolutionExpert/chatdesk/issues`
 before starting work on a large change.
 
 ## License

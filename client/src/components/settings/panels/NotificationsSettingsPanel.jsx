@@ -1,4 +1,5 @@
 import { Bell, BellOff, MessageCircleMore, MessageCircleX } from "../../../icons/lucide.js";
+import { useI18n } from "../../../i18n/index.js";
 
 export function NotificationsSettingsPanel({
   notificationsActive,
@@ -9,6 +10,7 @@ export function NotificationsSettingsPanel({
   onToggleMessagePreview,
   debugLine = "",
 }) {
+  const { t } = useI18n();
   const buttonBase =
     "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition";
   const buttonHover =
@@ -41,7 +43,7 @@ export function NotificationsSettingsPanel({
           ) : (
             <BellOff size={18} className="icon-anim-sway" />
           )}
-          Show notifications
+          {t("settings.notifications.show")}
         </span>
         <span
           className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${
@@ -80,7 +82,7 @@ export function NotificationsSettingsPanel({
           ) : (
             <MessageCircleX size={18} className="icon-anim-sway" />
           )}
-          Message preview
+          {t("settings.notifications.preview")}
         </span>
         <span
           className={`relative inline-flex h-6 w-11 items-center rounded-full p-0.5 transition ${

@@ -26,6 +26,7 @@ import {
   renderMarkdownInlinePlain,
 } from "../../../utils/markdown.js";
 import { copyTextToClipboard } from "../../../utils/clipboard.js";
+import { useI18n } from "../../../i18n/index.js";
 import {
   extractMessageBodyText,
   FILE_SUMMARY_PATTERN,
@@ -178,6 +179,7 @@ export const MessageItem = memo(function MessageItem({
   sseConnected = true,
   isOffline = false,
 }) {
+  const { t } = useI18n();
   const isOwn = !isChannelChat && msg.username === user.username;
   const isRead = Boolean(msg.read_at) || isSavedChat;
   const isEdited = Boolean(Number(msg?.edited || 0) || msg?._edited);
@@ -222,11 +224,11 @@ export const MessageItem = memo(function MessageItem({
     !forwardedUser;
   const forwardedFromLabel = forwardedFromChatId
     ? isDeletedForwardedChat
-      ? "Hidden"
+      ? t("chat.forward.hidden")
       : liveForwardedChatName || storedForwardedLabel
     : forwardedFromUserId
       ? isDeletedForwardedUser
-        ? "Hidden"
+        ? t("chat.forward.hidden")
         : liveForwardedUserName || storedForwardedLabel
       : storedForwardedLabel;
   const forwardedLabelHasPersian = hasPersian(forwardedFromLabel);
@@ -449,7 +451,7 @@ export const MessageItem = memo(function MessageItem({
           codeEl.dataset.sbEnhanced = "1";
           codeEl.tabIndex = 0;
           codeEl.setAttribute("role", "button");
-          codeEl.setAttribute("aria-label", "Copy inline code");
+          codeEl.setAttribute("aria-label", t("chat.code.copyInline"));
           codeEl.classList.add("sb-inline-code-copyable");
         });
       };
@@ -458,12 +460,12 @@ export const MessageItem = memo(function MessageItem({
         const copied = await copyTextToClipboard(codeEl.textContent || "");
         if (!button) return;
         if (copied) {
-          resetCodeButtonState(button, "copied", "Copied");
+          resetCodeButtonState(button, "copied", t("common.actions.copied"));
         } else {
-          resetCodeButtonState(button, "error", "Copy failed");
+          resetCodeButtonState(button, "error", t("chat.code.failed"));
         }
         window.setTimeout(() => {
-          resetCodeButtonState(button, "idle", "Copy code");
+          resetCodeButtonState(button, "idle", t("chat.code.copy"));
         }, 1200);
       };
       const handleCodeBlockClick = (event) => {
@@ -544,6 +546,7 @@ export const MessageItem = memo(function MessageItem({
     mentionDebugEnabled,
     bodyText,
     onOpenForwardOrigin,
+    t,
   ]);
 
   const formatSeenCount = (value) => {
@@ -588,17 +591,17 @@ export const MessageItem = memo(function MessageItem({
   const replySignature = getReplySignature(replyTarget);
   const replyDisplayName =
     isChannelChat && replyTarget
-      ? chatName || "Channel"
+      ? chatName || t("chat.chat.channel")
       : replyTarget?.displayName ||
         replyTarget?.nickname ||
         replyTarget?.username ||
-        "Unknown";
+        t("chat.chat.unknown");
   const replyColor =
     isChannelChat && replyTarget
       ? chatColor || "#10b981"
       : replyTarget?.color || "#10b981";
   const replyPreviewRaw =
-    extractMessageBodyText(replyTarget?.body).trim() || "Message";
+    extractMessageBodyText(replyTarget?.body).trim() || t("chat.composer.message");
   const truncateReplyPreview = (value, maxChars = 90) => {
     const text = String(value || "");
     if (text.length <= maxChars) return text;
@@ -627,15 +630,15 @@ export const MessageItem = memo(function MessageItem({
       ? replyCallLogLabel
       : replyTarget?.icon === "voice"
       ? /^Sent (a voice message|\d+ voice messages)$/i.test(replyBodyText)
-        ? "Sent a voice message"
+        ? t("chat.preview.sentVoice")
         : replyPreview
       : replyTarget?.icon === "video"
         ? isGenericReplyMediaText && !isPluralMediaSummary
-          ? "Sent a video"
+          ? t("chat.preview.sentVideo")
           : replyPreview
         : replyTarget?.icon === "image"
           ? isGenericReplyMediaText && !isPluralMediaSummary
-            ? "Sent a photo"
+            ? t("chat.preview.sentPhoto")
             : replyPreview
           : replyPreview;
   const replyPreviewHtml = useMemo(
@@ -669,14 +672,14 @@ export const MessageItem = memo(function MessageItem({
     String(msg.username || "").toLowerCase() === "deleted" ||
     String(msg.nickname || "").toLowerCase() === "deleted user";
   const senderName = isDeletedAuthor
-    ? "Deleted account"
-    : msg.nickname || msg.username || "Unknown";
+    ? t("chat.chat.deletedAccount")
+    : msg.nickname || msg.username || t("chat.chat.unknown");
   const senderInitials = getAvatarInitials(senderName);
   const senderColor = isDeletedAuthor ? "#94a3b8" : msg.color || "#10b981";
   const forwardedInitials = getAvatarInitials(forwardedFromLabel || "C");
   const forwardedOriginButtonLabel = forwardedFromLabel
-    ? `Open forwarded origin: ${forwardedFromLabel}`
-    : "Open forwarded origin";
+    ? t("chat.forward.openOrigin", { name: forwardedFromLabel })
+    : t("chat.forward.openOriginNoName");
   const canOpenForwardedOrigin = Boolean(forwardedTarget);
   const canOpenSenderProfile =
     !isDeletedAuthor && typeof onOpenSenderProfile === "function";
@@ -736,7 +739,7 @@ export const MessageItem = memo(function MessageItem({
         <div className="flex items-center gap-1.5">
           <Forward size={14} className="shrink-0" />
           <span className="shrink-0 text-[10px] font-semibold italic">
-            Forwarded from
+            {t("chat.forward.from")}
           </span>
         </div>
         <button
@@ -917,7 +920,7 @@ export const MessageItem = memo(function MessageItem({
         >
           <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
           <span className="rounded-full border border-emerald-200/60 bg-white/90 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200">
-            Unread Messages
+            {t("chat.timeline.unreadMessages")}
           </span>
           <span className="h-px flex-1 bg-emerald-200/70 dark:bg-emerald-500/30" />
         </div>
@@ -936,7 +939,7 @@ export const MessageItem = memo(function MessageItem({
                 dir="auto"
                 style={{ unicodeBidi: "isolate" }}
               >
-                {msg?._systemEvent?.name || "A member"}
+                {msg?._systemEvent?.name || t("chat.chat.aMember")}
               </span>{" "}
               <span
                 dir="ltr"
@@ -1148,7 +1151,7 @@ export const MessageItem = memo(function MessageItem({
                     type="button"
                     onClick={() => onJumpToMessage?.(replyTarget.id)}
                     className="group mb-2 inline-flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
-                    aria-label={`Reply to ${replyDisplayName}`}
+                    aria-label={t("chat.composer.replyTo", { name: replyDisplayName })}
                   >
                     <span className="min-w-0 flex-1">
                       <Tooltip label={replyDisplayName} asChild>
@@ -1243,7 +1246,7 @@ export const MessageItem = memo(function MessageItem({
                 ) : null}
                 <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
-                  {isEdited ? <span>edited</span> : null}
+                  {isEdited ? <span>{t("chat.message.edited")}</span> : null}
                 </div>
               </ContextMenuSurface>
             </div>
@@ -1300,7 +1303,7 @@ export const MessageItem = memo(function MessageItem({
                   type="button"
                   onClick={() => onJumpToMessage?.(replyTarget.id)}
                   className="group mb-2 inline-flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-xl border border-emerald-200/70 bg-white/70 px-3 py-2.5 text-left text-xs text-slate-700 transition hover:border-emerald-300 hover:bg-white hover:shadow-[0_0_16px_rgba(16,185,129,0.18)] dark:border-emerald-500/30 dark:bg-slate-900/50 dark:text-slate-200 dark:hover:bg-slate-900/70 dark:hover:shadow-[0_0_16px_rgba(16,185,129,0.14)]"
-                  aria-label={`Reply to ${replyDisplayName}`}
+                  aria-label={t("chat.composer.replyTo", { name: replyDisplayName })}
                 >
                   <span className="min-w-0 flex-1">
                     <Tooltip label={replyDisplayName} asChild>
@@ -1383,7 +1386,7 @@ export const MessageItem = memo(function MessageItem({
                     onCallLogCall(callLog.type)
                   }
                   className="-my-1 flex w-full items-center gap-2.5 py-1 text-start"
-                  aria-label={`${callLogLabel} — call back`}
+                  aria-label={t("chat.call.back", { label: callLogLabel })}
                 >
                   <span
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${
@@ -1435,7 +1438,7 @@ export const MessageItem = memo(function MessageItem({
               >
                 <span className="inline-flex items-center gap-1">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
-                  {isEdited ? <span>edited</span> : null}
+                  {isEdited ? <span>{t("chat.message.edited")}</span> : null}
                   {isOwn || isChannelChat ? (
                     <span
                       className={`inline-flex items-center gap-1 ${
@@ -1458,7 +1461,7 @@ export const MessageItem = memo(function MessageItem({
                             className="animate-spin"
                             aria-hidden="true"
                           />
-                          <span className="sr-only">Sending</span>
+                          <span className="sr-only">{t("chat.status.sending")}</span>
                         </>
                       ) : isFailed ? (
                         <>
@@ -1467,7 +1470,7 @@ export const MessageItem = memo(function MessageItem({
                             strokeWidth={2.4}
                             aria-hidden="true"
                           />
-                          <span className="sr-only">Failed to send</span>
+                          <span className="sr-only">{t("chat.status.sendFailed")}</span>
                         </>
                       ) : isChannelChat ? (
                         <>
@@ -1478,7 +1481,7 @@ export const MessageItem = memo(function MessageItem({
                             className="-translate-y-px"
                           />
                           <span>{formatSeenCount(seenCount)}</span>
-                          <span className="sr-only">views</span>
+                          <span className="sr-only">{t("chat.status.views")}</span>
                         </>
                       ) : isRead ? (
                         <>
@@ -1487,12 +1490,12 @@ export const MessageItem = memo(function MessageItem({
                             strokeWidth={2.5}
                             aria-hidden="true"
                           />
-                          <span className="sr-only">Read</span>
+                          <span className="sr-only">{t("chat.status.read")}</span>
                         </>
                       ) : (
                         <>
                           <Check size={15} strokeWidth={2.5} aria-hidden="true" />
-                          <span className="sr-only">Sent</span>
+                          <span className="sr-only">{t("chat.status.sent")}</span>
                         </>
                       )}
                     </span>
@@ -1514,7 +1517,7 @@ export const MessageItem = memo(function MessageItem({
                   type="button"
                   onClick={() => onForwardMessage(msg)}
                   className="absolute bottom-2 -right-12 inline-flex h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-700 shadow-xs transition hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-[0_0_14px_rgba(16,185,129,0.2)] dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-                  aria-label="Forward message"
+                  aria-label={t("chat.forward.messageAria")}
                 >
                   <Forward size={15} className="icon-anim-pop" />
                 </button>

@@ -14,20 +14,22 @@ import Tooltip from "../common/Tooltip.jsx";
 import { api } from "./adminShared.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import RemoteChannelSetupModal from "./RemoteChannelSetupModal.jsx";
+import { useI18n } from "../../i18n/index.js";
 
 // ─── Status badge — mirrors ActionsTab ───────────────────────────────────────
 
 function StatusBadge({ status }) {
+  const { t } = useI18n();
   if (!status) return null;
   // "env" mirrors the Settings tab EnvLockBadge for env-managed values.
   if (status.type === "env") {
     return (
-      <Tooltip label="Managed via environment variables">
+      <Tooltip label={t("admin.services.envManaged")}>
         <span
           tabIndex={0}
           className="inline-flex cursor-help items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-white/10 dark:text-slate-400"
         >
-          <KeyRound size={9} /> environment
+          <KeyRound size={9} /> {t("admin.common.envChip")}
         </span>
       </Tooltip>
     );
@@ -94,6 +96,7 @@ const ServicesTab = forwardRef(function ServicesTab(
   { data, onMutated },
   ref,
 ) {
+  const { t } = useI18n();
   const [rowStatus, setRowStatus] = useState({});
   const [setupOpen, setSetupOpen] = useState(false);
   const statusTimers = useRef({});
@@ -124,49 +127,54 @@ const ServicesTab = forwardRef(function ServicesTab(
 
   const workerDescription = mediaWorker?.configured
     ? mediaWorker.reachable
-      ? `Reachable${mediaWorker.latencyMs != null ? ` · ${mediaWorker.latencyMs}ms` : ""}`
-      : "Configured but unreachable."
-    : "Local fallback mode — no external worker configured.";
+      ? (mediaWorker.latencyMs != null
+        ? t("admin.services.workerReachableMs", { ms: mediaWorker.latencyMs })
+        : t("admin.services.workerReachable"))
+      : t("admin.services.configuredUnreachable")
+    : t("admin.services.workerLocalFallback");
 
   const remoteFeatureOn = Boolean(remoteChannel?.enabled);
   const remoteLinked = Boolean(remoteChannel?.telegramConfigured);
   const remoteEnvManaged = Boolean(remoteChannel?.telegramManagedByEnv);
   const remoteDescription = !remoteFeatureOn
-    ? "Remote channel is disabled"
+    ? t("admin.services.remoteDisabled")
     : remoteEnvManaged
-      ? "Telegram credentials are set in .env"
+      ? t("admin.services.remoteEnvSet")
       : remoteLinked
-        ? `Telegram linked${remoteChannel.telegramConnected ? " · connected" : ""}`
-        : "Not linked — set up to link Telegram.";
+        ? (remoteChannel.telegramConnected
+          ? t("admin.services.remoteLinkedConnected")
+          : t("admin.services.remoteLinked"))
+        : t("admin.services.remoteNotLinked");
 
   const handleWorkerCheck = async () => {
-    flashStatus("worker", "busy", "Checking…");
+    flashStatus("worker", "busy", t("admin.services.checking"));
     try {
       const payload = await api.get("/api/admin/services");
       const reachable = payload?.mediaWorker?.reachable;
       const configured = payload?.mediaWorker?.configured;
-      if (reachable || !configured) flashStatus("worker", "success", "Active");
-      else flashStatus("worker", "error", "Inactive");
+      if (reachable || !configured) flashStatus("worker", "success", t("admin.services.active"));
+      else flashStatus("worker", "error", t("admin.services.inactive"));
     } catch {
-      flashStatus("worker", "error", "Check failed");
+      flashStatus("worker", "error", t("admin.services.checkFailed"));
     }
   };
 
   const storageReachable = storage?.reachable;
   const storageDescription =
-    `Driver: ${storage?.driver || "local"}` +
-    (storageReachable && storage?.latencyMs != null ? ` · ${storage.latencyMs}ms` : "");
+    (storageReachable && storage?.latencyMs != null
+      ? t("admin.services.storageDescMs", { driver: storage?.driver || "local", ms: storage.latencyMs })
+      : t("admin.services.storageDesc", { driver: storage?.driver || "local" }));
   const handleStorageCheck = async () => {
-    flashStatus("storage", "busy", "Checking…");
+    flashStatus("storage", "busy", t("admin.services.checking"));
     try {
       const payload = await api.get("/api/admin/services");
       if (payload?.storage?.reachable === false) {
-        flashStatus("storage", "error", "Unreachable");
+        flashStatus("storage", "error", t("admin.services.unreachable"));
       } else {
-        flashStatus("storage", "success", "Active");
+        flashStatus("storage", "success", t("admin.services.active"));
       }
     } catch {
-      flashStatus("storage", "error", "Check failed");
+      flashStatus("storage", "error", t("admin.services.checkFailed"));
     }
   };
 
@@ -174,105 +182,112 @@ const ServicesTab = forwardRef(function ServicesTab(
   const databaseReachable = database?.reachable;
   const isDatabaseConfigured = database?.configured !== false;
   const databaseDescription = !isDatabaseConfigured
-    ? "Database disabled."
+    ? t("admin.services.dbDisabled")
     : isPostgres
       ? databaseReachable === false
-        ? "PostgreSQL configured but unreachable."
-        : `PostgreSQL` +
-          (databaseReachable && database?.latencyMs != null ? ` · ${database.latencyMs}ms` : "")
+        ? t("admin.services.pgUnreachable")
+        : (databaseReachable && database?.latencyMs != null
+          ? t("admin.services.pgDescMs", { ms: database.latencyMs })
+          : t("admin.services.pgDesc"))
       : databaseReachable === false
-        ? "SQLite unreachable."
-        : `SQLite · local` +
-          (databaseReachable && database?.latencyMs != null ? ` · ${database.latencyMs}ms` : "");
+        ? t("admin.services.sqliteUnreachable")
+        : (databaseReachable && database?.latencyMs != null
+          ? t("admin.services.sqliteDescMs", { ms: database.latencyMs })
+          : t("admin.services.sqliteDesc"));
   const handleDatabaseCheck = async () => {
-    flashStatus("database", "busy", "Checking…");
+    flashStatus("database", "busy", t("admin.services.checking"));
     try {
       const payload = await api.get("/api/admin/services");
       if (payload?.database?.reachable === false) {
-        flashStatus("database", "error", "Unreachable");
+        flashStatus("database", "error", t("admin.services.unreachable"));
       } else {
-        flashStatus("database", "success", "Active");
+        flashStatus("database", "success", t("admin.services.active"));
       }
     } catch {
-      flashStatus("database", "error", "Check failed");
+      flashStatus("database", "error", t("admin.services.checkFailed"));
     }
   };
 
   const isTurnConfigured = Boolean(turn?.configured);
   const turnReachable = turn?.reachable;
   const turnDescription = !isTurnConfigured
-    ? "STUN only — no TURN relay configured."
+    ? t("admin.services.turnStunOnly")
     : turnReachable === false
-      ? "Configured but unreachable."
-      : (turn?.managed ? "Cloudflare TURN" : "TURN relay") +
-        (turnReachable && turn?.latencyMs != null ? ` · ${turn.latencyMs}ms` : "");
+      ? t("admin.services.configuredUnreachable")
+      : (turn?.managed
+        ? (turnReachable && turn?.latencyMs != null
+          ? t("admin.services.turnCloudflareMs", { ms: turn.latencyMs })
+          : t("admin.services.turnCloudflare"))
+        : (turnReachable && turn?.latencyMs != null
+          ? t("admin.services.turnRelayMs", { ms: turn.latencyMs })
+          : t("admin.services.turnRelay")));
 
   const handleTurnCheck = async () => {
-    flashStatus("turn", "busy", "Checking…");
+    flashStatus("turn", "busy", t("admin.services.checking"));
     try {
       const payload = await api.get("/api/admin/services");
       if (payload?.turn?.reachable === false) {
-        flashStatus("turn", "error", "Unreachable");
+        flashStatus("turn", "error", t("admin.services.unreachable"));
       } else {
-        flashStatus("turn", "success", "Active");
+        flashStatus("turn", "success", t("admin.services.active"));
       }
     } catch {
-      flashStatus("turn", "error", "Check failed");
+      flashStatus("turn", "error", t("admin.services.checkFailed"));
     }
   };
 
   return (
     <div className="space-y-5">
       <div>
-        <SectionHeading>Services</SectionHeading>
+        <SectionHeading>{t("admin.tabs.services")}</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ServiceRow
             icon={Clapper}
             iconAnim="icon-anim-beat"
-            label="Media worker"
+            label={t("admin.services.mediaWorker")}
             description={workerDescription}
             onClick={handleWorkerCheck}
             status={
               rowStatus.worker ||
               (mediaWorker
                 ? mediaWorker.reachable || !mediaWorker.configured
-                  ? { type: "success", label: "Active" }
-                  : { type: "error", label: "Inactive" }
+                  ? { type: "success", label: t("admin.services.active") }
+                  : { type: "error", label: t("admin.services.inactive") }
                 : null)
             }
           />
           <ServiceRow
             icon={TelegramIcon}
             iconAnim="icon-anim-sway"
-            label="Telegram connection"
+            label={t("admin.services.telegramConnection")}
             description={remoteDescription}
             onClick={() => setSetupOpen(true)}
             disabled={!remoteFeatureOn || remoteEnvManaged}
             status={
               !remoteFeatureOn
-                ? { type: "error", label: "Disabled" }
+                ? { type: "error", label: t("admin.common.disabled") }
                 : remoteEnvManaged
                   ? { type: "env" }
                   : rowStatus.remote ||
                     (remoteChannel
                       ? remoteLinked
-                        ? { type: "success", label: "Connected" }
-                        : { type: "error", label: "Not configured" }
+                        ? { type: "success", label: t("admin.services.connected") }
+                        : { type: "error", label: t("admin.services.notConfigured") }
                       : null)
             }
           />
           <ServiceRow
             icon={PackageOpen}
             iconAnim="icon-anim-drop"
-            label="Storage"
+            label={t("admin.services.storage")}
             description={storageDescription}
             onClick={handleStorageCheck}
             status={
               rowStatus.storage ||
               (storage
                 ? storageReachable === false
-                  ? { type: "error", label: "Unreachable" }
-                  : { type: "success", label: "Active" }
+                  ? { type: "error", label: t("admin.services.unreachable") }
+                  : { type: "success", label: t("admin.services.active") }
                 : null)
             }
           />
@@ -281,36 +296,36 @@ const ServicesTab = forwardRef(function ServicesTab(
           <ServiceRow
             icon={Database}
             iconAnim="icon-anim-drop"
-            label="Database"
+            label={t("admin.services.database")}
             description={databaseDescription}
             onClick={handleDatabaseCheck}
             disabled={!isDatabaseConfigured}
             status={
               !isDatabaseConfigured
-                ? { type: "error", label: "Disabled" }
+                ? { type: "error", label: t("admin.common.disabled") }
                 : rowStatus.database ||
                   (database
                     ? databaseReachable === false
-                      ? { type: "error", label: "Unreachable" }
-                      : { type: "success", label: "Active" }
+                      ? { type: "error", label: t("admin.services.unreachable") }
+                      : { type: "success", label: t("admin.services.active") }
                     : null)
             }
           />
           <ServiceRow
             icon={PhoneCall}
             iconAnim="icon-anim-sway"
-            label="TURN server"
+            label={t("admin.services.turnServer")}
             description={turnDescription}
             onClick={handleTurnCheck}
             disabled={!isTurnConfigured}
             status={
               !isTurnConfigured
-                ? { type: "error", label: "Disabled" }
+                ? { type: "error", label: t("admin.common.disabled") }
                 : rowStatus.turn ||
                   (turn
                     ? turnReachable === false
-                      ? { type: "error", label: "Unreachable" }
-                      : { type: "success", label: "Active" }
+                      ? { type: "error", label: t("admin.services.unreachable") }
+                      : { type: "success", label: t("admin.services.active") }
                     : null)
             }
           />

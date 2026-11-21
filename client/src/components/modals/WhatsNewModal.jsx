@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Close } from "../../icons/lucide.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { renderMarkdownBlock } from "../../utils/markdown.js";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
+import { useI18n } from "../../i18n/index.js";
 
 function normalizeVersionLabel(value) {
   return String(value || "")
@@ -53,6 +54,7 @@ export default function WhatsNewModal({
   changelogSections,
   onClose,
 }) {
+  const { t } = useI18n();
   const panelRef = useRef(null);
   const contentRef = useRef(null);
   useFocusTrap(panelRef, open);
@@ -126,7 +128,7 @@ export default function WhatsNewModal({
         codeEl.dataset.sbEnhanced = "1";
         codeEl.tabIndex = 0;
         codeEl.setAttribute("role", "button");
-        codeEl.setAttribute("aria-label", "Copy inline code");
+        codeEl.setAttribute("aria-label", t("modals.whatsNew.copyInlineCode"));
         codeEl.classList.add("sb-inline-code-copyable");
       });
     };
@@ -135,22 +137,24 @@ export default function WhatsNewModal({
       const copied = await copyTextToClipboard(codeEl.textContent || "");
       if (button) {
         if (copied) {
-          resetCodeButtonState(button, "copied", "Copied");
+          resetCodeButtonState(button, "copied", t("common.actions.copied"));
         } else {
-          resetCodeButtonState(button, "error", "Copy failed");
+          resetCodeButtonState(button, "error", t("modals.whatsNew.copyFailed"));
         }
       } else {
         resetInlineCodeState(
           codeEl,
           copied ? "copied" : "error",
-          copied ? "Copied inline code" : "Inline code copy failed",
+          copied
+            ? t("modals.whatsNew.copiedInline")
+            : t("modals.whatsNew.inlineCopyFailed"),
         );
       }
       window.setTimeout(() => {
         if (button) {
-          resetCodeButtonState(button, "idle", "Copy code");
+          resetCodeButtonState(button, "idle", t("modals.whatsNew.copyCode"));
         } else {
-          resetInlineCodeState(codeEl, "idle", "Copy inline code");
+          resetInlineCodeState(codeEl, "idle", t("modals.whatsNew.copyInlineCode"));
         }
       }, 1200);
     };
@@ -224,7 +228,7 @@ export default function WhatsNewModal({
         window.clearTimeout(timerId);
       }
     };
-  }, [markdownHtml, open]);
+  }, [markdownHtml, open, t]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -241,7 +245,7 @@ export default function WhatsNewModal({
         <div className="flex items-start justify-between gap-4 border-b border-emerald-100/70 px-6 py-5 dark:border-emerald-500/20">
           <div>
             <p className="text-[10px] uppercase tracking-[0.28em] text-emerald-500/80">
-              What's New
+              {t("modals.whatsNew.title")}
             </p>
             <h3 id="whats-new-modal-title" className="mt-2 text-2xl font-bold text-emerald-700 dark:text-emerald-200">
               ChatDesk {activeSection?.heading || version || ""}
@@ -251,7 +255,7 @@ export default function WhatsNewModal({
             type="button"
             onClick={() => onClose?.()}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200"
-            aria-label="Close what's new"
+            aria-label={t("modals.whatsNew.close")}
           >
             <Close size={18} />
           </button>
@@ -268,7 +272,7 @@ export default function WhatsNewModal({
             />
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-              No changelog entries are available for this version yet.
+              {t("modals.whatsNew.empty")}
             </div>
           )}
         </div>
@@ -281,7 +285,7 @@ export default function WhatsNewModal({
                 onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
                 disabled={pageIndex === 0}
                 className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-                aria-label="Show previous changelog version"
+                aria-label={t("modals.whatsNew.prev")}
               >
                 <ArrowLeft size={18} />
               </button>
@@ -297,7 +301,7 @@ export default function WhatsNewModal({
                 }
                 disabled={pageIndex >= sections.length - 1}
                 className="inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-emerald-200 bg-white text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:bg-slate-950 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
-                aria-label="Show next changelog version"
+                aria-label={t("modals.whatsNew.next")}
               >
                 <ArrowRight size={18} />
               </button>
@@ -310,7 +314,7 @@ export default function WhatsNewModal({
             onClick={() => onClose?.()}
             className="rounded-full bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-400"
           >
-            Got it!
+            {t("modals.whatsNew.gotIt")}
           </button>
         </div>
       </div>
