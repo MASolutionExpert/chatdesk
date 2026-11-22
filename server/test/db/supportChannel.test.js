@@ -42,6 +42,11 @@ const sync = (value) =>
   value && typeof value.then === "function" ? Promise.resolve(value) : value;
 
 describe("chat channel separation (direct vs support)", () => {
+  // Every DM created for the customer↔operator pair across this file. The
+  // unfiltered findDmChat lookup (legacy) may return ANY of them — it orders
+  // by message count / last activity / id DESC and ids are random UUIDs.
+  const pairChatIds = [];
+
   const customerId = createUser("channel-cust", "hash", "Customer", null, null, {
     role: "user",
   });
@@ -52,6 +57,7 @@ describe("chat channel separation (direct vs support)", () => {
   test("every chat defaults to an explicit 'direct' channel", async () => {
     const chatId = await sync(createChat(null, "dm"));
     expect(chatId).toBeTruthy();
+    pairChatIds.push(chatId);
     await sync(addChatMember(chatId, customerId, "owner"));
     await sync(addChatMember(chatId, operatorId, "member"));
     const conv = (await sync(listChatsForUser(customerId))).find(
@@ -69,6 +75,8 @@ describe("chat channel separation (direct vs support)", () => {
     expect(dept?.id).toBeTruthy();
 
     const chatId = await sync(createChat(null, "dm", { channel: "support" }));
+    expect(chatId).toBeTruthy();
+    pairChatIds.push(chatId);
     await sync(addChatMember(chatId, customerId, "owner"));
     await sync(addChatMember(chatId, operatorId, "member"));
     await sync(markChatDepartment(chatId, dept.id));
@@ -96,12 +104,14 @@ describe("chat channel separation (direct vs support)", () => {
 
     // The pair gets one direct chat and one support chat for the department.
     const directId = await sync(createChat(null, "dm"));
+    pairChatIds.push(directId);
     await sync(addChatMember(directId, customerId, "owner"));
     await sync(addChatMember(directId, operatorId, "member"));
 
     const supportId = await sync(
       createChat(null, "dm", { channel: "support" }),
     );
+    pairChatIds.push(supportId);
     await sync(addChatMember(supportId, customerId, "owner"));
     await sync(addChatMember(supportId, operatorId, "member"));
     await sync(markChatDepartment(supportId, dept.id));
@@ -136,9 +146,11 @@ describe("chat channel separation (direct vs support)", () => {
     );
     expect(otherId).toBeNull();
 
-    // Unfiltered lookup still works (legacy behaviour).
+    // Unfiltered lookup still works (legacy behaviour) and resolves to one
+    // of the pair's DM threads — which one is unspecified (ordered by
+    // activity, then random UUID id), so only membership is asserted.
     const anyId = await sync(findDmChat(customerId, operatorId));
-    expect([directId, supportId]).toContain(anyId);
+    expect(pairChatIds).toContain(anyId);
   });
 
   test("adminListChats separates support tickets from direct messages", async () => {

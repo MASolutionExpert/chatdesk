@@ -21,7 +21,7 @@ import { formatCompactCount, formatDayLabel, parseServerDate } from "../../utils
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
-import SupportChannelBadge from "../common/SupportChannelBadge.jsx";
+import ChannelBadge from "../common/ChannelBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import {
   FocusedMediaModal,
@@ -1025,8 +1025,10 @@ export default function ChatWindowPanel({
 
   // Channel kind of the active conversation: "support" threads are helpdesk
   // tickets opened through the department picker; everything else (default)
-  // is a messenger-style direct chat.
+  // is a messenger-style direct chat. Only DM conversations carry a channel.
   const isSupportChat = activeChat?.channel === "support";
+  const activeChatChannel =
+    activeChat?.type === "dm" ? (isSupportChat ? "support" : "direct") : null;
   const supportDepartmentName = activeChat?.department_name || null;
 
   const renderMessageItem = (msg, options = {}) => (
@@ -1047,7 +1049,7 @@ export default function ChatWindowPanel({
       isGroupChat={isGroupChat}
       isChannelChat={isChannelChat}
       isSavedChat={isSavedChat}
-      isSupportChat={isSupportChat}
+      chatChannel={activeChatChannel}
       supportDepartmentName={supportDepartmentName}
       chatId={activeChatId}
       chatName={activeFallbackTitle}
@@ -1277,8 +1279,8 @@ export default function ChatWindowPanel({
                       {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
                       {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
                       <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
-                      {isSupportChat && (
-                        <SupportChannelBadge size={17} departmentName={supportDepartmentName} />
+                      {activeChatChannel && (
+                        <ChannelBadge channel={activeChatChannel} departmentName={supportDepartmentName} />
                       )}
                     </button>
                   </Tooltip>
@@ -1292,8 +1294,8 @@ export default function ChatWindowPanel({
                       {Boolean(activeChat?.verified) && <VerifiedBadge size={17} />}
                       {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
                       <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
-                      {isSupportChat && (
-                        <SupportChannelBadge size={17} departmentName={supportDepartmentName} />
+                      {activeChatChannel && (
+                        <ChannelBadge channel={activeChatChannel} departmentName={supportDepartmentName} />
                       )}
                     </span>
                   </Tooltip>

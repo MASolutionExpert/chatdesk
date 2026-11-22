@@ -2,6 +2,26 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.2
+
+### Changed
+
+- 🏷️ **SUPPORT / MESSENGER channel badges replace the red-headset marker** (follow-up to 1.2.0-dev.1, feedback-driven redesign): the channel of every conversation is now marked with a clean text pill —
+  - **SUPPORT** (rose pill) on helpdesk threads opened through the department picker;
+  - **MESSENGER** (slate pill) on messenger-style direct chats.
+  - Badges appear in the chat list (DM rows), the chat window header (with the department name in the tooltip), on every incoming message's timestamp row (SUPPORT and MESSENGER, symmetric marking), and in the admin panel's Chats tab (mobile cards + desktop table).
+  - New shared component `ChannelBadge` replaces `SupportChannelBadge`; tooltip labels localized (fa/en), LTR-pinned for RTL layouts.
+
+### Fixed
+
+- 🔒 **Channel-separation leak closed in the "find user by ID → send message" flow** (`POST /api/chats/dm`): it previously looked up ANY DM between the pair — including an existing **support ticket** — so a plain direct message could land in (and resurrect) the ticket thread. It is now strictly scoped to the pair's `direct` chat and creates a fresh `direct` chat when none exists; the support thread is never touched. The response now also reports `channel: "direct"`. Route-level regression suite added: `server/test/api/channelSeparation.test.js` (asserts `findDmChat` receives `{ channel: "direct" }` / `{ channel: "support", departmentId }` on both flows).
+- 🧪 De-flaked `server/test/db/supportChannel.test.js`: the legacy unfiltered `findDmChat` lookup orders by random UUID ids, so its result set was non-deterministic; the test now asserts membership across all of the pair's DM threads.
+- 🧪 Browser badge suites (`MessageItem`, admin `ChatsTab`) re-pinned to English via `LanguageProvider` + `chatdesk.uiLanguage` — they had been red since the Persian-default UI change (99fe1dd) and are green again.
+
+### Rules
+
+- 📐 `AGENTS.md` sandbox discipline: work known to be un-installable/un-testable in the sandbox is skipped outright; every check the sandbox CAN run (lint, unit/integration/API tests, installer bats, release-sync gate) MUST be run.
+
 ## 1.2.0-dev.1
 
 ### New

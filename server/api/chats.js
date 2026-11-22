@@ -512,7 +512,10 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawExistingId = findDmChat(fromUser.id, toUser.id);
+    // Channel separation (migration 044): "find user by ID → send a message"
+    // is a MESSENGER flow. Reuse only the pair's direct chat; a support
+    // ticket between the same pair is a separate, never-converted thread.
+    const rawExistingId = findDmChat(fromUser.id, toUser.id, { channel: "direct" });
     const existingId = rawExistingId && typeof rawExistingId.then === "function" ? await rawExistingId : rawExistingId;
     if (existingId) {
       // Unhide the chat for both users (in case it was previously deleted)
@@ -521,10 +524,10 @@ function registerChatRoutes(app, deps) {
       const u2 = unhideChat(toUser.id, existingId);
       if (u2 && typeof u2.then === "function") await u2;
 
-      return res.json({ id: existingId });
+      return res.json({ id: existingId, channel: "direct" });
     }
 
-    const rawChatId = createChat(null, "dm");
+    const rawChatId = createChat(null, "dm", { channel: "direct" });
     const chatId = rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId;
     if (!chatId) {
       return res.status(500).json({ error: "Failed to create chat." });

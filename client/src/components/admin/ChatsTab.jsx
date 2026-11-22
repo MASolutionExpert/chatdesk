@@ -6,7 +6,7 @@ import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
-import SupportChannelBadge from "../common/SupportChannelBadge.jsx";
+import ChannelBadge from "../common/ChannelBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
@@ -255,17 +255,13 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       )}
                       {isDm && (
                         <span className="flex items-center gap-1">
-                          {c.channel === "support" ? (
-                            <>
-                              <SupportChannelBadge size={12} departmentName={c.department_name} />
-                              {t("admin.chats.filters.channelSupport")}
-                            </>
-                          ) : (
-                            <>
-                              <User size={12} className="text-slate-400" />
-                              {t("admin.chats.filters.channelDirect")}
-                            </>
-                          )}
+                          <ChannelBadge
+                            channel={c.channel === "support" ? "support" : "direct"}
+                            departmentName={c.department_name}
+                          />
+                          {c.channel === "support"
+                            ? t("admin.chats.filters.channelSupport")
+                            : t("admin.chats.filters.channelDirect")}
                         </span>
                       )}
                       <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
@@ -329,17 +325,15 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       </td>
                       <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
                         {isDm ? (
-                          c.channel === "support" ? (
-                            <span className="flex items-center gap-1.5">
-                              <SupportChannelBadge size={13} departmentName={c.department_name} />
-                              {t("admin.chats.filters.channelSupport")}
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1.5">
-                              <User size={13} className="text-slate-400" />
-                              {t("admin.chats.filters.channelDirect")}
-                            </span>
-                          )
+                          <span className="flex items-center gap-1.5">
+                            <ChannelBadge
+                              channel={c.channel === "support" ? "support" : "direct"}
+                              departmentName={c.department_name}
+                            />
+                            {c.channel === "support"
+                              ? t("admin.chats.filters.channelSupport")
+                              : t("admin.chats.filters.channelDirect")}
+                          </span>
                         ) : (
                           <span className="text-slate-400 dark:text-slate-500">—</span>
                         )}

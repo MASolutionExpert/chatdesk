@@ -6,6 +6,7 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { page, userEvent } from "vitest/browser";
+import { LanguageProvider } from "../../../src/i18n/index.js";
 import ChatsTab from "../../../src/components/admin/ChatsTab.jsx";
 
 function makeApiChat(overrides = {}) {
@@ -38,6 +39,19 @@ function mockFetch(chats, total = null) {
   });
 }
 
+// These suites assert English UI strings, but the app UI defaults to
+// Persian (fa since 99fe1dd). Pin the UI language to English and wrap the
+// component in a LanguageProvider so t() resolves English labels.
+function renderWithLang(ui) {
+  try {
+    window.localStorage.setItem("chatdesk.uiLanguage", "en");
+  } catch {
+    // storage unavailable — provider still defaults to fa; assertions below
+    // are the guardrail.
+  }
+  return render(<LanguageProvider>{ui}</LanguageProvider>);
+}
+
 describe("ChatsTab badge rendering", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -46,32 +60,32 @@ describe("ChatsTab badge rendering", () => {
   describe("verified badge", () => {
     test("shows Verified badge for a verified group", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ verified: true })]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
     });
 
     test("shows Verified badge when verified=1 (integer from DB)", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ verified: 1 })]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
     });
 
     test("hides Verified badge for unverified group", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ verified: false })]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
       await expect.element(page.getByText("Test Group").first()).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
     });
 
     test("shows Verified badge for a verified channel", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ type: "channel", name: "My Channel", verified: true })]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
     });
 
     test("hides Verified badge for unverified channel", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ type: "channel", name: "My Channel", verified: false })]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
       await expect.element(page.getByText("My Channel").first()).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
     });
@@ -80,7 +94,7 @@ describe("ChatsTab badge rendering", () => {
   describe("no role badges for chats", () => {
     test("never shows Server Owner or Admin badge even for a verified chat", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ verified: true })]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Admin")).not.toBeInTheDocument();
@@ -88,7 +102,7 @@ describe("ChatsTab badge rendering", () => {
 
     test("shows the selected owner's badges when editing an existing chat", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiChat({ owner_verified: true, owner_role: "owner" })]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
 
       await userEvent.click(page.getByRole("button", { name: "Edit" }).first());
 
@@ -103,7 +117,7 @@ describe("ChatsTab badge rendering", () => {
         makeApiChat({ id: 1, name: "Verified Group", group_username: "verified_group", verified: true }),
         makeApiChat({ id: 2, name: "Regular Group", group_username: "regular_group", verified: false }),
       ]));
-      render(<ChatsTab active={true} />);
+      renderWithLang(<ChatsTab active={true} />);
       await expect.element(page.getByText("Verified Group").first()).toBeInTheDocument();
       await expect.element(page.getByText("Regular Group").first()).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
