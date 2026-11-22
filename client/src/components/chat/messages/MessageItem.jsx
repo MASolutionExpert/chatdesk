@@ -39,6 +39,7 @@ import { resolveForwardedTarget } from "../../../utils/forwardOrigin.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import SupportChannelBadge from "../../common/SupportChannelBadge.jsx";
 import Tooltip from "../../common/Tooltip.jsx";
 
 const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
@@ -157,6 +158,8 @@ export const MessageItem = memo(function MessageItem({
   isGroupChat = false,
   isChannelChat = false,
   isSavedChat = false,
+  isSupportChat = false,
+  supportDepartmentName = null,
   chatId = null,
   chatName = "",
   chatColor = null,
@@ -1247,6 +1250,11 @@ export const MessageItem = memo(function MessageItem({
                 <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
                   {isEdited ? <span>{t("chat.message.edited")}</span> : null}
+                  {/* Support-channel marker on incoming messages: this message
+                      reached the operator through a support department. */}
+                  {isSupportChat && !isOwn ? (
+                    <SupportChannelBadge size={12} departmentName={supportDepartmentName} />
+                  ) : null}
                 </div>
               </ContextMenuSurface>
             </div>
@@ -1439,6 +1447,11 @@ export const MessageItem = memo(function MessageItem({
                 <span className="inline-flex items-center gap-1">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
                   {isEdited ? <span>{t("chat.message.edited")}</span> : null}
+                  {/* Support-channel marker on incoming messages: this message
+                      reached the operator through a support department. */}
+                  {isSupportChat && !isOwn ? (
+                    <SupportChannelBadge size={12} departmentName={supportDepartmentName} />
+                  ) : null}
                   {isOwn || isChannelChat ? (
                     <span
                       className={`inline-flex items-center gap-1 ${

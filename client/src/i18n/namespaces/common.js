@@ -36,6 +36,7 @@ export const common = {
       requestFailed: "Request failed.",
       networkError: "Connection error. Please try again.",
     },
+    supportChannelBadge: "Support request",
   },
   fa: {
     actions: {
@@ -67,5 +68,6 @@ export const common = {
       requestFailed: "درخواست ناموفق بود.",
       networkError: "خطای اتصال. لطفاً دوباره تلاش کنید.",
     },
+    supportChannelBadge: "درخواست پشتیبانی",
   },
 };

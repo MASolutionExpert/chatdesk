@@ -1,10 +1,16 @@
 /**
  * Helpdesk endpoints: department discovery + fair-routed support requests.
  *
- * A support request creates (or reuses) a regular DM chat between the
- * customer and the fairly-selected operator, then tags it with the
- * department id — so the whole messenger stack (SSE, push, files, calls)
- * keeps working without any special casing.
+ * A support request creates (or reuses) a support-channel DM chat between
+ * the customer and the fairly-selected operator, tagged with the department
+ * id — so the whole messenger stack (SSE, push, files, calls) keeps working
+ * without any special casing.
+ *
+ * Channels are strictly separated (migration 044 `chats.channel`):
+ *   - "direct"  : messenger-style chats opened by finding a user's ID.
+ *   - "support" : helpdesk threads opened through the department picker.
+ * A support request NEVER reuses or converts a direct chat between the same
+ * pair; it only continues an existing support thread for the SAME department.
  */
 function registerDepartmentRoutes(app, deps) {
   const {
@@ -18,7 +24,6 @@ function registerDepartmentRoutes(app, deps) {
     addChatMember,
     createMessage,
     markChatDepartment,
-    getChatDepartmentId,
     unhideChat,
     findUserByUsername,
     emitChatEvent,
@@ -83,24 +88,27 @@ function registerDepartmentRoutes(app, deps) {
         });
       }
 
-      // Reuse the existing DM between this customer and this operator when
-      // the pair already has a support conversation (messenger-like threads).
-      let chatId = await awaitMaybe(findDmChat(customer.id, operator.id));
+      // Reuse only an existing SUPPORT thread for the same department between
+      // this customer and this operator. A direct (messenger) chat between the
+      // pair is deliberately left alone — direct and support conversations
+      // must stay separate, distinguishable threads.
+      let chatId = await awaitMaybe(
+        findDmChat(customer.id, operator.id, {
+          channel: "support",
+          departmentId: department.id,
+        })
+      );
       let reused = false;
       if (chatId) {
-        const existingDept = await awaitMaybe(getChatDepartmentId(chatId));
-        if (existingDept === null || existingDept === Number(department.id)) {
-          reused = true;
-          if (existingDept === null) {
-            await awaitMaybe(markChatDepartment(chatId, department.id));
-          }
-          const u1 = await awaitMaybe(unhideChat(customer.id, chatId));
-          const u2 = await awaitMaybe(unhideChat(operator.id, chatId));
-        }
+        reused = true;
+        await awaitMaybe(unhideChat(customer.id, chatId));
+        await awaitMaybe(unhideChat(operator.id, chatId));
       }
 
       if (!reused) {
-        const rawChatId = await awaitMaybe(createChat(null, "dm"));
+        const rawChatId = await awaitMaybe(
+          createChat(null, "dm", { channel: "support" })
+        );
         chatId = rawChatId;
         if (!chatId) {
           return res.status(500).json({ error: "Failed to create chat." });
@@ -123,6 +131,7 @@ function registerDepartmentRoutes(app, deps) {
           username: customer.username,
           userId: customer.id,
           body: text,
+          chatChannel: "support",
         })
       );
       await awaitMaybe(
@@ -155,6 +164,7 @@ function registerDepartmentRoutes(app, deps) {
 
       return res.status(201).json({
         chatId,
+        channel: "support",
         operator: {
           username: operator.username,
           nickname: operator.nickname || operator.username,

@@ -1146,7 +1146,8 @@ function registerAdminPanelRoutes(app, deps) {
     const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
     const autoAddFilter = ["1", "0", "true", "false"].includes(req.query.auto_add) ? req.query.auto_add : null;
     const remoteFilter = ["active", "paused", "disabled", "none"].includes(req.query.remote) ? req.query.remote : null;
-    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter });
+    const channelFilter = ["direct", "support"].includes(req.query.channel) ? req.query.channel : null;
+    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, channelFilter });
     const { chats, total } = (rawResult && typeof rawResult.then === "function"
       ? await rawResult
       : rawResult) || { chats: [], total: 0 };

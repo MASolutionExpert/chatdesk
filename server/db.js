@@ -1052,21 +1052,39 @@ export function createUser(
   return id;
 }
 
-export function findDmChat(userId, otherUserId) {
+/**
+ * Find the DM chat between two users.
+ *
+ * Optional filters narrow the result to a specific channel kind:
+ *   - { channel: "support", departmentId } → only a support thread for that
+ *     department (used by the helpdesk request flow, so a plain direct chat
+ *     between the same pair is never reused or converted).
+ *   - { channel: "direct" } → only a messenger-style chat.
+ */
+export function findDmChat(userId, otherUserId, options = {}) {
   if (!userId || !otherUserId) {
     return isPostgresMode() ? Promise.resolve(null) : null;
   }
 
+  let qb = dbKnex("chats as c")
+    .select("c.id")
+    .join("chat_members as m1", function () {
+      this.on("m1.chat_id", "=", "c.id").andOn("m1.user_id", "=", dbKnex.raw("?", [userId]));
+    })
+    .join("chat_members as m2", function () {
+      this.on("m2.chat_id", "=", "c.id").andOn("m2.user_id", "=", dbKnex.raw("?", [otherUserId]));
+    })
+    .where("c.type", "dm");
+  const channelFilter = String(options.channel || "").trim().toLowerCase();
+  if (channelFilter === "support" || channelFilter === "direct") {
+    qb = qb.where("c.channel", channelFilter);
+  }
+  if (options.departmentId !== undefined && options.departmentId !== null) {
+    qb = qb.where("c.department_id", Number(options.departmentId));
+  }
+
   const row = getRow(
-    dbKnex("chats as c")
-      .select("c.id")
-      .join("chat_members as m1", function () {
-        this.on("m1.chat_id", "=", "c.id").andOn("m1.user_id", "=", dbKnex.raw("?", [userId]));
-      })
-      .join("chat_members as m2", function () {
-        this.on("m2.chat_id", "=", "c.id").andOn("m2.user_id", "=", dbKnex.raw("?", [otherUserId]));
-      })
-      .where("c.type", "dm")
+    qb
       .orderByRaw("(SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) DESC")
       .orderByRaw("(SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) DESC")
       .orderBy("c.id", "desc")
@@ -1117,6 +1135,9 @@ export function createChat(name, type = "dm", options = {}) {
       ? String(options.groupAvatarUrl || "").trim() || null
       : null;
   const verified = options.verified ? 1 : 0;
+  // Channel kind: "support" threads come from the department picker;
+  // everything else (default) is a messenger-style direct chat.
+  const channel = options.channel === "support" ? "support" : "direct";
   const autoAddNewUsers =
     groupVisibility === "private"
       ? 0
@@ -1137,6 +1158,7 @@ export function createChat(name, type = "dm", options = {}) {
       allow_member_invites: allowMemberInvites,
       group_avatar_url: groupAvatarUrl,
       verified,
+      channel,
       auto_add_new_users: autoAddNewUsers,
     }),
   );
@@ -2048,7 +2070,7 @@ export function findChatById(chatId) {
   if (!chatId) return isPostgresMode() ? Promise.resolve(null) : null;
   const row = getRow(
     dbKnex("chats")
-      .select("id", "name", "type", "group_username", "group_visibility", "invite_token", "group_color", "allow_member_invites", "group_avatar_url", "created_by_user_id", "verified", "auto_add_new_users")
+      .select("id", "name", "type", "group_username", "group_visibility", "invite_token", "group_color", "allow_member_invites", "group_avatar_url", "created_by_user_id", "verified", "channel", "department_id", "auto_add_new_users")
       .where("id", chatId)
       .first(),
   );
@@ -2672,6 +2694,8 @@ export function listChatsForUser(userId) {
       "c.created_by_user_id",
       "c.created_at",
       "c.verified",
+      "c.channel",
+      "c.department_id",
       dbKnex.raw("COALESCE(mu.muted, 0) AS muted"),
     )
     .join("chat_members as m", "m.chat_id", "c.id")
@@ -2756,6 +2780,10 @@ export function listChatsForUser(userId) {
       "mc.group_avatar_url",
       "mc.created_by_user_id",
       "mc.verified",
+      "mc.channel",
+      "mc.department_id",
+      "d.name as department_name",
+      "d.color as department_color",
       "mc.muted",
       dbKnex.raw("COALESCE(rcs.enabled, 0) AS remote_channel_enabled"),
       "last_vm.id as last_message_id",
@@ -2779,6 +2807,7 @@ export function listChatsForUser(userId) {
     .leftJoin("chat_messages as last_vm", "last_vm.id", lastMessageIdSubquery)
     .leftJoin("users as last_user", "last_user.id", "last_vm.user_id")
     .leftJoin("chat_messages as outgoing_vm", "outgoing_vm.id", outgoingMessageIdSubquery)
+    .leftJoin("departments as d", "d.id", "mc.department_id")
     .leftJoin("remote_channel_sources as rcs", function () {
       this.on("rcs.chat_id", "=", "mc.id").andOn("rcs.enabled", "=", dbKnex.raw("1"));
     })
@@ -4415,6 +4444,7 @@ export function adminListChats({
   verifiedFilter = null,
   autoAddFilter = null,
   remoteFilter = null,
+  channelFilter = null,
 }) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
@@ -4430,8 +4460,10 @@ export function adminListChats({
   let qb = dbKnex("chats as c")
     .leftJoin("users as owner", "owner.id", dbKnex.raw("(SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1)"))
     .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
+    .leftJoin("departments as d", "d.id", "c.department_id")
     .select(
       "c.id", "c.name", "c.type", "c.group_username", "c.group_visibility", "c.group_color", "c.group_avatar_url", "c.created_at", "c.verified", "c.auto_add_new_users",
+      "c.channel", "c.department_id", "d.name as department_name",
       participantsExpr,
       dbKnex.raw("(SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count"),
       dbKnex.raw("(SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count"),
@@ -4455,6 +4487,9 @@ export function adminListChats({
   }
   if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
+  }
+  if (channelFilter === "support" || channelFilter === "direct") {
+    qb = qb.where("c.channel", channelFilter);
   }
   if (visibilityFilter === "public" || visibilityFilter === "private") {
     qb = qb.where("c.group_visibility", visibilityFilter);
@@ -4514,6 +4549,7 @@ export function adminCountChats({
   verifiedFilter = null,
   autoAddFilter = null,
   remoteFilter = null,
+  channelFilter = null,
 } = {}) {
   let qb = dbKnex("chats as c")
     .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
@@ -4530,6 +4566,9 @@ export function adminCountChats({
   }
   if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
+  }
+  if (channelFilter === "support" || channelFilter === "direct") {
+    qb = qb.where("c.channel", channelFilter);
   }
   if (visibilityFilter === "public" || visibilityFilter === "private") {
     qb = qb.where("c.group_visibility", visibilityFilter);
@@ -5041,12 +5080,17 @@ export async function pickOperatorForDepartment(departmentId) {
   return best.operator;
 }
 
+// Tagging a chat with a department makes it a support thread (red headset);
+// clearing the department demotes it back to a direct chat.
 export function markChatDepartment(chatId, departmentId) {
   if (!chatId) return isPostgresMode() ? Promise.resolve(false) : false;
   const res = run(
     dbKnex("chats")
       .where({ id: chatId })
-      .update({ department_id: departmentId ? Number(departmentId) : null })
+      .update({
+        department_id: departmentId ? Number(departmentId) : null,
+        channel: departmentId ? "support" : "direct",
+      })
   );
   if (res && typeof res.then === "function") return res.then(() => true);
   return true;

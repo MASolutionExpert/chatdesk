@@ -6,6 +6,7 @@ import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import SupportChannelBadge from "../common/SupportChannelBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
@@ -25,6 +26,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const [verifiedFilter, setVerifiedFilter]     = useState("");
   const [autoAddFilter, setAutoAddFilter]       = useState("");
   const [remoteFilter, setRemoteFilter]         = useState("");
+  const [channelFilter, setChannelFilter]       = useState("");
   const [sortBy, setSortBy]           = useState("id");
   const [sortDir, setSortDir]         = useState("ASC");
   const [editChat, setEditChat]       = useState(null);
@@ -66,6 +68,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     if (verifiedFilter) params.set("verified", verifiedFilter);
     if (autoAddFilter) params.set("auto_add", autoAddFilter);
     if (remoteFilter) params.set("remote", remoteFilter);
+    if (channelFilter) params.set("channel", channelFilter);
     try {
       const data = await api.get(`/api/admin/chats?${params.toString()}`);
       if (requestId !== requestIdRef.current) return;
@@ -78,7 +81,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, sortBy, sortDir, pageSize]);
+  }, [trimmedSearch, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, channelFilter, sortBy, sortDir, pageSize]);
 
   // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
@@ -100,6 +103,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const changeVerifiedFilter = (value) => { setVerifiedFilter(value); setPage(1); };
   const changeAutoAddFilter = (value) => { setAutoAddFilter(value); setPage(1); };
   const changeRemoteFilter = (value) => { setRemoteFilter(value); setPage(1); };
+  const changeChannelFilter = (value) => { setChannelFilter(value); setPage(1); };
   const changePageSize = (value) => { setPageSize(value); setPage(1); };
   const toggleSort = (field) => {
     setPage(1);
@@ -156,6 +160,17 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
         ["none", t("admin.chats.filters.remoteNone")],
       ],
     },
+    {
+      id: "channel",
+      label: t("admin.chats.filters.channel"),
+      value: channelFilter,
+      onChange: changeChannelFilter,
+      options: [
+        ["", t("admin.chats.filters.channelAll")],
+        ["direct", t("admin.chats.filters.channelDirect")],
+        ["support", t("admin.chats.filters.channelSupport")],
+      ],
+    },
   ];
 
   const resetChatFilters = () => {
@@ -164,6 +179,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     setVerifiedFilter("");
     setAutoAddFilter("");
     setRemoteFilter("");
+    setChannelFilter("");
     setPage(1);
   };
 
@@ -237,6 +253,21 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                           {(c.group_visibility || "public") === "private" ? t("admin.chats.filters.visPrivate") : t("admin.chats.filters.visPublic")}
                         </span>
                       )}
+                      {isDm && (
+                        <span className="flex items-center gap-1">
+                          {c.channel === "support" ? (
+                            <>
+                              <SupportChannelBadge size={12} departmentName={c.department_name} />
+                              {t("admin.chats.filters.channelSupport")}
+                            </>
+                          ) : (
+                            <>
+                              <User size={12} className="text-slate-400" />
+                              {t("admin.chats.filters.channelDirect")}
+                            </>
+                          )}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1"><Users size={11} className="text-slate-400" />{c.member_count}</span>
                       <span className="flex items-center gap-1"><MessageCircleMore size={11} className="text-slate-400" />{c.message_count}</span>
                       <span className="text-slate-400 dark:text-slate-500">{fmtDate(c.created_at)}</span>
@@ -256,6 +287,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                   <tr>
                     <SortTh field="name" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colChat")}</SortTh>
                     <SortTh field="type" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colType")}</SortTh>
+                    <th className="px-4 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400">{t("admin.chats.colChannel")}</th>
                     <SortTh field="group_visibility" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colPrivacy")}</SortTh>
                     <SortTh field="member_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colMembers")}</SortTh>
                     <SortTh field="message_count" sortBy={sortBy} sortDir={sortDir} onToggle={toggleSort}>{t("admin.chats.colMessages")}</SortTh>
@@ -294,6 +326,23 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                           {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : isDm ? <User size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
                           {isDm ? t("admin.chats.filters.typeDm") : c.type === "group" ? t("admin.chats.typeGroupSing") : c.type === "channel" ? t("admin.chats.typeChannelSing") : c.type}
                         </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+                        {isDm ? (
+                          c.channel === "support" ? (
+                            <span className="flex items-center gap-1.5">
+                              <SupportChannelBadge size={13} departmentName={c.department_name} />
+                              {t("admin.chats.filters.channelSupport")}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5">
+                              <User size={13} className="text-slate-400" />
+                              {t("admin.chats.filters.channelDirect")}
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
                         {isDm ? (

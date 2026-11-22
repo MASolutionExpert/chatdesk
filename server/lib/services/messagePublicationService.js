@@ -124,6 +124,7 @@ export function createMessagePublicationService(dbApi) {
                   userId,
                   body,
                   replyToMessageId,
+                  chatChannel: chat.channel === "support" ? "support" : "direct",
                   ...(chat.type === "saved"
                     ? {
                         read_at: new Date().toISOString(),
@@ -249,6 +250,7 @@ export function createMessagePublicationService(dbApi) {
                 username,
                 body: fallbackBody,
                 replyToMessageId,
+                chatChannel: chat.channel === "support" ? "support" : "direct",
                 ...(chat.type === "saved"
                   ? {
                       read_at: new Date().toISOString(),

@@ -31,6 +31,7 @@ import { formatCompactCount } from "../../../utils/chatFormat.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import SupportChannelBadge from "../../common/SupportChannelBadge.jsx";
 import Tooltip from "../../common/Tooltip.jsx";
 
 export default function ChatsListPanel({
@@ -660,6 +661,14 @@ export default function ChatsListPanel({
                     ) : null}
                     {conv.type === "dm" && !isDeletedDm && other ? (
                       <UserRoleBadge role={other.user_role} size={16} />
+                    ) : null}
+                    {/* Support-channel marker: this DM is a helpdesk ticket
+                        opened through the department picker (red headset). */}
+                    {conv.type === "dm" && conv.channel === "support" ? (
+                      <SupportChannelBadge
+                        size={16}
+                        departmentName={conv.department_name}
+                      />
                     ) : null}
                     {conv.type !== "dm" && Boolean(conv.verified) ? (
                       <VerifiedBadge size={16} />
