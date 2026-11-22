@@ -52,6 +52,7 @@ function registerMessageRoutes(app, deps) {
     listMessageFilesByMessageIds,
     listChatFilesForUser,
     countChatFilesForUser,
+    searchChatMessagesForUser,
     parseUploadFileMetadata,
     path,
     probeVideoMetadata,
@@ -610,6 +611,73 @@ function registerMessageRoutes(app, deps) {
       limit,
       offset,
       hasMore: offset + files.length < total,
+    });
+  });
+
+  // ─── Per-thread message search (profile "Search" action) ───────────────────
+  // Full-history search inside ONE thread: message text and attachment file
+  // names, both sides, newest first, each row carrying the sender identity
+  // and the original message timestamp. Members only — identical visibility
+  // contract as the files gallery (hidden-for-everyone and viewer-hidden
+  // messages never match).
+  app.get("/api/chats/:chatId/search", validateUuidParams("chatId"), async (req, res) => {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const chatId = req.params.chatId;
+    const username = req.query.username?.toString();
+    if (!username) {
+      return res.status(400).json({ error: "Username is required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const rawIsMember = isMember(chatId, user.id);
+    const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+    if (!memberCheck) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const term = String(req.query.q || "").trim().replace(/^@+/, "");
+    if (!term) {
+      return res.status(400).json({ error: "Search term is required." });
+    }
+
+    const limitRaw = Number(req.query.limit || 50);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.round(limitRaw))) : 50;
+    const offsetRaw = Number(req.query.offset || 0);
+    const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.min(100000, Math.round(offsetRaw))) : 0;
+
+    const rawSearch = searchChatMessagesForUser(chatId, user.id, term, { limit, offset });
+    const search = rawSearch && typeof rawSearch.then === "function" ? await rawSearch : rawSearch;
+    const rows = search?.rows || [];
+    const total = Number(search?.total || 0);
+
+    const results = rows.map((row) => ({
+      messageId: row.id,
+      body: typeof row.body === "string" ? row.body : "",
+      sentAt: row.created_at || null,
+      sender: {
+        username: row.username || "",
+        nickname: row.nickname || row.username || "",
+        color: row.color || null,
+        avatarUrl: ensureAvatarExists(row.user_id ?? null, row.avatar_url),
+      },
+    }));
+
+    res.json({
+      chatId,
+      query: term,
+      results,
+      total,
+      limit,
+      offset,
+      hasMore: offset + results.length < total,
     });
   });
 

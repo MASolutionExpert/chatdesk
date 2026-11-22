@@ -34,7 +34,7 @@ import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import RemoteChannelQueueStatus from "./RemoteChannelQueueStatus.jsx";
 import Tooltip from "../common/Tooltip.jsx";
-import { FolderOpen } from "../../icons/lucide.js";
+import { FolderOpen, Search } from "../../icons/lucide.js";
 import { useFocusTrap } from "../../hooks/useFocusTrap.js";
 import { isCallSupported } from "../../utils/callCapabilities.js";
 import { useI18n } from "../../i18n/index.js";
@@ -59,6 +59,7 @@ export default function ChatProfileModal({
   videoCallsDisabled = false,
   onToggleMute,
   onOpenFiles,
+  onOpenSearch,
   onLeaveGroup,
   onOpenMember,
   onRemoveMember,
@@ -337,6 +338,9 @@ export default function ChatProfileModal({
   // preview, where the sidebar thread is not the user's own conversation.
   const canBrowseFiles =
     Boolean(chat?.id) && !isReadOnly && !showJoinAction && Boolean(onOpenFiles);
+  // Same eligibility as the files gallery: any real thread the user belongs to.
+  const canSearchInThread =
+    Boolean(chat?.id) && !isReadOnly && !showJoinAction && Boolean(onOpenSearch);
   const canSeeMembers =
     showMembers && !isReadOnly && (isGroup || (isChannel && isOwner));
   const memberQueryHasPersian = hasPersian(memberQuery || "");
@@ -617,6 +621,22 @@ export default function ChatProfileModal({
                   <FolderOpen size={24} className="icon-anim-bob" />
                 </div>
                 <p className="mt-1 text-xs font-semibold">{t("modals.profile.files")}</p>
+              </button>
+            ) : null}
+            {canSearchInThread ? (
+              <button
+                type="button"
+                onClick={() => {
+                  handleClose();
+                  onOpenSearch?.();
+                }}
+                className="group rounded-2xl border border-emerald-200 bg-white px-2 py-3 text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-500/10 cursor-pointer"
+                aria-label={t("modals.profile.searchAria")}
+              >
+                <div className="mx-auto inline-flex h-11 w-11 items-center justify-center rounded-full">
+                  <Search size={24} className="icon-anim-pop" />
+                </div>
+                <p className="mt-1 text-xs font-semibold">{t("modals.profile.search")}</p>
               </button>
             ) : null}
             {isGroup || isChannel ? (

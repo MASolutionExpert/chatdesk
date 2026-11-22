@@ -861,3 +861,15 @@ export const fetchChatFiles = (
   apiFetch(
     `${API_BASE}/api/chats/${encodeURIComponent(chatId)}/files?username=${encodeURIComponent(username)}&limit=${limit}&offset=${offset}`,
   );
+
+// ─── Per-thread message search (profile "Search" option) ─────────────────────
+
+export const searchChatMessages = (
+  chatId,
+  username,
+  query,
+  { limit = 50, offset = 0 } = {},
+) =>
+  apiFetch(
+    `${API_BASE}/api/chats/${encodeURIComponent(chatId)}/search?username=${encodeURIComponent(username)}&q=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}`,
+  );

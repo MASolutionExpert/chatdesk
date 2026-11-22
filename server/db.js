@@ -3731,6 +3731,131 @@ export function countChatFilesForUser(chatId, viewerUserId) {
   return Number(row?.total || 0);
 }
 
+// ─── Per-thread message search (profile "Search" action) ────────────────────
+
+/**
+ * Message bodies are ENCRYPTED at rest (sb-enc-v1, random IV), so a SQL LIKE
+ * can never match plaintext. Thread search therefore chunk-scans the thread's
+ * visible messages, decrypts each body in the app layer, and filters in JS —
+ * case-insensitive, literal (wildcards in the term are just characters).
+ * Attachment file names are stored in plaintext and match as well.
+ *
+ * Visibility contract = the files gallery: messages hidden for everyone and
+ * messages hidden for the VIEWER never match; system messages
+ * ([[system:...]], stored plaintext by design) are excluded by SQL.
+ *
+ * The scan is capped (SEARCH_SCAN_MAX_ROWS) so a huge thread can't pin the
+ * server; results within the scanned window are still correct and ordered.
+ */
+const SEARCH_SCAN_CHUNK = 500;
+const SEARCH_SCAN_MAX_ROWS = 50000;
+
+function chatSearchScanQuery(chatId, viewerUserId) {
+  // Same visibility contract as the files gallery: messages hidden for
+  // everyone and messages hidden for the VIEWER never match.
+  return chatFilesVisibleFilter(
+    dbKnex("chat_messages as m")
+      .join("users as u", "u.id", "m.user_id")
+      .where("m.chat_id", chatId),
+    viewerUserId,
+  )
+    .whereNot("m.body", "like", "[[system:%]]")
+    .select(
+      "m.id", "m.body", "m.edited_body", "m.created_at", "m.user_id",
+      "u.username", "u.nickname", "u.color", "u.avatar_url",
+    )
+    .orderBy("m.created_at", "desc")
+    .orderBy("m.id", "desc");
+}
+
+const searchMatchText = (text, term) =>
+  typeof text === "string" && text.toLowerCase().includes(term);
+
+async function resolveAwait(value) {
+  return value && typeof value.then === "function" ? await value : value;
+}
+
+/**
+ * Search a chat thread for a term — decrypted message text (body or edited
+ * body) AND attachment file names, both sides, newest first, each row
+ * carrying the sender identity and the original message timestamp.
+ *
+ * Returns { rows, total, scannedAll }:
+ *   - rows: the `offset..offset+limit` slice of ALL matches found
+ *   - total: number of matches within the scanned window
+ *   - scannedAll: true when the whole thread was scanned (total is exact)
+ */
+export async function searchChatMessagesForUser(chatId, viewerUserId, query, options = {}) {
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  const empty = { rows: [], total: 0, scannedAll: true };
+  if (!chatId || !viewerUserId || !term) {
+    return empty;
+  }
+  const safeLimit = Math.max(1, Math.min(100, Number(options.limit) || 50));
+  const safeOffset = Math.max(0, Number(options.offset) || 0);
+
+  const matches = [];
+  let scanned = 0;
+  let exhausted = false;
+
+  // Chunked newest-first scan; collect every match (needed for the total and
+  // stable offset pagination), stop at the scan cap.
+  while (!exhausted && scanned < SEARCH_SCAN_MAX_ROWS) {
+    const chunk = await resolveAwait(
+      chatSearchScanQuery(chatId, viewerUserId)
+        .limit(SEARCH_SCAN_CHUNK)
+        .offset(scanned),
+    );
+    const rows = chunk || [];
+    if (rows.length === 0) {
+      exhausted = true;
+      break;
+    }
+    scanned += rows.length;
+
+    // Attachment file names (plaintext) can match too — one batched query.
+    const fileRows = await resolveAwait(
+      listMessageFilesByMessageIds(rows.map((row) => row.id)),
+    );
+    const fileNamesByMessage = new Map();
+    for (const file of fileRows || []) {
+      const key = String(file.message_id || "");
+      if (!fileNamesByMessage.has(key)) fileNamesByMessage.set(key, []);
+      fileNamesByMessage.get(key).push(String(file.original_name || "").toLowerCase());
+    }
+
+    for (const rawRow of rows) {
+      const row = decryptMessageRow(rawRow);
+      const names = fileNamesByMessage.get(String(row.id)) || [];
+      const hit =
+        searchMatchText(row.body, term) ||
+        searchMatchText(row.edited_body, term) ||
+        names.some((name) => name.includes(term));
+      if (hit) matches.push(row);
+    }
+
+    if (rows.length < SEARCH_SCAN_CHUNK) exhausted = true;
+  }
+
+  return {
+    rows: matches.slice(safeOffset, safeOffset + safeLimit),
+    total: matches.length,
+    scannedAll: exhausted && scanned < SEARCH_SCAN_MAX_ROWS,
+  };
+}
+
+/**
+ * Convenience total (full scan) — the route uses searchChatMessagesForUser's
+ * { rows, total } directly; kept for diagnostics and tests.
+ */
+export async function countChatMessageSearchForUser(chatId, viewerUserId, query) {
+  const { total } = await searchChatMessagesForUser(chatId, viewerUserId, query, {
+    limit: 1,
+    offset: 0,
+  });
+  return total;
+}
+
 export function listMessageFilesNeedingMetadata(limit = 10000) {
   const safeLimit = Math.max(1, Math.min(200000, Number(limit) || 10000));
 

@@ -2,6 +2,26 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.7
+
+### Added
+
+- 🔍 **Per-thread Search — full-history search inside every conversation (profile "Search" action, next to "Files").** Operators can finally find any past message in a thread with a user:
+  - searches **any character, word or number** — case-insensitive, literal (typing `%` or `_` finds those characters, no wildcard surprises);
+  - matches **message text from BOTH sides** of the thread (including edited text) **and attachment file names**;
+  - every result row shows the sender's nickname, the message text with the **match highlighted**, and the full original timestamp (date · time) — clicking a row jumps to the message in the chat (same scroll + flash as the files gallery / reply quotes);
+  - "Load more" pagination and a live result counter in the header; debounced input, keyboard-accessible, focus-trapped dialog consistent with the Files gallery design.
+- 🌐 i18n fa/en (`modals.threadSearch.*`, `modals.profile.search`) — Persian UI fully translated.
+
+### Security
+
+- 🔐 The search is **members-only** and uses the exact same visibility contract as the files gallery: `GET /api/chats/:chatId/search` requires a session whose username matches the `username` parameter, verifies chat membership (403 otherwise), and messages hidden for everyone — or hidden for the requesting viewer — **never match**. System messages are excluded. No cross-thread or cross-user leakage is possible; operators can only search threads they belong to. (Also re-audited after the dev.6 client-filter removal: all message/file access paths remain gated by server-side membership checks — removing that filter introduced no security hole.)
+
+### Implementation notes
+
+- 💬 Message bodies are **encrypted at rest** (sb-enc-v1, random IV), so SQL `LIKE` cannot match plaintext. The search chunk-scans the thread (500 rows per chunk), decrypts bodies in the app layer, and filters in JS — newest first, with a 50,000-row scan cap so a huge thread can never pin the server. Attachment file names are matched via one batched query per chunk.
+- 🧪 Tests: `server/test/db/chatSearch.test.js` (11 cases: both sides, case-insensitivity, single chars/numbers, file-name matches, literal wildcards, system-message exclusion, hidden-for-everyone / viewer-hidden contracts, pagination, empty terms, cross-thread isolation) and `server/test/api/chatSearch.test.js` (auth, pagination, 400/403 contracts) — full server suite **1194/1194** green. New browser suite `ChatSearchModal.test.jsx` (chromium + firefox: typing → results → jump, empty state). Client unit suite 406/406 green; ESLint clean; production client build OK.
+
 ## 1.2.0-dev.6
 
 ### Fixed
