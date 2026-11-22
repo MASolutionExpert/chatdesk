@@ -30,6 +30,12 @@ export function useAppContextMenu({
   canReplyToMessage,
   canEditMessage,
   canDeleteMessageForEveryone,
+  // Only moderators (owner/admin/operator) may delete messages at all;
+  // regular users never see the delete entry.
+  canDeleteMessages = true,
+  // Optional predicate (chat) => boolean; returning false hides the
+  // thread-delete entry (e.g. regular users cannot delete support threads).
+  canDeleteChatThread = null,
   onReplyToMessage,
   onEditMessage,
   onDeleteMessage,
@@ -169,18 +175,22 @@ export function useAppContextMenu({
                   onSelect: () => onForwardMessage?.(message),
                 },
               ]),
-          {
-            id: "delete",
-            label: t("common.actions.delete"),
-            icon: Trash,
-            danger: true,
-            onSelect: () =>
-              onDeleteMessage?.(message, {
-                allowDeleteForEveryone: Boolean(
-                  canDeleteMessageForEveryone?.(message),
-                ),
-              }),
-          },
+          ...(canDeleteMessages
+            ? [
+                {
+                  id: "delete",
+                  label: t("common.actions.delete"),
+                  icon: Trash,
+                  danger: true,
+                  onSelect: () =>
+                    onDeleteMessage?.(message, {
+                      allowDeleteForEveryone: Boolean(
+                        canDeleteMessageForEveryone?.(message),
+                      ),
+                    }),
+                },
+              ]
+            : []),
         );
       }
 
@@ -249,13 +259,15 @@ export function useAppContextMenu({
             onSelect: () => onToggleChatMute?.(chat?.id),
           });
         }
-        items.push({
-          id: "delete",
-          label: t("common.actions.delete"),
-          icon: Trash,
-          danger: true,
-          onSelect: () => onDeleteChats?.([chat?.id]),
-        });
+        if (canDeleteChatThread?.(chat) !== false) {
+          items.push({
+            id: "delete",
+            label: t("common.actions.delete"),
+            icon: Trash,
+            danger: true,
+            onSelect: () => onDeleteChats?.([chat?.id]),
+          });
+        }
       }
 
       if (!items.length) return;
@@ -290,6 +302,8 @@ export function useAppContextMenu({
       onReplyToMessage,
       onToggleChatMute,
       canDeleteMessageForEveryone,
+      canDeleteMessages,
+      canDeleteChatThread,
       canEditMessage,
       isOfflineProp,
       sseConnected,

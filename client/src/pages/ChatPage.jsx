@@ -337,6 +337,19 @@ const buildInviteLinkForChat = (chat) => {
 };
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
+  // Moderators (owner/admin/operator) may delete messages and threads;
+  // regular users must never see or reach the delete actions.
+  const canModerateContent = ["owner", "admin", "operator"].includes(
+    String(user?.role || "").toLowerCase(),
+  );
+  // Regular users cannot delete DM-type chats (support tickets included);
+  // group/channel cleanup keeps working via leave + hide.
+  const canDeleteThread = useCallback(
+    (chat) =>
+      canModerateContent ||
+      String(chat?.type || "").toLowerCase() !== "dm",
+    [canModerateContent],
+  );
   /* eslint-disable react-hooks/exhaustive-deps */
   const { t, lang } = useI18n();
   const messageMaxChars = useMessageMaxChars();
@@ -3174,8 +3187,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   const requestDeleteChats = (ids) => {
-    if (!ids.length) return;
-    setPendingDeleteIds(ids);
+    const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
+    if (!list.length) return;
+    // Regular users must not be able to delete threads: filter DM-type
+    // chats (support tickets included) out of every deletion request.
+    // The server enforces the same rule; this keeps the UI consistent.
+    const allowedIds = canModerateContent
+      ? list
+      : list.filter((id) => {
+          const chat = chats.find((candidate) => candidate?.id === id);
+          return String(chat?.type || "").toLowerCase() !== "dm";
+        });
+    if (!allowedIds.length) return;
+    setPendingDeleteIds(allowedIds);
     setConfirmDeleteOpen(true);
   };
 
@@ -3183,13 +3207,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     (message) => {
       if (String(activeChat?.type || "").toLowerCase() === "saved") return false;
       if (isActiveChannelChat && !canCurrentUserEditGroup) return false;
+      // Moderators (owner/admin/operator) may delete anyone's message for
+      // everyone in chats they can post in — the server allows the same.
+      if (canModerateContent) return true;
       const messageAuthor = String(message?.username || "").toLowerCase();
       const currentUsername = String(user?.username || "").toLowerCase();
       if (!messageAuthor) return false;
       if (messageAuthor === currentUsername) return true;
       return canCurrentUserEditGroup;
     },
-    [activeChat?.type, canCurrentUserEditGroup, isActiveChannelChat, user?.username],
+    [activeChat?.type, canCurrentUserEditGroup, canModerateContent, isActiveChannelChat, user?.username],
   );
 
   const canEditMessageFromContext = useCallback(
@@ -6716,6 +6743,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     canReplyToMessage: canSendInActiveChat,
     canEditMessage: canEditMessageFromContext,
     canDeleteMessageForEveryone,
+    canDeleteMessages: canModerateContent,
+    canDeleteChatThread: canDeleteThread,
     onReplyToMessage: handleStartReply,
     onEditMessage: handleStartEdit,
     onDeleteMessage: handleDeleteMessageRequest,
@@ -7054,6 +7083,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         callsEditMode={callsEditMode}
         selectedCalls={selectedCalls}
         toggleSelectCall={toggleSelectCall}
+        canDeleteThread={canDeleteThread}
         onEnterCallsEditMode={() => {
           if (!calls.length) return;
           setCallsEditMode(true);

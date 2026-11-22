@@ -2,6 +2,34 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.8
+
+### Fixed
+
+- 🐛 **Nobody could delete a message — the confirm dialog flashed and vanished instantly.** Clicking "حذف" in the message context menu closed the menu and opened the delete-confirmation dialog in the same instant. The menu's own "system back" bookkeeping called `history.back()` while the dialog was pushing its history entry, and the resulting `popstate` closed the freshly opened dialog a split second later — on some browsers the push itself was even swallowed. Result: a dialog that "appeared and immediately disappeared", so **neither side of a chat could ever delete a message** (the same flash hit every dialog opened from a context menu: delete, forward, delete chat).
+  - Fix in the shared `useOverlayBack` hook: the close-pop is deferred one tick and re-checks that its own history entry is still the topmost one before popping, plus a `popstate` guard so a sibling overlay's back() can never close a newer overlay. Deferred entries are drained naturally by later back gestures.
+  - Regression test added (chromium + firefox): "opening a modal while the context menu closes in the same commit keeps the modal open".
+
+### Added
+
+- 🛡️ **Deletion is now a moderator-only power, with a full audit trail in the Reports (Logs) section.**
+  - **Regular users can no longer delete messages** — not even their own (`POST /api/messages/delete` returns 403 for the `user` role). The delete entry no longer even appears in their message context menu.
+  - **Regular users can no longer delete threads.** DM-type chats (support tickets are DM chats) are protected server-side (`POST /api/chats/hide` returns 403), and the delete entry / edit-mode remove button is hidden for them. Group/channel cleanup (leave + hide) keeps working exactly as before.
+  - **Admins and operators keep full deletion powers** — an operator/admin can now even delete another participant's message "for everyone" inside threads they belong to (previously only the message author or the chat owner could).
+  - **Every moderator deletion is logged to the admin audit log** and shows up in the admin panel **Logs tab (گزارش‌ها)** with the actor, timestamp, and details:
+    - `message.delete.everyone` — message deleted for everyone (with a short preview of the deleted text);
+    - `message.delete.self` — message hidden from the moderator's own view;
+    - `thread.delete` — a thread (DM/support chat) removed from view;
+    - `chat.delete` — a group/channel destroyed (with its files). File deletion happens through message/thread deletion, so those events are covered by the same entries.
+
+### Security
+
+- 🔐 The policy is enforced **server-side**, not just hidden in the UI: both delete endpoints verify the acting user's role from the database on every request. Regular users cannot bypass the block by crafting requests, and moderators cannot delete outside chats they are a member of (membership checks unchanged).
+
+### Tests
+
+- 🧪 Server suite **1200/1200** green (new: regular-user 403 on both delete scopes, moderator deletes audited with exact action/actor/details, thread-deletion policy for DM vs group, regular-user group hide still allowed). Client unit suite **406/406** green. New browser tests: overlay-back regression (chromium + firefox) and the context-menu delete policy (5 cases). ESLint clean on all touched files.
+
 ## 1.2.0-dev.7
 
 ### Added

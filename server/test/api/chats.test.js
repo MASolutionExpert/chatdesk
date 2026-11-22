@@ -534,3 +534,81 @@ describe("GET /api/channels/:username/messages", () => {
   });
 });
 
+
+// ─── POST /api/chats/hide — thread deletion policy ────────────────────────────
+
+const DM_CHAT_ID = "d1d1d1d1-e1e1-4e1e-8e1e-111111111111";
+const GROUP_CHAT_ID = "g1g1g1g1-e1e1-4e1e-8e1e-222222222222";
+
+function makeHideApp(role = "user") {
+  const userStore = makeUserStore([
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      username: "alice",
+      password_hash: bcrypt.hashSync("secret123", 4),
+      nickname: "Alice",
+      avatar_url: null,
+      color: "#10b981",
+      status: "online",
+      role,
+      banned: false,
+    },
+  ]);
+  const writeAdminAuditLog = vi.fn();
+  const hideChatsForUser = vi.fn();
+  const { app } = makeApp({
+    userStore,
+    deps: {
+      findChatById: (id) =>
+        id === DM_CHAT_ID
+          ? { id, type: "dm" }
+          : id === GROUP_CHAT_ID
+            ? { id, type: "group" }
+            : null,
+      hideChatsForUser,
+      writeAdminAuditLog,
+    },
+  });
+  return { app, writeAdminAuditLog, hideChatsForUser };
+}
+
+async function loginAndHide(app, chatIds) {
+  const res = await request(app)
+    .post("/api/login")
+    .send({ username: "alice", password: "secret123" });
+  return request(app)
+    .post("/api/chats/hide")
+    .set("Cookie", res.headers["set-cookie"])
+    .send({ username: "alice", chatIds });
+}
+
+describe("POST /api/chats/hide — thread deletion policy", () => {
+  test("regular users cannot delete a DM thread (403)", async () => {
+    const { app, hideChatsForUser } = makeHideApp("user");
+    const res = await loginAndHide(app, [DM_CHAT_ID]);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/cannot delete threads/i);
+    expect(hideChatsForUser).not.toHaveBeenCalled();
+  });
+
+  test("regular users hiding a group chat is still allowed", async () => {
+    const { app, hideChatsForUser } = makeHideApp("user");
+    const res = await loginAndHide(app, [GROUP_CHAT_ID]);
+    expect(res.status).toBe(200);
+    expect(hideChatsForUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("operator can delete a DM thread and the deletion is audited", async () => {
+    const { app, hideChatsForUser, writeAdminAuditLog } = makeHideApp("operator");
+    const res = await loginAndHide(app, [DM_CHAT_ID]);
+    expect(res.status).toBe(200);
+    expect(hideChatsForUser).toHaveBeenCalledTimes(1);
+    expect(writeAdminAuditLog).toHaveBeenCalledTimes(1);
+    expect(writeAdminAuditLog.mock.calls[0][0]).toMatchObject({
+      actorUsername: "alice",
+      action: "thread.delete",
+      targetType: "chat",
+      details: { chatIds: [DM_CHAT_ID] },
+    });
+  });
+});

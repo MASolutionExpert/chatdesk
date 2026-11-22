@@ -1,4 +1,4 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
@@ -385,7 +385,7 @@ describe("POST /api/messages/edit", () => {
 // ─── POST /api/messages/delete ────────────────────────────────────────────────
 
 describe("POST /api/messages/delete", () => {
-  function makeDeleteApp(messageOverride = {}) {
+  function makeDeleteApp(messageOverride = {}, role = "operator") {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
@@ -396,12 +396,13 @@ describe("POST /api/messages/delete", () => {
         avatar_url: null,
         color: "#10b981",
         status: "online",
-        role: "user",
+        role,
         banned: false,
       },
     ]);
     const message = { id: MSG_ID, chat_id: CHAT_ID, user_id: ALICE_ID, ...messageOverride };
-    return makeApp({
+    const writeAdminAuditLog = vi.fn();
+    const { app } = makeApp({
       userStore,
       deps: {
         isMember: () => true,
@@ -410,88 +411,88 @@ describe("POST /api/messages/delete", () => {
         getChatMemberRole: () => "member",
         hideMessageForUser: () => {},
         hideMessageForEveryone: () => {},
+        writeAdminAuditLog,
       },
     });
+    return { app, writeAdminAuditLog };
+  }
+
+  async function loginAndDelete(app, body) {
+    const cookie = (
+      await request(app)
+        .post("/api/login")
+        .send({ username: "alice", password: "secret123" })
+    ).headers["set-cookie"];
+    return request(app)
+      .post("/api/messages/delete")
+      .set("Cookie", cookie)
+      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, ...body });
   }
 
   test("returns 400 when messageId is missing", async () => {
     const { app } = makeDeleteApp();
-    const cookie = (
-      await request(app)
-        .post("/api/login")
-        .send({ username: "alice", password: "secret123" })
-    ).headers["set-cookie"];
-    const res = await request(app)
-      .post("/api/messages/delete")
-      .set("Cookie", cookie)
-      .send({ chatId: CHAT_ID, username: "alice" });
+    const res = await loginAndDelete(app, { messageId: undefined });
     expect(res.status).toBe(400);
   });
 
-  test("deletes for self by default (scope: self)", async () => {
-    const { app } = makeDeleteApp();
-    const cookie = (
-      await request(app)
-        .post("/api/login")
-        .send({ username: "alice", password: "secret123" })
-    ).headers["set-cookie"];
-    const res = await request(app)
-      .post("/api/messages/delete")
-      .set("Cookie", cookie)
-      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID });
-    expect(res.status).toBe(200);
-    expect(res.body.scope).toBe("self");
+  test("regular users cannot delete messages (even their own)", async () => {
+    const { app } = makeDeleteApp({}, "user");
+    const res = await loginAndDelete(app, { scope: "self" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/admins and operators/i);
   });
 
-  test("deletes for everyone when author requests scope: everyone", async () => {
-    const { app } = makeDeleteApp();
-    const cookie = (
-      await request(app)
-        .post("/api/login")
-        .send({ username: "alice", password: "secret123" })
-    ).headers["set-cookie"];
-    const res = await request(app)
-      .post("/api/messages/delete")
-      .set("Cookie", cookie)
-      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, scope: "everyone" });
+  test("regular users cannot delete for everyone either", async () => {
+    const { app } = makeDeleteApp({}, "user");
+    const res = await loginAndDelete(app, { scope: "everyone" });
+    expect(res.status).toBe(403);
+  });
+
+  test("operator deletes for self by default (scope: self) and the deletion is audited", async () => {
+    const { app, writeAdminAuditLog } = makeDeleteApp();
+    const res = await loginAndDelete(app, {});
+    expect(res.status).toBe(200);
+    expect(res.body.scope).toBe("self");
+    expect(writeAdminAuditLog).toHaveBeenCalledTimes(1);
+    expect(writeAdminAuditLog.mock.calls[0][0]).toMatchObject({
+      actorUsername: "alice",
+      action: "message.delete.self",
+      targetType: "message",
+      details: { chatId: CHAT_ID, messageId: MSG_ID, scope: "self" },
+    });
+  });
+
+  test("operator deletes for everyone and the deletion is audited", async () => {
+    const { app, writeAdminAuditLog } = makeDeleteApp({ body: "clean me" });
+    const res = await loginAndDelete(app, { scope: "everyone" });
+    expect(res.status).toBe(200);
+    expect(res.body.scope).toBe("everyone");
+    expect(writeAdminAuditLog).toHaveBeenCalledTimes(1);
+    expect(writeAdminAuditLog.mock.calls[0][0]).toMatchObject({
+      actorUsername: "alice",
+      action: "message.delete.everyone",
+      targetType: "message",
+      targetLabel: "clean me",
+      details: { chatId: CHAT_ID, messageId: MSG_ID, scope: "everyone" },
+    });
+  });
+
+  test("operator can delete someone else's message for everyone", async () => {
+    const { app } = makeDeleteApp(
+      { id: MSG_ID, chat_id: CHAT_ID, user_id: OTHER_USER_ID },
+      "operator",
+    );
+    const res = await loginAndDelete(app, { scope: "everyone" });
     expect(res.status).toBe(200);
     expect(res.body.scope).toBe("everyone");
   });
 
-  test("returns 403 when non-author tries to delete for everyone", async () => {
-    const hash = bcrypt.hashSync("secret123", 4);
-    const userStore = makeUserStore([
-      {
-        id: ALICE_ID,
-        username: "alice",
-        password_hash: hash,
-        nickname: null,
-        avatar_url: null,
-        color: "#10b981",
-        status: "online",
-        role: "user",
-        banned: false,
-      },
-    ]);
-    // Message by a different user
-    const { app } = makeApp({
-      userStore,
-      deps: {
-        isMember: () => true,
-        findChatById: () => ({ id: CHAT_ID, type: "group", name: "Test" }),
-        findMessageById: () => ({ id: MSG_ID, chat_id: CHAT_ID, user_id: OTHER_USER_ID }),
-        getChatMemberRole: () => "member",
-      },
-    });
-    const cookie = (
-      await request(app)
-        .post("/api/login")
-        .send({ username: "alice", password: "secret123" })
-    ).headers["set-cookie"];
-    const res = await request(app)
-      .post("/api/messages/delete")
-      .set("Cookie", cookie)
-      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, scope: "everyone" });
+  test("returns 403 when a regular user tries to delete someone else's message for everyone", async () => {
+    const { app } = makeDeleteApp(
+      { id: MSG_ID, chat_id: CHAT_ID, user_id: OTHER_USER_ID },
+      "user",
+    );
+    const res = await loginAndDelete(app, { scope: "everyone" });
     expect(res.status).toBe(403);
   });
 });

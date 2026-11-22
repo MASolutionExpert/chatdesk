@@ -43,6 +43,7 @@ export default function ChatsListPanel({
   selectedChats,
   formatChatTimestamp,
   requestDeleteChats,
+  canDeleteThread,
   toggleSelectChat,
   setActiveChatId,
   setActivePeer,
@@ -898,7 +899,7 @@ export default function ChatsListPanel({
                 } ${editMode ? "animate-chat-wiggle-ios" : ""}`}
                 style={wiggleStyle}
               >
-                {editMode ? (
+                {editMode && canDeleteThread?.(conv) !== false ? (
                   <button
                     type="button"
                     onClick={(event) => {

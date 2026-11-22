@@ -60,6 +60,7 @@ function registerMessageRoutes(app, deps) {
     removePendingPresignedUploads,
     requireSession,
     requireSessionUsernameMatch,
+    writeAdminAuditLog,
     sanitizeDurationSeconds,
     sanitizePositiveInt,
     setMessageExpiresAt,
@@ -113,6 +114,27 @@ function registerMessageRoutes(app, deps) {
           const num = Number(val);
           return Number.isFinite(num) && num >= 0 ? num : null;
         };
+
+  // Best-effort moderation audit logging. Logging must never break the
+  // request flow, and the log writer may be absent in minimal test apps.
+  const logModerationAudit = (entry) => {
+    try {
+      const result = writeAdminAuditLog?.(entry);
+      if (result && typeof result.catch === "function") result.catch(() => {});
+    } catch {
+      // ignore
+    }
+  };
+
+  const isModeratorRole = (role) =>
+    ["owner", "admin", "operator"].includes(String(role || "").toLowerCase());
+
+  // Short human-readable preview of a deleted message for the audit log.
+  const summarizeMessageForAudit = (message) => {
+    const body = String(message?.body || "").replace(/\s+/g, " ").trim();
+    if (!body) return null;
+    return body.length > 80 ? `${body.slice(0, 80)}…` : body;
+  };
 
   const messagePubService = createMessagePublicationService({
     createOrReuseMessage,
@@ -2049,6 +2071,15 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
+    // Moderation policy: regular users can never delete messages — not
+    // even their own. Only owner/admin/operator roles may delete, and every
+    // moderator deletion is recorded in the admin audit log (گزارش‌ها).
+    const moderatorDelete = isModeratorRole(user.role);
+    if (!moderatorDelete) {
+      return res.status(403).json({
+        error: "Only admins and operators can delete messages.",
+      });
+    }
     const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
@@ -2076,7 +2107,7 @@ function registerMessageRoutes(app, deps) {
       const canPost = rawCanPost && typeof rawCanPost.then === "function" ? await rawCanPost : rawCanPost;
       const canDeleteForEveryone =
         canPost &&
-        (message.user_id === user.id || role === "owner");
+        (message.user_id === user.id || moderatorDelete || role === "owner");
       if (!canDeleteForEveryone) {
         return res.status(403).json({
           error: "You cannot delete this message for everyone.",
@@ -2089,11 +2120,27 @@ function registerMessageRoutes(app, deps) {
         chatId,
         messageIds: [message.id],
       });
+      logModerationAudit({
+        actorUserId: user.id,
+        actorUsername: user.username,
+        action: "message.delete.everyone",
+        targetType: "message",
+        targetLabel: summarizeMessageForAudit(message),
+        details: { chatId, messageId: message.id, scope: "everyone" },
+      });
       return res.json({ ok: true, scope: "everyone", id: message.id });
     }
 
     const hSelf = hideMessageForUser(message.id, user.id);
     if (hSelf && typeof hSelf.then === "function") await hSelf;
+    logModerationAudit({
+      actorUserId: user.id,
+      actorUsername: user.username,
+      action: "message.delete.self",
+      targetType: "message",
+      targetLabel: summarizeMessageForAudit(message),
+      details: { chatId, messageId: message.id, scope: "self" },
+    });
     return res.json({ ok: true, scope: "self", id: message.id });
   });
 
