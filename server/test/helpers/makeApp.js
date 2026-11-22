@@ -269,6 +269,8 @@ export function makeApp(overrides = {}) {
     ensureFfmpegAvailable: () => false,
     MESSAGE_FILE_LIMITS: { maxFiles: 10, maxSizeMb: 25, maxTotalSizeMb: 75 },
     listMessageFilesByMessageIds: () => [],
+    listChatFilesForUser: () => [],
+    countChatFilesForUser: () => 0,
     parseUploadFileMetadata: () => [],
     getCachedMembers: () => [],
     getMessages: () => [],

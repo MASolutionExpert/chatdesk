@@ -50,6 +50,8 @@ function registerMessageRoutes(app, deps) {
     sendPushNotificationToUsers,
     isUserConnected,
     listMessageFilesByMessageIds,
+    listChatFilesForUser,
+    countChatFilesForUser,
     parseUploadFileMetadata,
     path,
     probeVideoMetadata,
@@ -508,6 +510,107 @@ function registerMessageRoutes(app, deps) {
     });
 
     res.json({ chatId, messages: enriched, hasMore });
+  });
+
+  // ─── Per-thread files gallery (profile "Files" option) ──────────────────────
+  // Every file sent in the thread by any member (both sides), newest first,
+  // each with sender identity and the original message timestamp. Members only.
+  app.get("/api/chats/:chatId/files", validateUuidParams("chatId"), async (req, res) => {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const chatId = req.params.chatId;
+    const username = req.query.username?.toString();
+    if (!username) {
+      return res.status(400).json({ error: "Username is required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const rawIsMember = isMember(chatId, user.id);
+    const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+    if (!memberCheck) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const limitRaw = Number(req.query.limit || 60);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.round(limitRaw))) : 60;
+    const offsetRaw = Number(req.query.offset || 0);
+    const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.min(100000, Math.round(offsetRaw))) : 0;
+
+    const rawFiles = listChatFilesForUser(chatId, user.id, { limit, offset });
+    const rawTotal = countChatFilesForUser(chatId, user.id);
+    const rows = (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
+    const total = Number((rawTotal && typeof rawTotal.then === "function" ? await rawTotal : rawTotal) || 0);
+
+    const hydrated = await hydrateMissingVideoMetadata(rows);
+
+    const files = [];
+    for (const file of hydrated) {
+      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      const driver = file.storage_driver;
+      const storageKey = file.storage_key;
+      let thumbUrl = null;
+      try {
+        thumbUrl = await resolveThumbUrl({
+          storageProvider: deps.storageProvider,
+          file,
+          thumbKey: file.thumb_storage_key || null,
+          fileId: file.id,
+        });
+      } catch (_) {
+        thumbUrl = null;
+      }
+      if (
+        (driver === "remote" || driver === "s3") &&
+        deps.storageProvider &&
+        typeof deps.storageProvider.getDownloadUrl === "function" &&
+        storageKey
+      ) {
+        try {
+          fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+        } catch (_) {}
+      }
+
+      files.push({
+        id: file.id,
+        messageId: file.message_id,
+        kind: file.kind,
+        name: file.original_name,
+        mimeType: file.mime_type,
+        processing: isVideoFileProcessing(file),
+        sizeBytes: Number(file.size_bytes || 0),
+        width: Number.isFinite(Number(file.width_px)) ? Number(file.width_px) : null,
+        height: Number.isFinite(Number(file.height_px)) ? Number(file.height_px) : null,
+        durationSeconds: Number.isFinite(Number(file.duration_seconds))
+          ? Number(file.duration_seconds)
+          : null,
+        expiresAt: file.expires_at || null,
+        thumbUrl: thumbUrl || null,
+        url: fileUrl,
+        sender: {
+          username: file.username || "",
+          nickname: file.nickname || file.username || "",
+          color: file.color || null,
+          avatarUrl: ensureAvatarExists(file.sender_user_id ?? null, file.avatar_url),
+        },
+        sentAt: file.message_created_at || file.created_at || null,
+      });
+    }
+
+    res.json({
+      chatId,
+      files,
+      total,
+      limit,
+      offset,
+      hasMore: offset + files.length < total,
+    });
   });
 
   app.get("/api/messages/first-unread", async (req, res) => {

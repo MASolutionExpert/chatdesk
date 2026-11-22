@@ -850,3 +850,14 @@ export const deleteCall = (payload) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+
+// ─── Per-thread files gallery (profile "Files" option) ───────────────────────
+
+export const fetchChatFiles = (
+  chatId,
+  username,
+  { limit = 60, offset = 0 } = {},
+) =>
+  apiFetch(
+    `${API_BASE}/api/chats/${encodeURIComponent(chatId)}/files?username=${encodeURIComponent(username)}&limit=${limit}&offset=${offset}`,
+  );

@@ -3613,7 +3613,6 @@ export function listMessageFilesByMessageIds(messageIds = []) {
   if (!Array.isArray(messageIds) || !messageIds.length) {
     return isPostgresMode() ? Promise.resolve([]) : [];
   }
-
   return getAll(
     dbKnex("chat_message_files")
       .select(
@@ -3625,6 +3624,86 @@ export function listMessageFilesByMessageIds(messageIds = []) {
       .whereIn("message_id", messageIds)
       .orderBy("id", "asc"),
   );
+}
+
+// ─── Chat files gallery (per-thread media & document browser) ────────────────
+//
+// Every file sent in a chat thread by ANY member, newest first, with the
+// sender identity and the original message timestamp. Messages hidden for
+// everyone — or hidden for the requesting viewer — never leak their files.
+// All SQL lives here (never inline SQL elsewhere), knex keeps both the
+// SQLite and Postgres drivers on one code path.
+
+function chatFilesVisibleFilter(qb, viewerUserId) {
+  return qb
+    .whereNull("m.hidden_everyone_at")
+    .whereNotExists(function () {
+      this.select(1)
+        .from("hidden_chat_messages as h")
+        .whereRaw("h.message_id = m.id")
+        .andWhere("h.user_id", viewerUserId);
+    });
+}
+
+function chatFilesBaseQuery(chatId, viewerUserId) {
+  return chatFilesVisibleFilter(
+    dbKnex("chat_message_files as f")
+      .join("chat_messages as m", "m.id", "f.message_id")
+      .join("users as u", "u.id", "m.user_id")
+      .where("m.chat_id", chatId),
+    viewerUserId,
+  );
+}
+
+/**
+ * List every file in a chat thread (both sides), newest first.
+ *
+ * Returns rows with the file record plus the sender identity
+ * (username/nickname/color/avatar_url) and `message_created_at` — the
+ * original message timestamp shown in the UI. Ordered by
+ * (message_created_at DESC, f.id DESC); `offset`/`limit` paginate.
+ */
+export function listChatFilesForUser(chatId, viewerUserId, options = {}) {
+  if (!chatId || !viewerUserId) {
+    return isPostgresMode() ? Promise.resolve([]) : [];
+  }
+  const safeLimit = Math.max(1, Math.min(200, Number(options.limit) || 60));
+  const safeOffset = Math.max(0, Number(options.offset) || 0);
+
+  return getAll(
+    chatFilesBaseQuery(chatId, viewerUserId)
+      .select(
+        "f.id", "f.message_id", "f.kind", "f.original_name", "f.stored_name", "f.mime_type",
+        "f.size_bytes", "f.width_px", "f.height_px", "f.duration_seconds", "f.expires_at",
+        "f.created_at", "f.storage_driver", "f.storage_key", "f.processing_status",
+        "f.blurhash", "f.waveform", "f.thumb_storage_key", "f.encryption_type",
+        "u.username", "u.nickname", "u.color", "u.avatar_url",
+        "m.user_id as sender_user_id",
+        "m.created_at as message_created_at",
+      )
+      .orderBy("m.created_at", "desc")
+      .orderBy("f.id", "desc")
+      .limit(safeLimit)
+      .offset(safeOffset),
+  );
+}
+
+/**
+ * Total number of visible files in a chat thread (for the gallery header).
+ */
+export function countChatFilesForUser(chatId, viewerUserId) {
+  if (!chatId || !viewerUserId) {
+    return isPostgresMode() ? Promise.resolve(0) : 0;
+  }
+  const row = getRow(
+    chatFilesBaseQuery(chatId, viewerUserId)
+      .count({ total: "f.id" })
+      .first(),
+  );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => Number(r?.total || 0));
+  }
+  return Number(row?.total || 0);
 }
 
 export function listMessageFilesNeedingMetadata(limit = 10000) {

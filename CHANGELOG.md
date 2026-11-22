@@ -2,6 +2,22 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.3
+
+### New
+
+- 📁 **Per-thread "Files" gallery** — the profile panel (the page with Chat / Call / Video / Mute) has a new **Files** action. Opening it shows EVERY file shared in that thread by BOTH sides, newest first:
+  - each row shows the media thumbnail (image/video poster) or a kind icon (video / audio / document), the file name, its size, the sender's nickname, and the **full original timestamp (date · time)** of the message that carried it;
+  - every row has an **options menu**: **Open** (new tab), **Download**, and **Go to message** (closes the gallery and scrolls to the original message with the reply flash);
+  - videos still transcoding are marked "Processing"; long threads paginate with a "Load more" button; a counter in the header shows the total number of shared files;
+  - works for DMs, groups and channels (the own-thread profile only — member/mention mini-profiles don't offer it), fully localized (fa/en), Persian-aware fonts.
+- 🔌 New members-only endpoint `GET /api/chats/:chatId/files` (session + membership enforced) with a dedicated db layer: `listChatFilesForUser` / `countChatFilesForUser`. Messages hidden for everyone — or hidden for the requesting viewer — never leak their files. Local files resolve to the local upload URL; remote/S3 files get presigned URLs; thumbnails resolve through the shared `resolveThumbUrl` logic (app-encrypted thumbs go through the decrypting proxy).
+
+### Tests
+
+- 🧪 `server/test/db/chatFilesGallery.test.js` (both sides listed newest-first, hidden-for-everyone and viewer-hidden filtering — which caught and fixed a `Number(uuid)` NaN bug in the viewer filter — and pagination) and `server/test/api/chatFiles.test.js` (member 200 + payload shape, 403 non-members, 400 missing username, pagination/hasMore, presigned remote URLs).
+- 🧪 Browser suite `ChatFilesModal.test.jsx`: rows with sender/size/timestamp, empty state, per-row options menu (jump-to-message callback), load-more button.
+
 ## 1.2.0-dev.2
 
 ### Changed

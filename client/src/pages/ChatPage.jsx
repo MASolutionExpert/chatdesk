@@ -135,6 +135,7 @@ import {
 } from "../utils/chatPageConstants.js";
 
 const loadChatProfileModal = () => import("../components/modals/ChatProfileModal.jsx");
+const loadChatFilesModal = () => import("../components/modals/ChatFilesModal.jsx");
 const loadDeleteChatsModal = () => import("../components/modals/DeleteChatsModal.jsx");
 const loadDeleteMessageScopeModal = () =>
   import("../components/modals/DeleteMessageScopeModal.jsx");
@@ -153,6 +154,7 @@ const loadNotificationsSettingsModal = () =>
 const loadWhatsNewModal = () => import("../components/modals/WhatsNewModal.jsx");
 
 const ChatProfileModal = lazy(loadChatProfileModal);
+const ChatFilesModal = lazy(loadChatFilesModal);
 const DeleteChatsModal = lazy(loadDeleteChatsModal);
 const DeleteMessageScopeModal = lazy(loadDeleteMessageScopeModal);
 const ForwardMessageModal = lazy(loadForwardMessageModal);
@@ -176,6 +178,7 @@ const preloadChatPageCriticalChunks = () =>
 
 const preloadChatPageLazyChunks = () =>
   Promise.allSettled([
+    loadChatFilesModal(),
     loadChatProfileModal(),
     loadDeleteChatsModal(),
     loadDeleteMessageScopeModal(),
@@ -352,6 +355,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [settingsPanel, setSettingsPanel] = useState(null);
   const [chatsSearchFocused, setChatsSearchFocused] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [filesModalOpen, setFilesModalOpen] = useState(false);
   const [profileModalMember, setProfileModalMember] = useState(null);
   const [profileInviteLink, setProfileInviteLink] = useState("");
   const [profileInviteLinkLoading, setProfileInviteLinkLoading] = useState(false);
@@ -6144,6 +6148,34 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMentionProfile(null);
   };
 
+  // Files gallery (opened from the profile panel's "Files" action).
+  const handleOpenFilesFromProfile = () => {
+    setProfileModalOpen(false);
+    setFilesModalOpen(true);
+  };
+
+  const closeFilesModal = () => setFilesModalOpen(false);
+
+  // Jump from a files-gallery row to the original message in the chat.
+  const handleFilesJumpToMessage = (messageId) => {
+    setFilesModalOpen(false);
+    if (!messageId || typeof document === "undefined") return;
+    requestAnimationFrame(() => {
+      const target = document.getElementById(`message-${messageId}`);
+      if (target && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+      const bubble = target?.querySelector?.("[data-message-bubble]");
+      if (!bubble) return;
+      bubble.classList.remove("reply-flash");
+      void bubble.offsetWidth;
+      bubble.classList.add("reply-flash");
+      window.setTimeout(() => {
+        bubble.classList.remove("reply-flash");
+      }, 700);
+    });
+  };
+
   const handleProfileRemoteChannelStatusChange = useCallback((status) => {
     setProfileRemoteChannelStatus(status ? { ...status, _chatId: activeChat?.id } : null);
   }, [activeChat?.id]);
@@ -7551,6 +7583,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onToggleMute={() =>
               toggleMuteChat(mentionProfileChat?.id || activeChat?.id)
             }
+            // Files gallery belongs to the OPEN thread — only offered when the
+            // profile shown IS that thread's own profile (DM/channel/group
+            // header). Member/mention mini-profiles have no thread of their own.
+            onOpenFiles={
+              profileModalMember || mentionProfileUser
+                ? undefined
+                : handleOpenFilesFromProfile
+            }
             onLeaveGroup={() =>
               requestLeaveGroupById(mentionProfileChat?.id || activeChat?.id)
             }
@@ -7559,6 +7599,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onOpenUserContextMenu={openContextMenu}
             onEditGroup={mentionProfileChat && String(mentionProfileChat.id || "") !== String(activeChat?.id || "") ? undefined : openEditGroupFromProfile}
             onEditSelfProfile={openSelfProfileEditor}
+          />
+        </Suspense>
+      ) : null}
+
+      {filesModalOpen ? (
+        <Suspense fallback={null}>
+          <ChatFilesModal
+            open={filesModalOpen}
+            chatId={activeChat?.id || null}
+            username={user?.username || ""}
+            onClose={closeFilesModal}
+            onJumpToMessage={handleFilesJumpToMessage}
           />
         </Suspense>
       ) : null}
