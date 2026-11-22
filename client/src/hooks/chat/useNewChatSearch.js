@@ -26,7 +26,8 @@ export function useNewChatSearch({
         setNewChatLoading(true);
         const res = await searchUsers({
           exclude: user.username,
-          query: newChatUsername.trim().toLowerCase(),
+          // Strip a leading "@" — users habitually type "@id" when searching.
+          query: newChatUsername.trim().replace(/^@+/, "").toLowerCase(),
         });
         const data = await res.json();
         if (!res.ok) {

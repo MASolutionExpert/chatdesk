@@ -1002,12 +1002,27 @@ export function listUsers(excludeUsername) {
   return getAll(qb);
 }
 
+/**
+ * Case-insensitive user search shared by /api/users, /api/discover, member
+ * pickers and the admin panel.
+ *
+ * Two deployment realities this must survive:
+ *   - users habitually type an "@" prefix when searching an ID ("@bob") —
+ *     it is stripped before matching, otherwise EVERY lookup fails
+ *   - PostgreSQL's LIKE is case-sensitive (SQLite's is not), so mixed-case
+ *     nicknames were unfindable on Postgres deployments; comparisons go
+ *     through lower() on both engines
+ */
 export function searchUsers(query, excludeUsername) {
-  const like = `%${query}%`;
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!term) return [];
+  const like = `%${term}%`;
   const qb = dbKnex("users")
     .select("id", "username", "nickname", "avatar_url", "color", "role", "verified", "status", "banned")
     .where((builder) => {
-      builder.where("username", "like", like).orWhere("nickname", "like", like);
+      builder
+        .whereRaw("lower(username) like ?", [like])
+        .orWhereRaw("lower(nickname) like ?", [like]);
     })
     .orderBy("username", "asc");
   if (excludeUsername) {
@@ -1244,8 +1259,11 @@ export function addAllEligibleChatMembers(chatId) {
   };
 }
 
+// Case-insensitive + "@"-tolerant group search (see searchUsers for rationale).
 export function searchPublicGroups(query, viewerUserId, limit = 20) {
-  const like = `%${String(query || "").trim()}%`;
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!term) return [];
+  const like = `%${term}%`;
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
   const qb = dbKnex("chats as c")
     .select(
@@ -1263,16 +1281,21 @@ export function searchPublicGroups(query, viewerUserId, limit = 20) {
       });
     })
     .andWhere((builder) => {
-      builder.where("c.name", "like", like).orWhere("c.group_username", "like", like);
+      builder
+        .whereRaw("lower(c.name) like ?", [like])
+        .orWhereRaw("lower(c.group_username) like ?", [like]);
     })
-    .orderByRaw("CASE WHEN c.group_username LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
+    .orderByRaw("CASE WHEN lower(c.group_username) LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
     .limit(safeLimit);
 
   return getAll(qb);
 }
 
+// Case-insensitive + "@"-tolerant channel search (see searchUsers for rationale).
 export function searchPublicChannels(query, viewerUserId, limit = 20) {
-  const like = `%${String(query || "").trim()}%`;
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!term) return [];
+  const like = `%${term}%`;
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
   const qb = dbKnex("chats as c")
     .select(
@@ -1290,9 +1313,11 @@ export function searchPublicChannels(query, viewerUserId, limit = 20) {
       });
     })
     .andWhere((builder) => {
-      builder.where("c.name", "like", like).orWhere("c.group_username", "like", like);
+      builder
+        .whereRaw("lower(c.name) like ?", [like])
+        .orWhereRaw("lower(c.group_username) like ?", [like]);
     })
-    .orderByRaw("CASE WHEN c.group_username LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
+    .orderByRaw("CASE WHEN lower(c.group_username) LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
     .limit(safeLimit);
 
   return getAll(qb);

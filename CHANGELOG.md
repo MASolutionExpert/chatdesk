@@ -2,6 +2,16 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.4
+
+### Fixed
+
+- 🔎 **"کاربری یافت نشد" on every ID search in the new-direct-message dialog** — the user search was broken on production deployments in two independent ways, both fixed in the shared search layer (`searchUsers` / `searchPublicGroups` / `searchPublicChannels` in `server/db.js`):
+  - **PostgreSQL case-sensitivity**: Postgres `LIKE` is case-sensitive (SQLite's is not, which is why it worked in dev). A search for a mixed-case nickname ("Alice") or group/channel name ("Support Team") with a lowercase query matched nobody. All comparisons now run through `lower()` on both engines — the search is case-insensitive everywhere.
+  - **The "@" prefix**: users habitually type `@id` when searching an ID; the old pattern `%@bob%` never matches the stored `bob`, so every ID search returned an empty list. Leading `@` characters are now stripped from the search term server-side (all consumers: `/api/users`, `/api/discover`, group/channel discovery, member pickers, admin panel) and in the client hooks (`useNewChatSearch`, `useDiscoverSearch`) as defense in depth.
+  - A term that is empty after stripping (`@`, whitespace) matches nothing instead of falling back to a full-table scan.
+- 🧪 Regression suites: `server/test/db/userSearch.test.js` (17 cases: `@` stripping, case-insensitive username/nickname/group/channel matching, empty-term no-match, exclusion) and browser hook suite `useNewChatSearch.atStrip.test.jsx` (chromium + firefox: `@bob` → `bob`, case folding, DM-list filtering).
+
 ## 1.2.0-dev.3
 
 ### New
