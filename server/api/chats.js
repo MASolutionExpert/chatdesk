@@ -67,6 +67,7 @@ function registerChatRoutes(app, deps) {
     storeAvatarFile = deps.storeAvatarFile,
     setChatMemberRole,
     getSetting,
+    debugLog,
     REMOTE_CHANNELS,
     getMessages,
     remoteChannelManager,
@@ -1751,8 +1752,17 @@ function registerChatRoutes(app, deps) {
     const query = req.query.query?.toString();
     if (exclude && !requireSessionUsernameMatch(res, session, exclude)) return;
 
+    const searchStartedAt = Date.now();
     const rawUsers = query ? searchUsers(query.toLowerCase(), exclude) : listUsers(exclude);
     const userList = (rawUsers && typeof rawUsers.then === "function" ? await rawUsers : rawUsers) || [];
+    if (debugLog) {
+      debugLog("api:users:search", {
+        query: query ?? null,
+        exclude: exclude ?? null,
+        matched: userList.length,
+        tookMs: Date.now() - searchStartedAt,
+      });
+    }
     const users = userList.map(
       (item) => ({
         ...item,

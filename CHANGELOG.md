@@ -2,6 +2,22 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.5
+
+### Diagnostics
+
+- 🩺 **`npm run search:doctor`** — new read-only search diagnostic (same discipline as `db:doctor`; never imports db.js, never writes). When the app says "کاربری یافت نشد" for every ID, it pinpoints WHERE the chain breaks on the live server:
+  - connected engine, and for PostgreSQL the `server_encoding` / `lc_collate`;
+  - the REAL contents of the users table — usernames (flagging mixed-case ones that lowercase-based login/search can never reach), nicknames, roles, bans;
+  - the search SQL run twice against the live DB — the OLD raw-LIKE query (pre 1.2.0-dev.4) vs the NEW `lower()`-based query — so "OLD empty but NEW matches" instantly proves the server is still running pre-dev.4 code (update not applied / install tracking the stable channel);
+  - probe terms: passed as arguments (`npm run search:doctor @milad ahmadi`) or derived from the stored users.
+- 📋 `GET /api/users` now emits a dedicated `[app-debug] api:users:search` log line (query, exclude, matched count, elapsed ms) when APP_DEBUG is enabled — complements the generic `api:request` logging for pinpointing search issues in production.
+
+### Verification
+
+- 🧪 Full server suite 1177/1177 green; `search:doctor` validated end-to-end in the sandbox against a real migrated SQLite database (users registered through the API, doctor run with derived and explicit probes, `@`-prefixed probe correctly demonstrated as OLD-SQL-empty / NEW-SQL-matched).
+- 🔬 Search SQL semantics additionally proven against PostgreSQL semantics via pg-mem: the pre-dev.4 raw-LIKE query fails for mixed-case nicknames under PG case-sensitivity while the dev.4 `lower()` query matches.
+
 ## 1.2.0-dev.4
 
 ### Fixed
