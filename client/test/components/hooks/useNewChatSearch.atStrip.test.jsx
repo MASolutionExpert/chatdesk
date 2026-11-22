@@ -7,11 +7,10 @@ import { useNewChatSearch } from "../../../src/hooks/chat/useNewChatSearch.js";
 // search request carries "@..." patterns that match nobody and the modal
 // shows "کاربری یافت نشد" for every ID.
 
-const setup = async ({ searchUsers, dmUsernames = new Set() } = {}) => {
+const setup = async ({ searchUsers } = {}) => {
   const rendered = await renderHook(() =>
     useNewChatSearch({
       user: { username: "alice" },
-      dmUsernamesRef: { current: dmUsernames },
       searchUsers,
       debounceMs: 10,
       maxResults: 5,
@@ -58,17 +57,20 @@ describe("useNewChatSearch strips leading @ from the query", () => {
     expect(searchUsers.mock.calls[0][0].query).toBe("bob");
   });
 
-  test("users already in a DM list are filtered from the results", async () => {
+  test("users who already share a chat with the searcher are NOT filtered out", async () => {
+    // Regression: the old dmUsernames filter hid every existing chat partner
+    // from the results. On helpdesk servers, support threads (type "dm",
+    // channel "support") inflated that hidden set until EVERY search
+    // reported "کاربری یافت نشد" even though the API returned matches.
+    // Starting a DM with an existing partner re-opens that chat, so all
+    // matches must stay visible.
     const searchUsers = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         users: [{ username: "bob" }, { username: "carol" }],
       }),
     });
-    const { result, act } = await setup({
-      searchUsers,
-      dmUsernames: new Set(["bob"]),
-    });
+    const { result, act } = await setup({ searchUsers });
 
     await act(async () => {
       result.current.setNewChatOpen(true);
@@ -77,6 +79,6 @@ describe("useNewChatSearch strips leading @ from the query", () => {
     await wait(80);
 
     const usernames = result.current.newChatResults.map((u) => u.username);
-    expect(usernames).toEqual(["carol"]);
+    expect(usernames).toEqual(["bob", "carol"]);
   });
 });

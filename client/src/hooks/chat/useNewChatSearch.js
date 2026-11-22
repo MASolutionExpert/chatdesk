@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 
-export function useNewChatSearch({
-  user,
-  dmUsernamesRef,
-  searchUsers,
-  debounceMs,
-  maxResults,
-}) {
+export function useNewChatSearch({ user, searchUsers, debounceMs, maxResults }) {
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [newChatUsername, setNewChatUsername] = useState("");
   const [newChatError, setNewChatError] = useState("");
@@ -33,13 +27,13 @@ export function useNewChatSearch({
         if (!res.ok) {
           throw new Error(data?.error || "Unable to search users.");
         }
-        const dmUsernames = dmUsernamesRef.current;
-        const users = (data.users || [])
-          .filter(
-            (candidate) =>
-              !dmUsernames.has(String(candidate.username || "").toLowerCase()),
-          )
-          .slice(0, maxResults);
+        // Show every match, including users the searcher already has a chat
+        // with: starting a DM with an existing partner re-opens that chat
+        // (POST /api/chats/dm reuses it), and hiding partners here made the
+        // modal report "کاربری یافت نشد" for people who clearly exist —
+        // especially on helpdesk servers where support threads (type "dm",
+        // channel "support") inflated the hidden-partner set.
+        const users = (data.users || []).slice(0, maxResults);
         setNewChatResults(users);
       } catch (err) {
         setNewChatError(err.message);
@@ -50,7 +44,6 @@ export function useNewChatSearch({
     return () => clearTimeout(handle);
   }, [
     debounceMs,
-    dmUsernamesRef,
     maxResults,
     newChatOpen,
     newChatUsername,

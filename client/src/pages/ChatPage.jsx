@@ -26,7 +26,6 @@ import { useChatNotifications } from "../hooks/chat/useChatNotifications.js";
 import { useDiscoverSearch } from "../hooks/chat/useDiscoverSearch.js";
 import { useActiveChatState } from "../hooks/chat/useActiveChatState.js";
 import { useAppActivity } from "../hooks/chat/useAppActivity.js";
-import { useDmUsernames } from "../hooks/chat/useDmUsernames.js";
 import { useHealthCheck } from "../hooks/chat/useHealthCheck.js";
 import { useOverlayBack } from "../hooks/chat/useOverlayBack.js";
 import { useMessagesLoader } from "../hooks/chat/useMessagesLoader.js";
@@ -543,7 +542,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
   }, [activeChatId, isMobileViewport, profileModalOpen]);
 
-  const { dmUsernamesRef } = useDmUsernames({ chats, user });
   const {
     notificationsModalOpen,
     setNotificationsModalOpen,
@@ -732,7 +730,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewChatSelection,
   } = useNewChatSearch({
     user,
-    dmUsernamesRef,
     searchUsers,
     debounceMs: NEW_CHAT_SEARCH_DEBOUNCE_MS,
     maxResults: CHAT_PAGE_CONFIG.newChatSearchMaxResults,

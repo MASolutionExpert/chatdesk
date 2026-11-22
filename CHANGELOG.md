@@ -2,6 +2,20 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.6
+
+### Fixed
+
+- 🔎 **"کاربری یافت نشد" on ID search — the real root cause (client-side), fixed at last.** Deep diffing against upstream Songbird (v0.13.3 and current main) proved the server search chain (`/api/users` route + `searchUsers` SQL) is identical to upstream and works on PostgreSQL — confirmed by `search:doctor` probes on live servers. The breakage happened in the client, one layer above the SQL:
+  - The new-DM modal filtered search results through a hidden "existing DM partners" list (`useDmUsernames` → `dmUsernamesRef`), so anyone the searcher already shared a chat with was silently removed and the modal reported "کاربری یافت نشد" for people who obviously exist.
+  - **Why it appeared after the ChatDesk changes**: upstream has no helpdesk. ChatDesk stores support tickets as `type: "dm"` chats with `channel: "support"`, so every ticket partner was added to that hidden list too — on helpdesk servers the hidden set covers essentially every user, and every search came back empty. (The upstream filter only hid plain messenger DM partners; ChatDesk inflated it.)
+  - **Fix**: the filter is removed entirely. The search now shows every match; starting a chat with someone you already chat with simply re-opens the existing conversation (`POST /api/chats/dm` reuses it — no duplicates), and support-thread partners are searchable again like any other user. `useDmUsernames` was dead code after this and has been deleted.
+  - Searching an ID that matches nobody still says "کاربری یافت نشد" — correctly, because the account really does not exist.
+
+### Tests
+
+- 🧪 `useNewChatSearch.atStrip.test.jsx` updated: results now must include existing chat partners (chromium + firefox); the old "partners are filtered" assertion is inverted. Client unit suite 406/406 green; ESLint clean on the touched files.
+
 ## 1.2.0-dev.5
 
 ### Diagnostics
