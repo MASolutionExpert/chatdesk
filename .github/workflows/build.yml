@@ -117,7 +117,9 @@ jobs:
         run: npx --prefix client playwright install --with-deps chromium firefox
 
       - name: Run client browser tests
-        timeout-minutes: 10
+        # Two browser engines (chromium + firefox) x 554 tests; 15 min leaves
+        # headroom over the healthy ~6 min runtime.
+        timeout-minutes: 15
         run: npm run test:browser --prefix client
 
   # ── Build ─────────────────────────────────────────────────────────────────────

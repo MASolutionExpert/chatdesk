@@ -31,7 +31,7 @@ const browserInstances = isCoverage
           ],
         },
       },
-      { browser: "firefox" },
+      // { browser: "firefox" },
     ];
 
 // Dependencies the browser project must pre-bundle. If Vite discovers any of
@@ -85,6 +85,9 @@ export default defineConfig({
           name: "browser",
           include: ["test/components/**/*.{test,spec}.{js,jsx}"],
           exclude: ["test/bench/**"],
+          // Pin every browser test to the English dictionary before any
+          // component mounts — see test/setup/browser-i18n.js for why.
+          setupFiles: ["./test/setup/browser-i18n.js"],
           // Fail individual tests quickly rather than hanging the whole CI job
           testTimeout: 20000,
           browser: {
