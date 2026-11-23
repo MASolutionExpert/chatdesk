@@ -646,6 +646,7 @@ const CRITICAL_TABLES = [
   "remote_channel_queue",
   "remote_channel_sources",
   "sessions",
+  "tickets",
   "users",
 ];
 
@@ -2809,6 +2810,7 @@ export function listChatsForUser(userId) {
       "mc.department_id",
       "d.name as department_name",
       "d.color as department_color",
+      "t.status as ticket_status",
       "mc.muted",
       dbKnex.raw("COALESCE(rcs.enabled, 0) AS remote_channel_enabled"),
       "last_vm.id as last_message_id",
@@ -2833,6 +2835,7 @@ export function listChatsForUser(userId) {
     .leftJoin("users as last_user", "last_user.id", "last_vm.user_id")
     .leftJoin("chat_messages as outgoing_vm", "outgoing_vm.id", outgoingMessageIdSubquery)
     .leftJoin("departments as d", "d.id", "mc.department_id")
+    .leftJoin("tickets as t", "t.chat_id", "mc.id")
     .leftJoin("remote_channel_sources as rcs", function () {
       this.on("rcs.chat_id", "=", "mc.id").andOn("rcs.enabled", "=", dbKnex.raw("1"));
     })
@@ -5338,74 +5341,41 @@ export function listOperatorsForDepartment(departmentId) {
 }
 
 /**
- * Fair routing: the operator with the fewest open support chats in the
- * department wins; ties go to whoever was assigned longest ago (round-robin).
- * "Open" = the support chat's most recent message came from the customer,
- * meaning the operator still owes a reply.
+ * Fair routing: the operator with the fewest open tickets in the department
+ * wins; ties go to whoever was assigned longest ago (round-robin). "Open" is
+ * the ticket table's explicit lifecycle status (migration 045) — replacing
+ * the old "customer replied last" message heuristic.
  */
 export async function pickOperatorForDepartment(departmentId) {
   const operators = await listOperatorsForDepartment(departmentId);
   if (!operators.length) return null;
 
   const loadRows = await getAll(
-    dbKnex("chat_members as m")
-      .join("chats as c", "c.id", "m.chat_id")
-      .join("chat_messages as last_cm", function () {
-        this.on("last_cm.chat_id", "=", "c.id").andOn(
-          "last_cm.id",
-          "=",
-          dbKnex.raw(
-            "(SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1)"
-          )
-        );
-      })
-      .where("c.department_id", Number(departmentId))
-      .where("c.type", "dm")
-      .whereIn("m.role", ["owner", "member"])
+    dbKnex("tickets as t")
+      .where("t.department_id", Number(departmentId))
+      .where("t.status", "open")
       .select(
-        "m.user_id",
-        dbKnex.raw("COUNT(*) AS open_chats"),
-        dbKnex.raw("MAX(c.created_at) AS last_assignment")
+        "t.operator_id",
+        dbKnex.raw("COUNT(*) AS open_tickets"),
+        dbKnex.raw("MIN(t.created_at) AS first_assignment"),
       )
-      .groupBy("m.user_id")
+      .groupBy("t.operator_id")
   );
 
-  // Only count rows where the last message is NOT from the operator themself:
-  // a chat the operator replied to last is considered handled.
-  const handledChats = await getAll(
-    dbKnex("chat_members as m")
-      .join("chats as c", "c.id", "m.chat_id")
-      .join("chat_messages as last_cm", function () {
-        this.on("last_cm.chat_id", "=", "c.id").andOn(
-          "last_cm.id",
-          "=",
-          dbKnex.raw(
-            "(SELECT id FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1)"
-          )
-        );
-      })
-      .where("c.department_id", Number(departmentId))
-      .where("c.type", "dm")
-      .whereRaw("last_cm.user_id = m.user_id")
-      .select("m.user_id", dbKnex.raw("COUNT(*) AS handled"))
-      .groupBy("m.user_id")
-  );
-
-  const load = new Map();
-  for (const r of loadRows) load.set(Number(r.user_id), Number(r.open_chats || 0));
-  const handled = new Map();
-  for (const r of handledChats) handled.set(Number(r.user_id), Number(r.handled || 0));
-
-  // Last-assignment time per operator, for round-robin tie-breaking.
-  const lastAssigned = new Map();
-  for (const r of loadRows) {
-    lastAssigned.set(Number(r.user_id), String(r.last_assignment || ""));
+  const openByOperator = new Map();
+  const firstAssigned = new Map();
+  for (const r of loadRows || []) {
+    openByOperator.set(String(r.operator_id), Number(r.open_tickets || 0));
+    firstAssigned.set(String(r.operator_id), String(r.first_assignment || ""));
   }
 
   let best = null;
   for (const op of operators) {
-    const open = Math.max(0, (load.get(Number(op.id)) || 0) - (handled.get(Number(op.id)) || 0));
-    const candidate = { operator: op, open, last: lastAssigned.get(Number(op.id)) || "" };
+    const candidate = {
+      operator: op,
+      open: openByOperator.get(String(op.id)) || 0,
+      last: firstAssigned.get(String(op.id)) || "",
+    };
     if (
       !best ||
       candidate.open < best.open ||
@@ -5445,6 +5415,78 @@ export function getChatDepartmentId(chatId) {
   return row?.department_id ? Number(row.department_id) : null;
 }
 
+// ─── Tickets: the ticket domain's own registry (migration 045) ──────────────
+//
+// One ticket per support chat (1:1 via tickets.chat_id UNIQUE). The ticket —
+// not the chat — owns the lifecycle: open (awaiting resolution) vs closed.
+// Messenger (direct) chats never have a ticket row; that is what makes the
+// two domains distinct at the database level, not just by a chat tag.
+
+export function createTicketRow({ chatId, departmentId, customerId, operatorId }) {
+  if (!chatId || !departmentId || !customerId || !operatorId) {
+    return isPostgresMode() ? Promise.resolve(null) : null;
+  }
+  const id = generateUuid();
+  const res = run(
+    dbKnex("tickets").insert({
+      id,
+      chat_id: String(chatId),
+      department_id: Number(departmentId),
+      customer_id: String(customerId),
+      operator_id: String(operatorId),
+      status: "open",
+    })
+  );
+  if (res && typeof res.then === "function") {
+    return res.then(() => id);
+  }
+  return id;
+}
+
+export function getTicketByChatId(chatId) {
+  if (!chatId) return isPostgresMode() ? Promise.resolve(null) : null;
+  const row = getRow(
+    dbKnex("tickets")
+      .where({ chat_id: String(chatId) })
+      .first()
+  );
+  const normalize = (r) =>
+    r
+      ? {
+          id: r.id,
+          chatId: r.chat_id,
+          departmentId: Number(r.department_id),
+          customerId: r.customer_id,
+          operatorId: r.operator_id,
+          status: String(r.status || "open").toLowerCase() === "closed" ? "closed" : "open",
+          createdAt: r.created_at || null,
+          closedAt: r.closed_at || null,
+        }
+      : null;
+  if (row && typeof row.then === "function") {
+    return row.then(normalize);
+  }
+  return normalize(row);
+}
+
+// Set the lifecycle status of the ticket that belongs to a support chat.
+// Returns false when the chat has no ticket row (the caller then treats the
+// chat as an open ticket — legacy/edge case, never blocks).
+export function setTicketStatusByChatId(chatId, status) {
+  if (!chatId) return isPostgresMode() ? Promise.resolve(false) : false;
+  const normalized = String(status || "").toLowerCase() === "closed" ? "closed" : "open";
+  const res = run(
+    dbKnex("tickets")
+      .where({ chat_id: String(chatId) })
+      .update({
+        status: normalized,
+        closed_at: normalized === "closed" ? new Date().toISOString() : null,
+      })
+  );
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
 // Per-department support metrics for the admin reports.
 export async function getSupportOverview() {
   const departments = listDepartments({ activeOnly: false });
@@ -5455,6 +5497,7 @@ export async function getSupportOverview() {
   const chatRows = await getAll(
     dbKnex("chats as c")
       .leftJoin("departments as d", "d.id", "c.department_id")
+      .leftJoin("tickets as t", "t.chat_id", "c.id")
       .whereNotNull("c.department_id")
       .where("c.type", "dm")
       .select(
@@ -5462,6 +5505,8 @@ export async function getSupportOverview() {
         "c.department_id",
         "c.created_at",
         "d.name as department_name",
+        "t.status as ticket_status",
+        "t.closed_at as ticket_closed_at",
         dbKnex.raw(
           "(SELECT u.id FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role = 'user' LIMIT 1) AS customer_user_id"
         ),
@@ -5525,17 +5570,27 @@ export async function getSupportOverview() {
     if (entry) {
       entry.chats += 1;
       entry.messages += Number(row.message_count || 0);
-      const lastByOperator = row.operator_user_id_hint
-        ? false
+      // Ticket lifecycle (migration 045) is the source of truth for "open";
+      // chats without a ticket row (legacy/edge) fall back to the last-sender
+      // heuristic so nothing silently disappears from the workload counts.
+      const ticketOpen = row.ticket_status
+        ? String(row.ticket_status).toLowerCase() !== "closed"
         : row.customer_user_id
-          ? Number(row.last_message_user_id) !== Number(row.customer_user_id)
-          : false;
-      if (row.last_message_user_id && !lastByOperator) entry.open += 1;
+          ? row.last_message_user_id &&
+            Number(row.last_message_user_id) === Number(row.customer_user_id)
+          : Boolean(row.last_message_user_id);
+      if (ticketOpen) entry.open += 1;
     }
     decryptedChats.push({
       id: row.id,
       departmentId: row.department_id ? Number(row.department_id) : null,
       departmentName: row.department_name || null,
+      ticketStatus: row.ticket_status
+        ? String(row.ticket_status).toLowerCase() === "closed"
+          ? "closed"
+          : "open"
+        : "open",
+      ticketClosedAt: row.ticket_closed_at || null,
       customerUsername: row.customer_username || null,
       customerNickname: row.customer_nickname || null,
       operatorUsername: row.operator_username || null,

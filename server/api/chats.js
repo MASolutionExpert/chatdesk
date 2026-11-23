@@ -526,6 +526,27 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
+    // ── Two-logic separation: messenger never crosses the support boundary ──
+    //
+    //   customer (role 'user')  ↔  staff (operator/admin/owner)  =  TICKET.
+    //   The customer opens POST /api/support/request (department → fair-routed
+    //   operator). A direct message here would bypass department routing,
+    //   ticket assignment and the ticket lifecycle — so it is refused.
+    //
+    //   user↔user and staff↔staff remain messenger flows ("find user by ID").
+    //   Existing legacy cross-boundary threads are left untouched (no data
+    //   migration); they can no longer be (re)opened through this endpoint.
+    const STAFF_ROLES = ["operator", "admin", "owner"];
+    const fromIsStaff = STAFF_ROLES.includes(String(fromUser.role || "").toLowerCase());
+    const toIsStaff = STAFF_ROLES.includes(String(toUser.role || "").toLowerCase());
+    if (fromIsStaff !== toIsStaff) {
+      return res.status(403).json({
+        error:
+          "Direct messages between customers and support staff are not allowed. Please open a support ticket instead: pick a department and send a support request.",
+        code: "support_only",
+      });
+    }
+
     // Channel separation (migration 044): "find user by ID → send a message"
     // is a MESSENGER flow. Reuse only the pair's direct chat; a support
     // ticket between the same pair is a separate, never-converted thread.

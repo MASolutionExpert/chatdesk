@@ -22,6 +22,7 @@ import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import ChannelBadge from "../common/ChannelBadge.jsx";
+import { setTicketStatus } from "../../api/chatApi.js";
 import Tooltip from "../common/Tooltip.jsx";
 import {
   FocusedMediaModal,
@@ -123,6 +124,7 @@ export default function ChatWindowPanel({
   headerAvatarColor = null,
   microphonePermissionStatus = "unknown",
   onRequestMicrophonePermission = null,
+  onTicketStatusChanged = null,
   copyToastVisible = false,
   registerMessageRef = null,
   onStartVoiceCall,
@@ -1030,6 +1032,38 @@ export default function ChatWindowPanel({
   const activeChatChannel =
     activeChat?.type === "dm" ? (isSupportChat ? "support" : "direct") : null;
   const supportDepartmentName = activeChat?.department_name || null;
+  // Ticket lifecycle (migration 045): support chats carry an open/closed
+  // status owned by the `tickets` table. Messenger chats never have one.
+  const ticketStatus = isSupportChat
+    ? String(activeChat?.ticket_status || "open").toLowerCase() === "closed"
+      ? "closed"
+      : "open"
+    : null;
+  const ticketClosed = ticketStatus === "closed";
+  const [ticketActionBusy, setTicketActionBusy] = useState(false);
+
+  const handleTicketAction = async (action) => {
+    if (!activeChatId || ticketActionBusy) return;
+    setTicketActionBusy(true);
+    try {
+      const result = await setTicketStatus({
+        chatId: activeChatId,
+        action,
+        creator: user?.username,
+      });
+      if (result?.status && typeof onTicketStatusChanged === "function") {
+        onTicketStatusChanged(activeChatId, result.status);
+      }
+    } catch {
+      // The server keeps the authority (e.g. 403 non-member) — surface it
+      // through the shared toast handling of the parent when available.
+      if (typeof onTicketStatusChanged === "function") {
+        onTicketStatusChanged(activeChatId, null);
+      }
+    } finally {
+      setTicketActionBusy(false);
+    }
+  };
 
   const renderMessageItem = (msg, options = {}) => (
     <MessageItem
@@ -1280,7 +1314,11 @@ export default function ChatWindowPanel({
                       {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
                       <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
                       {activeChatChannel && (
-                        <ChannelBadge channel={activeChatChannel} departmentName={supportDepartmentName} />
+                        <ChannelBadge
+                          channel={activeChatChannel}
+                          departmentName={supportDepartmentName}
+                          ticketStatus={ticketStatus}
+                        />
                       )}
                     </button>
                   </Tooltip>
@@ -1295,7 +1333,11 @@ export default function ChatWindowPanel({
                       {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
                       <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
                       {activeChatChannel && (
-                        <ChannelBadge channel={activeChatChannel} departmentName={supportDepartmentName} />
+                        <ChannelBadge
+                          channel={activeChatChannel}
+                          departmentName={supportDepartmentName}
+                          ticketStatus={ticketStatus}
+                        />
                       )}
                     </span>
                   </Tooltip>
@@ -1556,7 +1598,55 @@ export default function ChatWindowPanel({
         )}
       </div>
 
-      {showComposer ? (
+      {/* Ticket lifecycle strip (migration 045): support chats show their
+          open/closed state and the close/reopen action. A CLOSED ticket stops
+          accepting messages (server enforces 403 ticket_closed), so the
+          composer is replaced by the banner with a reopen button. Messenger
+          chats have no ticket row and never see this strip. */}
+      {isSupportChat ? (
+        <div
+          className="mx-2 mb-1 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs sm:mx-3"
+          role="status"
+          data-testid="ticket-status-strip"
+          dir="auto"
+        >
+          {ticketClosed ? (
+            <>
+              <span className="min-w-0 truncate text-slate-500 dark:text-slate-400">
+                {t("common.ticketClosedBanner")}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleTicketAction("reopen")}
+                disabled={ticketActionBusy}
+                className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+              >
+                {t("common.ticketReopen")}
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="flex min-w-0 items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+                  aria-hidden="true"
+                />
+                {t("common.ticketStatusOpen")}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleTicketAction("close")}
+                disabled={ticketActionBusy}
+                className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300 dark:hover:bg-slate-500/20"
+              >
+                {t("common.ticketClose")}
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {showComposer && !ticketClosed ? (
           <MessageComposer
             activeChatId={activeChatId}
             isDesktop={isDesktop}

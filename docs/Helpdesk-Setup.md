@@ -4,6 +4,21 @@ ChatDesk can run as a **chat-first helpdesk**: customers experience it like a
 regular messenger, while every support conversation is routed behind the
 scenes to the right team.
 
+## Two strictly separated message domains
+
+Messenger and tickets are two independent domains — separate routing, separate
+tables, separate lifecycle:
+
+- **Messenger (direct)** — opened by finding a user's ID. Allowed only between
+  two customers or two staff members; `POST /api/chats/dm` refuses
+  customer↔staff pairs (403 `support_only`). No ticket row exists for these
+  chats.
+- **Tickets (support)** — a customer picks a department and the request is
+  routed to an operator. Every support chat is registered in the `tickets`
+  table (customer, department, assigned operator, open/closed lifecycle,
+  migration 045). Either party can close or reopen the ticket from the chat
+  window; a closed ticket stops accepting messages until reopened.
+
 ## How it works
 
 1. **Super admin creates departments** in the admin panel
@@ -15,9 +30,9 @@ scenes to the right team.
    `/departments` page) or any time later via the sidebar menu
    (`+` → `Contact support`).
 4. **Fair routing** assigns the conversation to the operator in that
-   department with the *fewest open conversations* (open = the customer sent
-   the last message). Ties are broken round-robin (longest time since last
-   assignment wins).
+   department with the *fewest open tickets* (open/closed is the ticket's own
+   lifecycle status in the `tickets` table). Ties are broken round-robin
+   (longest time since last assignment wins).
 5. The support conversation is a **regular DM chat** tagged with the
    department, so every messenger feature keeps working: files, voice
    messages, calls, push notifications, offline queue, encryption.

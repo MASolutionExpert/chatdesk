@@ -6,11 +6,14 @@
  * id — so the whole messenger stack (SSE, push, files, calls) keeps working
  * without any special casing.
  *
- * Channels are strictly separated (migration 044 `chats.channel`):
- *   - "direct"  : messenger-style chats opened by finding a user's ID.
- *   - "support" : helpdesk threads opened through the department picker.
- * A support request NEVER reuses or converts a direct chat between the same
- * pair; it only continues an existing support thread for the SAME department.
+ * Two-logic separation (migration 044 + 045):
+ *   - "direct"  : messenger chats opened by finding a user's ID. The route
+ *     POST /api/chats/dm refuses customer↔staff pairs — those are tickets.
+ *   - "support": helpdesk threads opened through the department picker, each
+ *     registered in the `tickets` table (customer, department, operator,
+ *     open/closed lifecycle). A support request NEVER reuses or converts a
+ *     direct chat between the same pair; it only continues an existing
+ *     support thread for the SAME department (and reopens its closed ticket).
  */
 function registerDepartmentRoutes(app, deps) {
   const {
@@ -29,6 +32,11 @@ function registerDepartmentRoutes(app, deps) {
     emitChatEvent,
     emitSseEvent,
     sendPushNotificationToUsers,
+    createTicketRow,
+    getTicketByChatId,
+    setTicketStatusByChatId,
+    findChatById,
+    getChatMemberRole,
   } = deps;
 
   const awaitMaybe = async (value) => await value;
@@ -118,6 +126,24 @@ function registerDepartmentRoutes(app, deps) {
         await awaitMaybe(markChatDepartment(chatId, department.id));
       }
 
+      // Ticket registry (migration 045): every support chat carries exactly
+      // one ticket row that owns the lifecycle. New thread → new open ticket;
+      // reused thread whose ticket was closed → reopened by this request.
+      let ticket = await awaitMaybe(getTicketByChatId(chatId));
+      if (!ticket) {
+        await awaitMaybe(
+          createTicketRow({
+            chatId,
+            departmentId: department.id,
+            customerId: customer.id,
+            operatorId: operator.id,
+          })
+        );
+      } else if (ticket.status === "closed") {
+        await awaitMaybe(setTicketStatusByChatId(chatId, "open"));
+      }
+      ticket = await awaitMaybe(getTicketByChatId(chatId));
+
       const messageId = await awaitMaybe(
         createMessage(chatId, customer.id, text)
       );
@@ -165,6 +191,9 @@ function registerDepartmentRoutes(app, deps) {
       return res.status(201).json({
         chatId,
         channel: "support",
+        ticket: ticket
+          ? { id: ticket.id, status: ticket.status }
+          : { id: null, status: "open" },
         operator: {
           username: operator.username,
           nickname: operator.nickname || operator.username,
@@ -173,6 +202,95 @@ function registerDepartmentRoutes(app, deps) {
         department: { id: department.id, name: department.name },
       });
     }
+  );
+
+  // ─── Ticket lifecycle: close / reopen (members of the support chat only) ───
+  //
+  // Closing marks the work done (fair routing stops counting the ticket as
+  // load; new messages are refused). Reopening restores the thread. Both
+  // parties of the ticket — customer and staff member — may do either.
+  async function handleTicketStatusChange(req, res, nextStatus) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const { creator } = req.body || {};
+    const chatId = String(req.params.chatId || "").trim();
+    if (!creator) {
+      return res.status(400).json({ error: "Creator is required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, creator)) return;
+
+    const rawUser = findUserByUsername(String(creator).toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
+    // Ticket domain only: a messenger (direct) chat has no lifecycle.
+    if (String(chat.channel || "direct") !== "support" || !chat.department_id) {
+      return res.status(400).json({
+        error: "Only support conversations have a ticket lifecycle.",
+        code: "not_a_ticket",
+      });
+    }
+
+    const rawRole = getChatMemberRole(chatId, user.id);
+    const role =
+      rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole;
+    if (!role) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const ticket = await awaitMaybe(getTicketByChatId(chatId));
+    const wasClosed = ticket ? ticket.status === "closed" : false;
+    const target = nextStatus;
+    if (ticket) {
+      if (ticket.status === target) {
+        // Idempotent no-op — still return the current state.
+        return res.json({
+          chatId,
+          ticketId: ticket.id,
+          status: target,
+          changed: false,
+        });
+      }
+      await awaitMaybe(setTicketStatusByChatId(chatId, target));
+    }
+
+    // Realtime fan-out so the peer's header badge flips immediately.
+    await awaitMaybe(
+      emitChatEvent(chatId, {
+        type: "ticket_updated",
+        chatId,
+        chatChannel: "support",
+        status: target,
+        byUserId: user.id,
+        username: user.username,
+      })
+    );
+    await awaitMaybe(
+      emitSseEvent(user.username, { type: "chat_list_changed", chatId })
+    );
+
+    return res.json({
+      chatId,
+      ticketId: ticket ? ticket.id : null,
+      status: target,
+      changed: ticket ? true : false,
+      previousStatus: ticket ? (wasClosed ? "closed" : "open") : "open",
+    });
+  }
+
+  app.post("/api/support/tickets/:chatId/close", (req, res) =>
+    handleTicketStatusChange(req, res, "closed")
+  );
+  app.post("/api/support/tickets/:chatId/reopen", (req, res) =>
+    handleTicketStatusChange(req, res, "open")
   );
 }
 

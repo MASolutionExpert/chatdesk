@@ -10,7 +10,12 @@ import { useI18n } from "../../i18n/index.js";
  *   - "support"  → SUPPORT pill (rose): the thread is a helpdesk ticket
  *     opened through the department picker (`chats.department_id` is set).
  *   - "direct"   → MESSENGER pill (slate): a messenger-style chat opened by
- *     finding a user's ID (user↔operator, operator↔operator).
+ *     finding a user's ID (user↔user, staff↔staff). Customers reach staff
+ *     ONLY through the support channel — POST /api/chats/dm refuses the pair.
+ *
+ * Support chats additionally carry the ticket lifecycle (migration 045
+ * `tickets.status`): when `ticketStatus` is "closed" the pill is stamped
+ * with a CLOSED marker.
  *
  * This is a channel marker, not an identity marker — it never overlaps with:
  *   - VerifiedBadge   → the peer's identity is verified (sky icon).
@@ -19,6 +24,7 @@ import { useI18n } from "../../i18n/index.js";
  * Props:
  *   channel         – "support" | "direct" (default "direct")
  *   departmentName  – optional department name appended to the tooltip
+ *   ticketStatus    – optional "open" | "closed" (support tickets only)
  *   className       – extra classes on the wrapper span
  */
 const CHANNELS = {
@@ -39,22 +45,34 @@ const CHANNELS = {
 export default function ChannelBadge({
   channel = "direct",
   departmentName = null,
+  ticketStatus = null,
   className = "",
 }) {
   const { t } = useI18n();
   const conf = CHANNELS[channel] || CHANNELS.direct;
   const baseLabel = t(conf.labelKey);
-  const label = departmentName ? `${baseLabel} — ${departmentName}` : baseLabel;
+  const isClosed =
+    channel === "support" && String(ticketStatus || "").toLowerCase() === "closed";
+  const fullLabel = isClosed
+    ? `${baseLabel} — ${t("common.ticketStatusClosed")}`
+    : baseLabel;
+  const label = departmentName ? `${fullLabel} — ${departmentName}` : fullLabel;
 
   return (
     <Tooltip label={label} className={`shrink-0 ${className}`}>
       <span
-        className={`inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[9px] font-bold uppercase leading-[14px] tracking-wider ${conf.pill}`}
+        className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[9px] font-bold uppercase leading-[14px] tracking-wider ${conf.pill}`}
         role="img"
         aria-label={label}
         dir="ltr"
       >
         {conf.label}
+        {isClosed && (
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full bg-slate-500 dark:bg-slate-300"
+            aria-hidden="true"
+          />
+        )}
       </span>
     </Tooltip>
   );

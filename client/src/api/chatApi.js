@@ -167,6 +167,22 @@ export const createSupportRequest = ({ departmentId, message, creator }) =>
     body: JSON.stringify({ departmentId, message, creator }),
   });
 
+// Closes or reopens a support ticket (the ticket domain's lifecycle,
+// migration 045). action: "close" | "reopen" — resolves to
+// { chatId, ticketId, status, changed }. Messenger chats have no ticket
+// row and the server refuses the action for them (400 not_a_ticket).
+export const setTicketStatus = ({ chatId, action, creator }) =>
+  apiFetch(
+    `${API_BASE}/api/support/tickets/${encodeURIComponent(chatId)}/${
+      action === "close" ? "close" : "reopen"
+    }`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ creator }),
+    },
+  );
+
 export const createGroupChat = (payload) =>
   apiFetch(`${API_BASE}/api/chats/group`, {
     method: "POST",

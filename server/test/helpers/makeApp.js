@@ -315,6 +315,10 @@ export function makeApp(overrides = {}) {
     setChatMuted: () => {},
     setChatMemberRole: () => {},
     getChatMemberRole: () => null,
+    // Ticket registry (migration 045) — tests override per scenario.
+    createTicketRow: () => generateUuid(),
+    getTicketByChatId: () => null,
+    setTicketStatusByChatId: () => true,
     regenerateGroupInviteToken: () => null,
     markGroupMemberRemoved: () => {},
     clearGroupMemberRemoved: () => {},

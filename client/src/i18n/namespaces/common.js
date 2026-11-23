@@ -38,6 +38,13 @@ export const common = {
     },
     channelBadgeSupport: "Support ticket",
     channelBadgeMessenger: "Messenger chat",
+    ticketStatusOpen: "Open",
+    ticketStatusClosed: "Closed",
+    ticketClose: "Close ticket",
+    ticketReopen: "Reopen ticket",
+    ticketClosedBanner:
+      "This support ticket is closed. Reopen it to continue the conversation.",
+    ticketStatusChanged: "Ticket status updated.",
   },
   fa: {
     actions: {
@@ -71,5 +78,12 @@ export const common = {
     },
     channelBadgeSupport: "تیکت پشتیبانی",
     channelBadgeMessenger: "چت پیام‌رسان",
+    ticketStatusOpen: "باز",
+    ticketStatusClosed: "بسته",
+    ticketClose: "بستن تیکت",
+    ticketReopen: "بازگشایی تیکت",
+    ticketClosedBanner:
+      "این تیکت پشتیبانی بسته شده است. برای ادامه گفت‌وگو آن را بازگشایی کنید.",
+    ticketStatusChanged: "وضعیت تیکت به‌روزرسانی شد.",
   },
 };

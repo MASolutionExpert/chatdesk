@@ -5935,6 +5935,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     await loadChats();
   }
 
+  // Ticket lifecycle (migration 045): reflect close/reopen from the chat
+  // window strip in the chat list immediately. The server response carries
+  // the authoritative status; loadChats re-syncs on the next full refresh.
+  const handleTicketStatusChanged = useCallback((chatId, status) => {
+    if (!chatId || !status) return;
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat?.id === chatId ? { ...chat, ticket_status: status } : chat,
+      ),
+    );
+  }, []);
+
   const closeNewChatModal = () => {
     setNewChatOpen(false);
     setNewChatUsername("");
@@ -7257,6 +7269,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onClearPendingUploads={clearPendingUploads}
         onVoiceRecorded={handleVoiceRecorded}
         onClearPendingVoiceMessage={clearPendingVoiceMessage}
+        onTicketStatusChanged={handleTicketStatusChanged}
         onMessageInput={handleMessageInput}
         replyTarget={replyTarget}
         onClearReply={handleClearReply}

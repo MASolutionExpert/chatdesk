@@ -26,6 +26,7 @@ function registerMessageRoutes(app, deps) {
     ensureFfmpegAvailable,
     fs,
     findChatById,
+    getTicketByChatId,
     findMessageIdByClientRequestId,
     findMessageById,
     findUserById,
@@ -1919,6 +1920,23 @@ function registerMessageRoutes(app, deps) {
         return res
           .status(403)
           .json({ error: "Only channel owner can send messages." });
+      }
+    }
+
+    // Ticket lifecycle (migration 045): a CLOSED support ticket stops
+    // accepting messages. The conversation is archived, not deleted — either
+    // party can reopen it via POST /api/support/tickets/:chatId/reopen.
+    // Messenger (direct) chats have no ticket row and are never blocked.
+    if (String(chat.channel || "direct") === "support") {
+      const rawTicket = getTicketByChatId(chatId);
+      const ticket =
+        rawTicket && typeof rawTicket.then === "function" ? await rawTicket : rawTicket;
+      if (ticket && ticket.status === "closed") {
+        return res.status(403).json({
+          error:
+            "This support ticket is closed. Reopen it to continue the conversation.",
+          code: "ticket_closed",
+        });
       }
     }
 
