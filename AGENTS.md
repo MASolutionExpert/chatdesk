@@ -17,6 +17,7 @@ Every agent (and any AI/human contributor) working on this project MUST follow t
 9. **Performance matters**: Security AND speed are both critical. Prefer efficient queries (indexes, pagination), avoid N+1 patterns, keep payloads lean.
 10. **No unnecessary work**: Do only what is asked plus what is strictly required for correctness/security/integration. No refactoring for taste, no scope creep, no changes that could break working features.
 11. **When fixing a bug**: Change ONLY what is needed for that bug. Never break other working features while fixing one. After the fix, mentally (or via tests) re-verify the affected flows end-to-end.
+12. **Backend-first, ALWAYS (mandatory build order)**: Every new feature/capability MUST be born in the backend and project logic FIRST — database table/migration, server logic, API endpoints, authorization, realtime (SSE) events, and API tests — and only AFTER that contract exists and its tests pass may the UI/frontend for it be built. A frontend-only implementation (tags, badges, buttons that render state the server does not own) is a FORBIDDEN fake feature, not a deliverable. When asked for a feature, the first commit must touch `server/` (db/migrations/api), not only `client/`.
 
 ## DevOps Workflow: Two GitHub Spaces (MANDATORY — read every session)
 
@@ -43,6 +44,18 @@ ChatDesk has EXACTLY TWO spaces on GitHub — `dev` and `main`. Their install co
 
 - **Main / stable**: `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh | bash`
 - **Dev / test**: `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/dev/scripts/install.sh | REPO_BRANCH=dev bash`
+
+### Feature build order (backend-first law)
+
+For every NEW capability, implement in this exact order and do not move to the next step before the previous one passes its checks:
+
+1. **Database**: schema/migration in `server/db.js` + `server/migrations/` (backfill-safe, idempotent).
+2. **Server logic + API**: endpoints under `server/api/`, authorization per role, all SQL in `server/db.js`, SSE fan-out for realtime state.
+3. **Server tests**: API/integration tests under `server/test/` proving the logic (green before UI work starts).
+4. **Client**: UI wired to the real API via `chatApi.js`, bilingual (en/fa) strings.
+5. **Docs**: `docs/` + `docs/fa/` updated.
+
+A step skipped, or a UI shipped for logic that does not exist, violates rule 12.
 
 ### Bug-fix loop
 

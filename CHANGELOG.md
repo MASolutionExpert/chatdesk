@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.3.0-dev.9
+
+### Changed
+
+- 📐 **New permanent agent law: backend-first build order (`AGENTS.md`).** Every new feature must now be born in the backend — database migration, server logic, API endpoints, authorization, SSE events, API tests — and only after that contract's tests pass may the UI for it be built. A frontend-only implementation (tags/badges/buttons rendering state the server does not own) is explicitly forbidden. This codifies the delivery order that produced the messenger/ticket separation (dev.8: migration 045 `tickets` table → lifecycle/close/reopen APIs → routing from the ticket table → 13 API tests → then the client lifecycle strip).
+
 ## 1.3.0-dev.8
 
 ### Changed
