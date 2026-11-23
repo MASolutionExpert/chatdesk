@@ -120,14 +120,14 @@ describe("compareVersions", () => {
 
 describe("fetchLatestGitHubTag release channels", () => {
   const mockTagsResponse = (tags) => {
-    global.fetch = async () => ({
+    globalThis.fetch = async () => ({
       ok: true,
       json: async () => tags.map((name) => ({ name })),
     });
   };
 
   afterEach(() => {
-    delete global.fetch;
+    delete globalThis.fetch;
   });
 
   const MIXED_TAGS = ["v1.1.0-dev.7", "v1.1.0-dev.6", "v1.0.0"];

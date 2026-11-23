@@ -39,6 +39,7 @@ import { resolveForwardedTarget } from "../../../utils/forwardOrigin.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import ChannelBadge from "../../common/ChannelBadge.jsx";
 import Tooltip from "../../common/Tooltip.jsx";
 
 const MAX_MESSAGE_HTML_CACHE_ENTRIES = 800;
@@ -157,6 +158,8 @@ export const MessageItem = memo(function MessageItem({
   isGroupChat = false,
   isChannelChat = false,
   isSavedChat = false,
+  chatChannel = null,
+  supportDepartmentName = null,
   chatId = null,
   chatName = "",
   chatColor = null,
@@ -298,7 +301,7 @@ export const MessageItem = memo(function MessageItem({
   const normalizedBodyText = String(bodyText || "").trim();
   const callLog = parseCallLogBody(normalizedBodyText);
   const callLogLabel = callLog
-    ? getCallLogLabel(callLog, Boolean(isOwn))
+    ? getCallLogLabel(callLog, Boolean(isOwn), t)
     : null;
   const hasMixedVoiceAndOtherFiles =
     hasFiles &&
@@ -615,6 +618,7 @@ export const MessageItem = memo(function MessageItem({
         replyCallLog,
         String(replyTarget?.username || "").toLowerCase() ===
           String(user?.username || "").toLowerCase(),
+        t,
       )
     : null;
   const isPluralMediaSummary =
@@ -1247,6 +1251,12 @@ export const MessageItem = memo(function MessageItem({
                 <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
                   {isEdited ? <span>{t("chat.message.edited")}</span> : null}
+                  {/* Channel marker on incoming messages: SUPPORT = reached the
+                      operator through a support department, MESSENGER = plain
+                      messenger-style chat. */}
+                  {!isOwn && chatChannel ? (
+                    <ChannelBadge channel={chatChannel} departmentName={supportDepartmentName} />
+                  ) : null}
                 </div>
               </ContextMenuSurface>
             </div>
@@ -1390,7 +1400,12 @@ export const MessageItem = memo(function MessageItem({
                 >
                   <span
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${
-                      callLog.status === "failed" || callLog.status === "cancelled"
+                      [
+                        "failed",
+                        "cancelled",
+                        "missed",
+                        "declined",
+                      ].includes(callLog.status)
                         ? "bg-rose-500 dark:bg-rose-600"
                         : "bg-emerald-500 dark:bg-emerald-600"
                     }`}
@@ -1439,6 +1454,12 @@ export const MessageItem = memo(function MessageItem({
                 <span className="inline-flex items-center gap-1">
                   <span>{msg._timeLabel || formatTime(msg.created_at)}</span>
                   {isEdited ? <span>{t("chat.message.edited")}</span> : null}
+                  {/* Channel marker on incoming messages: SUPPORT = reached the
+                      operator through a support department, MESSENGER = plain
+                      messenger-style chat. */}
+                  {!isOwn && chatChannel ? (
+                    <ChannelBadge channel={chatChannel} departmentName={supportDepartmentName} />
+                  ) : null}
                   {isOwn || isChannelChat ? (
                     <span
                       className={`inline-flex items-center gap-1 ${

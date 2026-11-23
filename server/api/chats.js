@@ -67,6 +67,7 @@ function registerChatRoutes(app, deps) {
     storeAvatarFile = deps.storeAvatarFile,
     setChatMemberRole,
     getSetting,
+    debugLog,
     REMOTE_CHANNELS,
     getMessages,
     remoteChannelManager,
@@ -75,6 +76,19 @@ function registerChatRoutes(app, deps) {
 
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
+
+  const isModeratorRole = (role) =>
+    ["owner", "admin", "operator"].includes(String(role || "").toLowerCase());
+
+  // Best-effort moderation audit logging (must never break the request).
+  const logModerationAudit = (entry) => {
+    try {
+      const result = deps.writeAdminAuditLog?.(entry);
+      if (result && typeof result.catch === "function") result.catch(() => {});
+    } catch {
+      // ignore
+    }
+  };
 
   const membershipService = createMembershipService({
     getChatById: (id) => findChatById(id),
@@ -512,7 +526,10 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    const rawExistingId = findDmChat(fromUser.id, toUser.id);
+    // Channel separation (migration 044): "find user by ID → send a message"
+    // is a MESSENGER flow. Reuse only the pair's direct chat; a support
+    // ticket between the same pair is a separate, never-converted thread.
+    const rawExistingId = findDmChat(fromUser.id, toUser.id, { channel: "direct" });
     const existingId = rawExistingId && typeof rawExistingId.then === "function" ? await rawExistingId : rawExistingId;
     if (existingId) {
       // Unhide the chat for both users (in case it was previously deleted)
@@ -521,10 +538,10 @@ function registerChatRoutes(app, deps) {
       const u2 = unhideChat(toUser.id, existingId);
       if (u2 && typeof u2.then === "function") await u2;
 
-      return res.json({ id: existingId });
+      return res.json({ id: existingId, channel: "direct" });
     }
 
-    const rawChatId = createChat(null, "dm");
+    const rawChatId = createChat(null, "dm", { channel: "direct" });
     const chatId = rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId;
     if (!chatId) {
       return res.status(500).json({ error: "Failed to create chat." });
@@ -1372,6 +1389,14 @@ function registerChatRoutes(app, deps) {
         emitSseEvent(ev.targetUsername, ev.payload);
       } catch (_) {}
     });
+    logModerationAudit({
+      actorUserId: user.id,
+      actorUsername: user.username,
+      action: "chat.delete",
+      targetType: "chat",
+      targetLabel: chat.name || chat.group_username || chatId,
+      details: { chatId, chatType: chat.type },
+    });
     return res.json({ ok: true, deleted: true });
   });
 
@@ -1670,7 +1695,33 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
-    await resolveMaybePromise(hideChatsForUser(user.id, chatIds.filter(Boolean)));
+    const idsToHide = chatIds.filter(Boolean);
+    const moderatorHide = isModeratorRole(user.role);
+    if (!moderatorHide) {
+      // Regular users cannot delete threads (support tickets are DM-type
+      // chats). Group/channel cleanup still works via leave + hide.
+      for (const id of idsToHide) {
+        const chat = await resolveMaybePromise(findChatById(id));
+        if (chat && String(chat.type || "").toLowerCase() === "dm") {
+          return res.status(403).json({
+            error: "Regular users cannot delete threads.",
+          });
+        }
+      }
+    }
+
+    await resolveMaybePromise(hideChatsForUser(user.id, idsToHide));
+
+    if (moderatorHide) {
+      logModerationAudit({
+        actorUserId: user.id,
+        actorUsername: user.username,
+        action: "thread.delete",
+        targetType: "chat",
+        targetLabel: idsToHide.length === 1 ? "1 thread" : `${idsToHide.length} threads`,
+        details: { chatIds: idsToHide },
+      });
+    }
 
     res.json({ ok: true });
   });
@@ -1748,8 +1799,17 @@ function registerChatRoutes(app, deps) {
     const query = req.query.query?.toString();
     if (exclude && !requireSessionUsernameMatch(res, session, exclude)) return;
 
+    const searchStartedAt = Date.now();
     const rawUsers = query ? searchUsers(query.toLowerCase(), exclude) : listUsers(exclude);
     const userList = (rawUsers && typeof rawUsers.then === "function" ? await rawUsers : rawUsers) || [];
+    if (debugLog) {
+      debugLog("api:users:search", {
+        query: query ?? null,
+        exclude: exclude ?? null,
+        matched: userList.length,
+        tookMs: Date.now() - searchStartedAt,
+      });
+    }
     const users = userList.map(
       (item) => ({
         ...item,

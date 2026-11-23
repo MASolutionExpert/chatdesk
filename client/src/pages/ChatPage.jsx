@@ -26,7 +26,6 @@ import { useChatNotifications } from "../hooks/chat/useChatNotifications.js";
 import { useDiscoverSearch } from "../hooks/chat/useDiscoverSearch.js";
 import { useActiveChatState } from "../hooks/chat/useActiveChatState.js";
 import { useAppActivity } from "../hooks/chat/useAppActivity.js";
-import { useDmUsernames } from "../hooks/chat/useDmUsernames.js";
 import { useHealthCheck } from "../hooks/chat/useHealthCheck.js";
 import { useOverlayBack } from "../hooks/chat/useOverlayBack.js";
 import { useMessagesLoader } from "../hooks/chat/useMessagesLoader.js";
@@ -135,6 +134,8 @@ import {
 } from "../utils/chatPageConstants.js";
 
 const loadChatProfileModal = () => import("../components/modals/ChatProfileModal.jsx");
+const loadChatFilesModal = () => import("../components/modals/ChatFilesModal.jsx");
+const loadChatSearchModal = () => import("../components/modals/ChatSearchModal.jsx");
 const loadDeleteChatsModal = () => import("../components/modals/DeleteChatsModal.jsx");
 const loadDeleteMessageScopeModal = () =>
   import("../components/modals/DeleteMessageScopeModal.jsx");
@@ -153,6 +154,8 @@ const loadNotificationsSettingsModal = () =>
 const loadWhatsNewModal = () => import("../components/modals/WhatsNewModal.jsx");
 
 const ChatProfileModal = lazy(loadChatProfileModal);
+const ChatFilesModal = lazy(loadChatFilesModal);
+const ChatSearchModal = lazy(loadChatSearchModal);
 const DeleteChatsModal = lazy(loadDeleteChatsModal);
 const DeleteMessageScopeModal = lazy(loadDeleteMessageScopeModal);
 const ForwardMessageModal = lazy(loadForwardMessageModal);
@@ -176,6 +179,8 @@ const preloadChatPageCriticalChunks = () =>
 
 const preloadChatPageLazyChunks = () =>
   Promise.allSettled([
+    loadChatFilesModal(),
+    loadChatSearchModal(),
     loadChatProfileModal(),
     loadDeleteChatsModal(),
     loadDeleteMessageScopeModal(),
@@ -332,6 +337,19 @@ const buildInviteLinkForChat = (chat) => {
 };
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
+  // Moderators (owner/admin/operator) may delete messages and threads;
+  // regular users must never see or reach the delete actions.
+  const canModerateContent = ["owner", "admin", "operator"].includes(
+    String(user?.role || "").toLowerCase(),
+  );
+  // Regular users cannot delete DM-type chats (support tickets included);
+  // group/channel cleanup keeps working via leave + hide.
+  const canDeleteThread = useCallback(
+    (chat) =>
+      canModerateContent ||
+      String(chat?.type || "").toLowerCase() !== "dm",
+    [canModerateContent],
+  );
   /* eslint-disable react-hooks/exhaustive-deps */
   const { t, lang } = useI18n();
   const messageMaxChars = useMessageMaxChars();
@@ -352,6 +370,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [settingsPanel, setSettingsPanel] = useState(null);
   const [chatsSearchFocused, setChatsSearchFocused] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [filesModalOpen, setFilesModalOpen] = useState(false);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [profileModalMember, setProfileModalMember] = useState(null);
   const [profileInviteLink, setProfileInviteLink] = useState("");
   const [profileInviteLinkLoading, setProfileInviteLinkLoading] = useState(false);
@@ -539,7 +559,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     };
   }, [activeChatId, isMobileViewport, profileModalOpen]);
 
-  const { dmUsernamesRef } = useDmUsernames({ chats, user });
   const {
     notificationsModalOpen,
     setNotificationsModalOpen,
@@ -728,7 +747,6 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setNewChatSelection,
   } = useNewChatSearch({
     user,
-    dmUsernamesRef,
     searchUsers,
     debounceMs: NEW_CHAT_SEARCH_DEBOUNCE_MS,
     maxResults: CHAT_PAGE_CONFIG.newChatSearchMaxResults,
@@ -1080,6 +1098,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     flipCamera,
     canFlipCamera,
     isScreenAudioMuted,
+    callEndDetail,
     handleSignal: handleCallSignal,
   } = useWebRTCCall({ realtimeSenderRef });
   // Screen sharing sends video, so it follows the video-call setting.
@@ -3169,8 +3188,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   };
 
   const requestDeleteChats = (ids) => {
-    if (!ids.length) return;
-    setPendingDeleteIds(ids);
+    const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
+    if (!list.length) return;
+    // Regular users must not be able to delete threads: filter DM-type
+    // chats (support tickets included) out of every deletion request.
+    // The server enforces the same rule; this keeps the UI consistent.
+    const allowedIds = canModerateContent
+      ? list
+      : list.filter((id) => {
+          const chat = chats.find((candidate) => candidate?.id === id);
+          return String(chat?.type || "").toLowerCase() !== "dm";
+        });
+    if (!allowedIds.length) return;
+    setPendingDeleteIds(allowedIds);
     setConfirmDeleteOpen(true);
   };
 
@@ -3178,20 +3208,27 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     (message) => {
       if (String(activeChat?.type || "").toLowerCase() === "saved") return false;
       if (isActiveChannelChat && !canCurrentUserEditGroup) return false;
+      // Moderators (owner/admin/operator) may delete anyone's message for
+      // everyone in chats they can post in — the server allows the same.
+      if (canModerateContent) return true;
       const messageAuthor = String(message?.username || "").toLowerCase();
       const currentUsername = String(user?.username || "").toLowerCase();
       if (!messageAuthor) return false;
       if (messageAuthor === currentUsername) return true;
       return canCurrentUserEditGroup;
     },
-    [activeChat?.type, canCurrentUserEditGroup, isActiveChannelChat, user?.username],
+    [activeChat?.type, canCurrentUserEditGroup, canModerateContent, isActiveChannelChat, user?.username],
   );
 
+  // Only moderators (owner/admin/operator) may edit messages at all —
+  // regular users never see the edit entry. The server enforces the same
+  // rule on both edit paths.
   const canEditMessageFromContext = useCallback(
     (message) =>
+      canModerateContent &&
       (!isActiveChannelChat || canCurrentUserEditGroup) &&
       isMessageAuthoredByUser(message, { username: user?.username }),
-    [canCurrentUserEditGroup, isActiveChannelChat, user?.username],
+    [canCurrentUserEditGroup, isActiveChannelChat, canModerateContent, user?.username],
   );
 
   function handleDeleteMessageRequest(message, _options = {}) {
@@ -6144,6 +6181,55 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMentionProfile(null);
   };
 
+  // Files gallery (opened from the profile panel's "Files" action).
+  const handleOpenFilesFromProfile = () => {
+    setProfileModalOpen(false);
+    setFilesModalOpen(true);
+  };
+
+  const closeFilesModal = () => setFilesModalOpen(false);
+
+  // Per-thread message search (opened from the profile panel's "Search" action).
+  const handleOpenSearchFromProfile = () => {
+    setProfileModalOpen(false);
+    setSearchModalOpen(true);
+  };
+
+  const closeSearchModal = () => setSearchModalOpen(false);
+
+  // Shared "jump to message" scroll+flash used by the files gallery and the
+  // per-thread search modal (same convention as reply quotes: scroll when the
+  // message is rendered in the loaded window).
+  const scrollToMessageWithFlash = (messageId) => {
+    if (!messageId || typeof document === "undefined") return;
+    requestAnimationFrame(() => {
+      const target = document.getElementById(`message-${messageId}`);
+      if (target && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+      const bubble = target?.querySelector?.("[data-message-bubble]");
+      if (!bubble) return;
+      bubble.classList.remove("reply-flash");
+      void bubble.offsetWidth;
+      bubble.classList.add("reply-flash");
+      window.setTimeout(() => {
+        bubble.classList.remove("reply-flash");
+      }, 700);
+    });
+  };
+
+  // Jump from a files-gallery row to the original message in the chat.
+  const handleFilesJumpToMessage = (messageId) => {
+    setFilesModalOpen(false);
+    scrollToMessageWithFlash(messageId);
+  };
+
+  // Jump from a search-result row to the original message in the chat.
+  const handleSearchJumpToMessage = (messageId) => {
+    setSearchModalOpen(false);
+    scrollToMessageWithFlash(messageId);
+  };
+
   const handleProfileRemoteChannelStatusChange = useCallback((status) => {
     setProfileRemoteChannelStatus(status ? { ...status, _chatId: activeChat?.id } : null);
   }, [activeChat?.id]);
@@ -6662,6 +6748,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     canReplyToMessage: canSendInActiveChat,
     canEditMessage: canEditMessageFromContext,
     canDeleteMessageForEveryone,
+    canDeleteMessages: canModerateContent,
+    canDeleteChatThread: canDeleteThread,
     onReplyToMessage: handleStartReply,
     onEditMessage: handleStartEdit,
     onDeleteMessage: handleDeleteMessageRequest,
@@ -7000,6 +7088,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         callsEditMode={callsEditMode}
         selectedCalls={selectedCalls}
         toggleSelectCall={toggleSelectCall}
+        canDeleteThread={canDeleteThread}
         onEnterCallsEditMode={() => {
           if (!calls.length) return;
           setCallsEditMode(true);
@@ -7230,6 +7319,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         <CallScreen
           callState={callState}
           callEndReason={callEndReason}
+          callEndDetail={callEndDetail}
           isCallClosing={isCallClosing}
           callType={callType}
           callPeer={resolvedCallPeer}
@@ -7551,6 +7641,19 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onToggleMute={() =>
               toggleMuteChat(mentionProfileChat?.id || activeChat?.id)
             }
+            // Files gallery belongs to the OPEN thread — only offered when the
+            // profile shown IS that thread's own profile (DM/channel/group
+            // header). Member/mention mini-profiles have no thread of their own.
+            onOpenFiles={
+              profileModalMember || mentionProfileUser
+                ? undefined
+                : handleOpenFilesFromProfile
+            }
+            onOpenSearch={
+              profileModalMember || mentionProfileUser
+                ? undefined
+                : handleOpenSearchFromProfile
+            }
             onLeaveGroup={() =>
               requestLeaveGroupById(mentionProfileChat?.id || activeChat?.id)
             }
@@ -7559,6 +7662,30 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             onOpenUserContextMenu={openContextMenu}
             onEditGroup={mentionProfileChat && String(mentionProfileChat.id || "") !== String(activeChat?.id || "") ? undefined : openEditGroupFromProfile}
             onEditSelfProfile={openSelfProfileEditor}
+          />
+        </Suspense>
+      ) : null}
+
+      {filesModalOpen ? (
+        <Suspense fallback={null}>
+          <ChatFilesModal
+            open={filesModalOpen}
+            chatId={activeChat?.id || null}
+            username={user?.username || ""}
+            onClose={closeFilesModal}
+            onJumpToMessage={handleFilesJumpToMessage}
+          />
+        </Suspense>
+      ) : null}
+
+      {searchModalOpen ? (
+        <Suspense fallback={null}>
+          <ChatSearchModal
+            open={searchModalOpen}
+            chatId={activeChat?.id || null}
+            username={user?.username || ""}
+            onClose={closeSearchModal}
+            onJumpToMessage={handleSearchJumpToMessage}
           />
         </Suspense>
       ) : null}

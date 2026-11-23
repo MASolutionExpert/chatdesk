@@ -138,4 +138,62 @@ describe("useOverlayBack (Android system back)", () => {
       );
     });
   });
+
+  test("opening a modal while the context menu closes in the same commit keeps the modal open", async () => {
+    // Regression: clicking "delete" in the context menu closed the menu
+    // (history.back()) and opened the delete-scope modal (pushState) in the
+    // same React commit. The menu's back() fired popstate AFTER the modal
+    // pushed its sentinel, so the modal was instantly closed again — the
+    // dialog "appeared and vanished" and nobody could delete a message.
+    function MenuToModalHarness() {
+      const [menuOpen, setMenuOpen] = useState(true);
+      const [modalOpen, setModalOpen] = useState(false);
+      useOverlayBack(menuOpen, () => setMenuOpen(false), "sbContextMenu");
+      useOverlayBack(
+        modalOpen,
+        () => setModalOpen(false),
+        "sbDeleteScopeModal",
+      );
+      return (
+        <>
+          {menuOpen && <div data-testid="menu-open">menu</div>}
+          {modalOpen && <div data-testid="modal-open">modal</div>}
+          <button
+            data-testid="select-delete"
+            onClick={() => {
+              setMenuOpen(false);
+              setModalOpen(true);
+            }}
+          >
+            select delete
+          </button>
+        </>
+      );
+    }
+    render(<MenuToModalHarness />);
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbContextMenu).toBe(true);
+    });
+
+    await userEvent.click(page.getByTestId("select-delete"));
+
+    // The modal must survive the menu's own history.back().
+    await expect.element(page.getByTestId("menu-open")).not.toBeInTheDocument();
+    await expect.element(page.getByTestId("modal-open")).toBeInTheDocument();
+    expect(window.history.state?.sbDeleteScopeModal).toBe(true);
+
+    // A genuine back gesture still closes the modal.
+    window.history.back();
+    await expect
+      .element(page.getByTestId("modal-open"))
+      .not.toBeInTheDocument();
+
+    // The menu's sentinel was left stale (its pop was skipped because the
+    // modal's sentinel landed on top of it in the same commit) — one more
+    // back gesture drains it and we land on the baseline entry.
+    window.history.back();
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbBaseline).toBe(window.__sbBaselineMarker);
+    });
+  });
 });

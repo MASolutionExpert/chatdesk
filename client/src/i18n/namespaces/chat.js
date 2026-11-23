@@ -137,6 +137,44 @@ export const chat = {
       needSecure: "Calls require a secure connection",
       alreadyInCall: "Already in a call",
       back: "{label} — call back",
+      calling: "Calling...",
+      incoming: "Incoming call",
+      ended: "Call ended",
+      endedDeclined: "Call declined",
+      endedFailed: "Call failed",
+      endedNoAnswer: "No answer",
+      endedBusy: "Line busy",
+      failedHint:
+        "The media connection could not be established — usually a restrictive network (carrier/home NAT). A TURN relay on the server fixes this: sudo bash scripts/setup-turn.sh",
+      failedPermission:
+        "Microphone/camera access was denied. Allow it from the browser address bar (lock icon) and try again.",
+      failedDevice: "No usable microphone/camera was found on this device.",
+      failedBusy:
+        "The microphone is being used by another app. Close it and try again.",
+      failedSecure:
+        "Calls need a secure connection — open the app over HTTPS (or localhost).",
+      failedGeneric: "The call could not be started on this device.",
+      failedSignal: "The server rejected the call: {message}",
+      failedHandshake: "The connection handshake failed. Please try again.",
+      failedIceRelay:
+        "The media relay (TURN) could not carry the call. Check the TURN server's credentials and logs on the server.",
+      failedIceHost:
+        "Even local-network candidates failed — this network blocks WebRTC. Set up TURN (with TCP/443): sudo bash scripts/setup-turn.sh",
+      failedIceNone:
+        "No network candidates were gathered — the browser or network blocked WebRTC entirely.",
+      iceTechnical: "Diagnostics: {info}",
+      iceCandidates: "candidates",
+      iceTurn: "TURN",
+      iceTurnConfigured: "configured",
+      iceTurnMissing: "not configured",
+    },
+    callLog: {
+      outgoing: "Outgoing call",
+      incoming: "Incoming call",
+      cancelled: "Cancelled call",
+      missed: "Missed call",
+      declined: "Declined call",
+      failed: "Failed call",
     },
     notification: {
       newMessageTitle: "New message",
@@ -359,6 +397,44 @@ export const chat = {
       needSecure: "تماس‌ها به اتصال امن نیاز دارند",
       alreadyInCall: "در حال حاضر در تماس هستید",
       back: "{label} — تماس مجدد",
+      calling: "در حال تماس...",
+      incoming: "تماس ورودی",
+      ended: "تماس پایان یافت",
+      endedDeclined: "تماس رد شد",
+      endedFailed: "تماس ناموفق بود",
+      endedNoAnswer: "بی‌پاسخ",
+      endedBusy: "خط اشغال است",
+      failedHint:
+        "اتصال رسانه برقرار نشد — معمولاً به‌دلیل شبکهٔ محدود (NAT اپراتور یا اینترنت خانگی). راه‌حل: اجرای sudo bash scripts/setup-turn.sh روی سرور برای راه‌اندازی رلهٔ TURN",
+      failedPermission:
+        "اجازهٔ میکروفون/دوربین داده نشده است. از نوار آدرس مرورگر (آیکون قفل) اجازه بدهید و دوباره تلاش کنید.",
+      failedDevice: "میکروفون یا دوربین قابل‌استفاده‌ای روی این دستگاه پیدا نشد.",
+      failedBusy:
+        "میکروفون توسط برنامهٔ دیگری در حال استفاده است. آن را ببندید و دوباره تلاش کنید.",
+      failedSecure:
+        "تماس‌ها به اتصال امن نیاز دارند — برنامه را با HTTPS (یا localhost) باز کنید.",
+      failedGeneric: "تماس روی این دستگاه شروع نشد.",
+      failedSignal: "سرور تماس را رد کرد: {message}",
+      failedHandshake: "مراحل اتصال ناموفق بود. لطفاً دوباره تلاش کنید.",
+      failedIceRelay:
+        "رلهٔ رسانه (TURN) نتوانست تماس را حمل کند. اطلاعات کاربری و لاگ‌های TURN را روی سرور بررسی کنید.",
+      failedIceHost:
+        "حتی کاندیدهای شبکهٔ محلی هم شکست خوردند — این شبکه WebRTC را مسدود می‌کند. راه‌اندازی TURN (با TCP/443): sudo bash scripts/setup-turn.sh",
+      failedIceNone:
+        "هیچ کاندید شبکه‌ای جمع‌آوری نشد — مرورگر یا شبکه WebRTC را کاملاً مسدود کرده است.",
+      iceTechnical: "جزئیات فنی: {info}",
+      iceCandidates: "کاندیدها",
+      iceTurn: "TURN",
+      iceTurnConfigured: "تنظیم‌شده",
+      iceTurnMissing: "تنظیم نشده",
+    },
+    callLog: {
+      outgoing: "تماس خروجی",
+      incoming: "تماس ورودی",
+      cancelled: "تماس لغو شد",
+      missed: "تماس بی‌پاسخ",
+      declined: "تماس رد شد",
+      failed: "تماس ناموفق",
     },
     notification: {
       newMessageTitle: "پیام جدید",

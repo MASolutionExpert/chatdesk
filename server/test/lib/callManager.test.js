@@ -180,12 +180,33 @@ describe("callManager", () => {
       });
     });
 
-    it("rejects starting a call if one is already active in the chat", async () => {
+    it("resumes the same ringing call when the caller redials (no 409)", async () => {
+      const first = await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      // e.g. the caller's browser refreshed mid-ring and lost the call
+      // screen: redialling must resume the same ring, not fail with 409
+      // ("Call already in progress") -> "Call failed".
+      const res = await callManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      expect(res.status).toBe(200);
+      expect(res.call).toBe(first.call);
+      expect(res.call.status).toBe("ringing");
+      expect(callManager.getActiveCall(dummyChatId)).toBe(first.call);
+    });
+
+    it("rejects starting a call while a live connected call is active in the chat", async () => {
       await callManager.startCall({
         user: callerUser,
         chatId: dummyChatId,
         type: "voice",
       });
+      await callManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
       const res = await callManager.startCall({
         user: callerUser,
         chatId: dummyChatId,
@@ -193,6 +214,33 @@ describe("callManager", () => {
       });
       expect(res.status).toBe(409);
       expect(res.error).toBe("Call already in progress in this chat");
+    });
+
+    it("takes over a stale connected call (both participants offline) instead of 409", async () => {
+      const staleManager = createCallManager({
+        ...mockDeps,
+        isUserOnline: () => false,
+        sweepIntervalMs: 0,
+      });
+      await staleManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      await staleManager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+      expect(staleManager.getActiveCall(dummyChatId)).toBeDefined();
+
+      // Everyone is gone (SSE-only client whose stream died without a
+      // close event, server restart of the client process, ...): the next
+      // dial must succeed instead of failing with 409 -> "Call failed".
+      const res = await staleManager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      expect(res.status).toBe(200);
+      expect(res.call.status).toBe("ringing");
+      expect(staleManager.getActiveCall(dummyChatId)).toBe(res.call);
     });
 
     it("rejects starting a call if other participant is deleted", async () => {
@@ -453,6 +501,9 @@ describe("callManager", () => {
       expect(start).toBeGreaterThan(-1);
       const block = source.slice(start, source.indexOf("});", start));
       expect(block).toMatch(/\bfindUserById\b/);
+      // The reaper needs live-session liveness (WS + SSE), otherwise stale
+      // call entries poison a chat with 409s ("Call failed" forever).
+      expect(block).toMatch(/\bisUserOnline/);
     });
   });
 
@@ -619,7 +670,7 @@ describe("callManager", () => {
       );
     });
 
-    it("marks the log failed when the callee rejects while ringing", async () => {
+    it("marks the log declined when the callee rejects while ringing", async () => {
       await callManager.startCall({
         user: callerUser,
         chatId: dummyChatId,
@@ -629,7 +680,7 @@ describe("callManager", () => {
       expect(res.status).toBe(200);
       expect(updateCallMessageBody).toHaveBeenCalledWith(
         expect.any(String),
-        "[[call:video:failed]]",
+        "[[call:video:declined]]",
       );
     });
 
@@ -678,7 +729,7 @@ describe("callManager", () => {
       );
     });
 
-    it("marks the log failed when the callee goes offline while ringing", async () => {
+    it("marks the log missed when the callee goes offline while ringing", async () => {
       await callManager.startCall({
         user: callerUser,
         chatId: dummyChatId,
@@ -687,7 +738,7 @@ describe("callManager", () => {
       callManager.cleanupUserCalls(calleeUser.username);
       expect(updateCallMessageBody).toHaveBeenCalledWith(
         expect.any(String),
-        "[[call:voice:failed]]",
+        "[[call:voice:missed]]",
       );
     });
 
@@ -781,6 +832,102 @@ describe("callManager", () => {
       await new Promise((resolve) => setTimeout(resolve, 60));
 
       expect(logDeps.updateCallMessageBody).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("stale-call reaper", () => {
+    function makeReaperManager(overrides = {}) {
+      return createCallManager({
+        ...mockDeps,
+        isUserOnline: () => false,
+        sweepIntervalMs: 0, // no timer; tests call sweepStaleCalls() directly
+        ...overrides,
+      });
+    }
+
+    it("reaps a connected call after both participants stay offline past the grace window", async () => {
+      const manager = makeReaperManager({ offlineGraceMs: 0 });
+      await manager.startCall({ user: callerUser, chatId: dummyChatId, type: "voice" });
+      await manager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+      expect(manager.getActiveCall(dummyChatId)).toBeDefined();
+
+      manager.sweepStaleCalls();
+
+      expect(manager.getActiveCall(dummyChatId)).toBeUndefined();
+      // Offline participants get only the ring-ended cleanup signal; no
+      // point emitting call:ended to a socket that no longer exists.
+      expect(mockDeps.emitToUser).toHaveBeenCalledWith("alice", {
+        type: "call:ring-ended",
+        chatId: dummyChatId,
+      });
+      expect(mockDeps.emitToUser).toHaveBeenCalledWith("bob", {
+        type: "call:ring-ended",
+        chatId: dummyChatId,
+      });
+    });
+
+    it("does not reap while at least one participant is still online", async () => {
+      const manager = makeReaperManager({
+        offlineGraceMs: 0,
+        isUserOnline: (u) => String(u).toLowerCase() === "bob",
+      });
+      await manager.startCall({ user: callerUser, chatId: dummyChatId, type: "voice" });
+      await manager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+
+      manager.sweepStaleCalls();
+
+      expect(manager.getActiveCall(dummyChatId)).toBeDefined();
+    });
+
+    it("grants the grace window before reaping (client mid-reconnect survives)", async () => {
+      const manager = makeReaperManager({ offlineGraceMs: 45000 });
+      await manager.startCall({ user: callerUser, chatId: dummyChatId, type: "voice" });
+      await manager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+
+      manager.sweepStaleCalls();
+      expect(manager.getActiveCall(dummyChatId)).toBeDefined();
+
+      // Well within the grace window: still alive.
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      manager.sweepStaleCalls();
+      expect(manager.getActiveCall(dummyChatId)).toBeDefined();
+    });
+
+    it("reaps any call past the absolute lifetime cap", async () => {
+      const manager = makeReaperManager({ staleCallMaxMs: 10, offlineGraceMs: 999999 });
+      const { call } = await manager.startCall({
+        user: callerUser,
+        chatId: dummyChatId,
+        type: "voice",
+      });
+      call.startedAt = Date.now() - 5000;
+
+      manager.sweepStaleCalls();
+
+      expect(manager.getActiveCall(dummyChatId)).toBeUndefined();
+    });
+
+    it("reaped connected call keeps a connected log entry (no fake 'failed')", async () => {
+      const createCallMessage = vi.fn(async () => "log-message-id");
+      const updateCallMessageBody = vi.fn(async () => {});
+      const manager = makeReaperManager({
+        offlineGraceMs: 0,
+        createCallMessage,
+        updateCallMessageBody,
+      });
+      await manager.startCall({ user: callerUser, chatId: dummyChatId, type: "voice" });
+      await manager.acceptCall({ user: calleeUser, chatId: dummyChatId });
+
+      manager.sweepStaleCalls();
+      // forceEndCall logs via a floating promise — give it a tick.
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // startCall already created the log entry ("outgoing"), so the reaper
+      // rewrites the SAME message body to the final call-log status.
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        "log-message-id",
+        expect.stringMatching(/^\[\[call:voice:connected:\d+\]\]$/),
+      );
     });
   });
 });

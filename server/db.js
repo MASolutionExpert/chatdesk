@@ -1002,12 +1002,27 @@ export function listUsers(excludeUsername) {
   return getAll(qb);
 }
 
+/**
+ * Case-insensitive user search shared by /api/users, /api/discover, member
+ * pickers and the admin panel.
+ *
+ * Two deployment realities this must survive:
+ *   - users habitually type an "@" prefix when searching an ID ("@bob") —
+ *     it is stripped before matching, otherwise EVERY lookup fails
+ *   - PostgreSQL's LIKE is case-sensitive (SQLite's is not), so mixed-case
+ *     nicknames were unfindable on Postgres deployments; comparisons go
+ *     through lower() on both engines
+ */
 export function searchUsers(query, excludeUsername) {
-  const like = `%${query}%`;
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!term) return [];
+  const like = `%${term}%`;
   const qb = dbKnex("users")
     .select("id", "username", "nickname", "avatar_url", "color", "role", "verified", "status", "banned")
     .where((builder) => {
-      builder.where("username", "like", like).orWhere("nickname", "like", like);
+      builder
+        .whereRaw("lower(username) like ?", [like])
+        .orWhereRaw("lower(nickname) like ?", [like]);
     })
     .orderBy("username", "asc");
   if (excludeUsername) {
@@ -1052,21 +1067,39 @@ export function createUser(
   return id;
 }
 
-export function findDmChat(userId, otherUserId) {
+/**
+ * Find the DM chat between two users.
+ *
+ * Optional filters narrow the result to a specific channel kind:
+ *   - { channel: "support", departmentId } → only a support thread for that
+ *     department (used by the helpdesk request flow, so a plain direct chat
+ *     between the same pair is never reused or converted).
+ *   - { channel: "direct" } → only a messenger-style chat.
+ */
+export function findDmChat(userId, otherUserId, options = {}) {
   if (!userId || !otherUserId) {
     return isPostgresMode() ? Promise.resolve(null) : null;
   }
 
+  let qb = dbKnex("chats as c")
+    .select("c.id")
+    .join("chat_members as m1", function () {
+      this.on("m1.chat_id", "=", "c.id").andOn("m1.user_id", "=", dbKnex.raw("?", [userId]));
+    })
+    .join("chat_members as m2", function () {
+      this.on("m2.chat_id", "=", "c.id").andOn("m2.user_id", "=", dbKnex.raw("?", [otherUserId]));
+    })
+    .where("c.type", "dm");
+  const channelFilter = String(options.channel || "").trim().toLowerCase();
+  if (channelFilter === "support" || channelFilter === "direct") {
+    qb = qb.where("c.channel", channelFilter);
+  }
+  if (options.departmentId !== undefined && options.departmentId !== null) {
+    qb = qb.where("c.department_id", Number(options.departmentId));
+  }
+
   const row = getRow(
-    dbKnex("chats as c")
-      .select("c.id")
-      .join("chat_members as m1", function () {
-        this.on("m1.chat_id", "=", "c.id").andOn("m1.user_id", "=", dbKnex.raw("?", [userId]));
-      })
-      .join("chat_members as m2", function () {
-        this.on("m2.chat_id", "=", "c.id").andOn("m2.user_id", "=", dbKnex.raw("?", [otherUserId]));
-      })
-      .where("c.type", "dm")
+    qb
       .orderByRaw("(SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) DESC")
       .orderByRaw("(SELECT created_at FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) DESC")
       .orderBy("c.id", "desc")
@@ -1117,6 +1150,9 @@ export function createChat(name, type = "dm", options = {}) {
       ? String(options.groupAvatarUrl || "").trim() || null
       : null;
   const verified = options.verified ? 1 : 0;
+  // Channel kind: "support" threads come from the department picker;
+  // everything else (default) is a messenger-style direct chat.
+  const channel = options.channel === "support" ? "support" : "direct";
   const autoAddNewUsers =
     groupVisibility === "private"
       ? 0
@@ -1137,6 +1173,7 @@ export function createChat(name, type = "dm", options = {}) {
       allow_member_invites: allowMemberInvites,
       group_avatar_url: groupAvatarUrl,
       verified,
+      channel,
       auto_add_new_users: autoAddNewUsers,
     }),
   );
@@ -1222,8 +1259,11 @@ export function addAllEligibleChatMembers(chatId) {
   };
 }
 
+// Case-insensitive + "@"-tolerant group search (see searchUsers for rationale).
 export function searchPublicGroups(query, viewerUserId, limit = 20) {
-  const like = `%${String(query || "").trim()}%`;
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!term) return [];
+  const like = `%${term}%`;
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
   const qb = dbKnex("chats as c")
     .select(
@@ -1241,16 +1281,21 @@ export function searchPublicGroups(query, viewerUserId, limit = 20) {
       });
     })
     .andWhere((builder) => {
-      builder.where("c.name", "like", like).orWhere("c.group_username", "like", like);
+      builder
+        .whereRaw("lower(c.name) like ?", [like])
+        .orWhereRaw("lower(c.group_username) like ?", [like]);
     })
-    .orderByRaw("CASE WHEN c.group_username LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
+    .orderByRaw("CASE WHEN lower(c.group_username) LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
     .limit(safeLimit);
 
   return getAll(qb);
 }
 
+// Case-insensitive + "@"-tolerant channel search (see searchUsers for rationale).
 export function searchPublicChannels(query, viewerUserId, limit = 20) {
-  const like = `%${String(query || "").trim()}%`;
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  if (!term) return [];
+  const like = `%${term}%`;
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
   const qb = dbKnex("chats as c")
     .select(
@@ -1268,9 +1313,11 @@ export function searchPublicChannels(query, viewerUserId, limit = 20) {
       });
     })
     .andWhere((builder) => {
-      builder.where("c.name", "like", like).orWhere("c.group_username", "like", like);
+      builder
+        .whereRaw("lower(c.name) like ?", [like])
+        .orWhereRaw("lower(c.group_username) like ?", [like]);
     })
-    .orderByRaw("CASE WHEN c.group_username LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
+    .orderByRaw("CASE WHEN lower(c.group_username) LIKE ? THEN 0 ELSE 1 END, c.name ASC", [like])
     .limit(safeLimit);
 
   return getAll(qb);
@@ -2048,7 +2095,7 @@ export function findChatById(chatId) {
   if (!chatId) return isPostgresMode() ? Promise.resolve(null) : null;
   const row = getRow(
     dbKnex("chats")
-      .select("id", "name", "type", "group_username", "group_visibility", "invite_token", "group_color", "allow_member_invites", "group_avatar_url", "created_by_user_id", "verified", "auto_add_new_users")
+      .select("id", "name", "type", "group_username", "group_visibility", "invite_token", "group_color", "allow_member_invites", "group_avatar_url", "created_by_user_id", "verified", "channel", "department_id", "auto_add_new_users")
       .where("id", chatId)
       .first(),
   );
@@ -2672,6 +2719,8 @@ export function listChatsForUser(userId) {
       "c.created_by_user_id",
       "c.created_at",
       "c.verified",
+      "c.channel",
+      "c.department_id",
       dbKnex.raw("COALESCE(mu.muted, 0) AS muted"),
     )
     .join("chat_members as m", "m.chat_id", "c.id")
@@ -2756,6 +2805,10 @@ export function listChatsForUser(userId) {
       "mc.group_avatar_url",
       "mc.created_by_user_id",
       "mc.verified",
+      "mc.channel",
+      "mc.department_id",
+      "d.name as department_name",
+      "d.color as department_color",
       "mc.muted",
       dbKnex.raw("COALESCE(rcs.enabled, 0) AS remote_channel_enabled"),
       "last_vm.id as last_message_id",
@@ -2779,6 +2832,7 @@ export function listChatsForUser(userId) {
     .leftJoin("chat_messages as last_vm", "last_vm.id", lastMessageIdSubquery)
     .leftJoin("users as last_user", "last_user.id", "last_vm.user_id")
     .leftJoin("chat_messages as outgoing_vm", "outgoing_vm.id", outgoingMessageIdSubquery)
+    .leftJoin("departments as d", "d.id", "mc.department_id")
     .leftJoin("remote_channel_sources as rcs", function () {
       this.on("rcs.chat_id", "=", "mc.id").andOn("rcs.enabled", "=", dbKnex.raw("1"));
     })
@@ -3584,7 +3638,6 @@ export function listMessageFilesByMessageIds(messageIds = []) {
   if (!Array.isArray(messageIds) || !messageIds.length) {
     return isPostgresMode() ? Promise.resolve([]) : [];
   }
-
   return getAll(
     dbKnex("chat_message_files")
       .select(
@@ -3596,6 +3649,211 @@ export function listMessageFilesByMessageIds(messageIds = []) {
       .whereIn("message_id", messageIds)
       .orderBy("id", "asc"),
   );
+}
+
+// ─── Chat files gallery (per-thread media & document browser) ────────────────
+//
+// Every file sent in a chat thread by ANY member, newest first, with the
+// sender identity and the original message timestamp. Messages hidden for
+// everyone — or hidden for the requesting viewer — never leak their files.
+// All SQL lives here (never inline SQL elsewhere), knex keeps both the
+// SQLite and Postgres drivers on one code path.
+
+function chatFilesVisibleFilter(qb, viewerUserId) {
+  return qb
+    .whereNull("m.hidden_everyone_at")
+    .whereNotExists(function () {
+      this.select(1)
+        .from("hidden_chat_messages as h")
+        .whereRaw("h.message_id = m.id")
+        .andWhere("h.user_id", viewerUserId);
+    });
+}
+
+function chatFilesBaseQuery(chatId, viewerUserId) {
+  return chatFilesVisibleFilter(
+    dbKnex("chat_message_files as f")
+      .join("chat_messages as m", "m.id", "f.message_id")
+      .join("users as u", "u.id", "m.user_id")
+      .where("m.chat_id", chatId),
+    viewerUserId,
+  );
+}
+
+/**
+ * List every file in a chat thread (both sides), newest first.
+ *
+ * Returns rows with the file record plus the sender identity
+ * (username/nickname/color/avatar_url) and `message_created_at` — the
+ * original message timestamp shown in the UI. Ordered by
+ * (message_created_at DESC, f.id DESC); `offset`/`limit` paginate.
+ */
+export function listChatFilesForUser(chatId, viewerUserId, options = {}) {
+  if (!chatId || !viewerUserId) {
+    return isPostgresMode() ? Promise.resolve([]) : [];
+  }
+  const safeLimit = Math.max(1, Math.min(200, Number(options.limit) || 60));
+  const safeOffset = Math.max(0, Number(options.offset) || 0);
+
+  return getAll(
+    chatFilesBaseQuery(chatId, viewerUserId)
+      .select(
+        "f.id", "f.message_id", "f.kind", "f.original_name", "f.stored_name", "f.mime_type",
+        "f.size_bytes", "f.width_px", "f.height_px", "f.duration_seconds", "f.expires_at",
+        "f.created_at", "f.storage_driver", "f.storage_key", "f.processing_status",
+        "f.blurhash", "f.waveform", "f.thumb_storage_key", "f.encryption_type",
+        "u.username", "u.nickname", "u.color", "u.avatar_url",
+        "m.user_id as sender_user_id",
+        "m.created_at as message_created_at",
+      )
+      .orderBy("m.created_at", "desc")
+      .orderBy("f.id", "desc")
+      .limit(safeLimit)
+      .offset(safeOffset),
+  );
+}
+
+/**
+ * Total number of visible files in a chat thread (for the gallery header).
+ */
+export function countChatFilesForUser(chatId, viewerUserId) {
+  if (!chatId || !viewerUserId) {
+    return isPostgresMode() ? Promise.resolve(0) : 0;
+  }
+  const row = getRow(
+    chatFilesBaseQuery(chatId, viewerUserId)
+      .count({ total: "f.id" })
+      .first(),
+  );
+  if (row && typeof row.then === "function") {
+    return row.then((r) => Number(r?.total || 0));
+  }
+  return Number(row?.total || 0);
+}
+
+// ─── Per-thread message search (profile "Search" action) ────────────────────
+
+/**
+ * Message bodies are ENCRYPTED at rest (sb-enc-v1, random IV), so a SQL LIKE
+ * can never match plaintext. Thread search therefore chunk-scans the thread's
+ * visible messages, decrypts each body in the app layer, and filters in JS —
+ * case-insensitive, literal (wildcards in the term are just characters).
+ * Attachment file names are stored in plaintext and match as well.
+ *
+ * Visibility contract = the files gallery: messages hidden for everyone and
+ * messages hidden for the VIEWER never match; system messages
+ * ([[system:...]], stored plaintext by design) are excluded by SQL.
+ *
+ * The scan is capped (SEARCH_SCAN_MAX_ROWS) so a huge thread can't pin the
+ * server; results within the scanned window are still correct and ordered.
+ */
+const SEARCH_SCAN_CHUNK = 500;
+const SEARCH_SCAN_MAX_ROWS = 50000;
+
+function chatSearchScanQuery(chatId, viewerUserId) {
+  // Same visibility contract as the files gallery: messages hidden for
+  // everyone and messages hidden for the VIEWER never match.
+  return chatFilesVisibleFilter(
+    dbKnex("chat_messages as m")
+      .join("users as u", "u.id", "m.user_id")
+      .where("m.chat_id", chatId),
+    viewerUserId,
+  )
+    .whereNot("m.body", "like", "[[system:%]]")
+    .select(
+      "m.id", "m.body", "m.edited_body", "m.created_at", "m.user_id",
+      "u.username", "u.nickname", "u.color", "u.avatar_url",
+    )
+    .orderBy("m.created_at", "desc")
+    .orderBy("m.id", "desc");
+}
+
+const searchMatchText = (text, term) =>
+  typeof text === "string" && text.toLowerCase().includes(term);
+
+async function resolveAwait(value) {
+  return value && typeof value.then === "function" ? await value : value;
+}
+
+/**
+ * Search a chat thread for a term — decrypted message text (body or edited
+ * body) AND attachment file names, both sides, newest first, each row
+ * carrying the sender identity and the original message timestamp.
+ *
+ * Returns { rows, total, scannedAll }:
+ *   - rows: the `offset..offset+limit` slice of ALL matches found
+ *   - total: number of matches within the scanned window
+ *   - scannedAll: true when the whole thread was scanned (total is exact)
+ */
+export async function searchChatMessagesForUser(chatId, viewerUserId, query, options = {}) {
+  const term = String(query || "").trim().replace(/^@+/, "").toLowerCase();
+  const empty = { rows: [], total: 0, scannedAll: true };
+  if (!chatId || !viewerUserId || !term) {
+    return empty;
+  }
+  const safeLimit = Math.max(1, Math.min(100, Number(options.limit) || 50));
+  const safeOffset = Math.max(0, Number(options.offset) || 0);
+
+  const matches = [];
+  let scanned = 0;
+  let exhausted = false;
+
+  // Chunked newest-first scan; collect every match (needed for the total and
+  // stable offset pagination), stop at the scan cap.
+  while (!exhausted && scanned < SEARCH_SCAN_MAX_ROWS) {
+    const chunk = await resolveAwait(
+      chatSearchScanQuery(chatId, viewerUserId)
+        .limit(SEARCH_SCAN_CHUNK)
+        .offset(scanned),
+    );
+    const rows = chunk || [];
+    if (rows.length === 0) {
+      exhausted = true;
+      break;
+    }
+    scanned += rows.length;
+
+    // Attachment file names (plaintext) can match too — one batched query.
+    const fileRows = await resolveAwait(
+      listMessageFilesByMessageIds(rows.map((row) => row.id)),
+    );
+    const fileNamesByMessage = new Map();
+    for (const file of fileRows || []) {
+      const key = String(file.message_id || "");
+      if (!fileNamesByMessage.has(key)) fileNamesByMessage.set(key, []);
+      fileNamesByMessage.get(key).push(String(file.original_name || "").toLowerCase());
+    }
+
+    for (const rawRow of rows) {
+      const row = decryptMessageRow(rawRow);
+      const names = fileNamesByMessage.get(String(row.id)) || [];
+      const hit =
+        searchMatchText(row.body, term) ||
+        searchMatchText(row.edited_body, term) ||
+        names.some((name) => name.includes(term));
+      if (hit) matches.push(row);
+    }
+
+    if (rows.length < SEARCH_SCAN_CHUNK) exhausted = true;
+  }
+
+  return {
+    rows: matches.slice(safeOffset, safeOffset + safeLimit),
+    total: matches.length,
+    scannedAll: exhausted && scanned < SEARCH_SCAN_MAX_ROWS,
+  };
+}
+
+/**
+ * Convenience total (full scan) — the route uses searchChatMessagesForUser's
+ * { rows, total } directly; kept for diagnostics and tests.
+ */
+export async function countChatMessageSearchForUser(chatId, viewerUserId, query) {
+  const { total } = await searchChatMessagesForUser(chatId, viewerUserId, query, {
+    limit: 1,
+    offset: 0,
+  });
+  return total;
 }
 
 export function listMessageFilesNeedingMetadata(limit = 10000) {
@@ -4415,6 +4673,7 @@ export function adminListChats({
   verifiedFilter = null,
   autoAddFilter = null,
   remoteFilter = null,
+  channelFilter = null,
 }) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
@@ -4430,8 +4689,10 @@ export function adminListChats({
   let qb = dbKnex("chats as c")
     .leftJoin("users as owner", "owner.id", dbKnex.raw("(SELECT user_id FROM chat_members WHERE chat_id = c.id AND role = 'owner' LIMIT 1)"))
     .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
+    .leftJoin("departments as d", "d.id", "c.department_id")
     .select(
       "c.id", "c.name", "c.type", "c.group_username", "c.group_visibility", "c.group_color", "c.group_avatar_url", "c.created_at", "c.verified", "c.auto_add_new_users",
+      "c.channel", "c.department_id", "d.name as department_name",
       participantsExpr,
       dbKnex.raw("(SELECT COUNT(*) FROM chat_members WHERE chat_id = c.id) AS member_count"),
       dbKnex.raw("(SELECT COUNT(*) FROM chat_messages WHERE chat_id = c.id) AS message_count"),
@@ -4455,6 +4716,9 @@ export function adminListChats({
   }
   if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
+  }
+  if (channelFilter === "support" || channelFilter === "direct") {
+    qb = qb.where("c.channel", channelFilter);
   }
   if (visibilityFilter === "public" || visibilityFilter === "private") {
     qb = qb.where("c.group_visibility", visibilityFilter);
@@ -4505,6 +4769,115 @@ export function adminListChats({
   return processChatRows(rawRows);
 }
 
+// Parses the plain-text call-log bodies the callManager writes
+// ("[[call:<audio|video>:<status>[:<durationSeconds>]]]"). Returns null for
+// anything that is not a call log; used to expose structured fields to the
+// admin panel while the raw body stays untouched.
+export function parseCallMessageBody(body) {
+  if (typeof body !== "string") return null;
+  const match = /^\[\[call:(audio|video):(outgoing|connected|cancelled|declined|missed|failed)(?::(\d+))?\]\]$/.exec(body.trim());
+  if (!match) return null;
+  return {
+    type: match[1],
+    status: match[2],
+    durationSeconds: match[3] == null ? null : Number(match[3]),
+  };
+}
+
+/**
+ * Paginated call-history report for the admin panel: every call-log entry in
+ * the instance (all chats, all users), with caller, chat, type (audio/video),
+ * outcome status and duration. Call logs are the plain-text messages the
+ * callManager writes into chat_messages, so no schema is needed.
+ */
+export function adminListCalls({
+  limit = 200,
+  offset = 0,
+  search = "",
+  sortBy = "created_at",
+  sortDir = "DESC",
+  typeFilter = null,
+  statusFilter = null,
+  chatFilter = null,
+}) {
+  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeSortBy  = ["id", "created_at", "caller", "chat"].includes(sortBy) ? sortBy : "created_at";
+  const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
+
+  // DM chats have no meaningful name of their own; expose the member
+  // usernames so the admin panel can label and search direct conversations.
+  const participantsExpr = isPostgresMode()
+    ? dbKnex.raw("(SELECT string_agg(pu.username, ', ' ORDER BY pu.username) FROM chat_members pcm JOIN users pu ON pu.id = pcm.user_id WHERE pcm.chat_id = c.id) AS participants")
+    : dbKnex.raw("(SELECT GROUP_CONCAT(pu.username, ', ') FROM chat_members pcm JOIN users pu ON pu.id = pcm.user_id WHERE pcm.chat_id = c.id) AS participants");
+
+  let qb = dbKnex("chat_messages as cm")
+    .join("users as cu", "cu.id", "cm.user_id")
+    .join("chats as c", "c.id", "cm.chat_id")
+    .select(
+      "cm.id", "cm.chat_id", "cm.body", "cm.created_at",
+      "cu.username as caller_username", "cu.nickname as caller_nickname",
+      "cu.avatar_url as caller_avatar_url", "cu.color as caller_color", "cu.role as caller_role", "cu.verified as caller_verified",
+      "c.name as chat_name", "c.type as chat_type",
+      participantsExpr,
+      dbKnex.raw("COUNT(*) OVER() AS _total"),
+    )
+    // Call logs are the only messages whose body carries the [[call: prefix.
+    .where("cm.body", "like", "[[call:%")
+    .whereIn("c.type", ["group", "channel", "dm"]);
+
+  if (typeFilter === "audio" || typeFilter === "video") {
+    qb = qb.where("cm.body", "like", `[[call:${typeFilter}:%`);
+  }
+  if (statusFilter && ["outgoing", "connected", "cancelled", "declined", "missed", "failed"].includes(statusFilter)) {
+    // Status is the third segment: [[call:audio:missed]] or
+    // [[call:audio:connected:65]] — match both the 3- and 4-segment shapes.
+    qb = qb.where((builder) => {
+      builder.where("cm.body", "like", `%:${statusFilter}]]`)
+        .orWhere("cm.body", "like", `%:${statusFilter}:%`);
+    });
+  }
+  if (chatFilter) {
+    qb = qb.where("cm.chat_id", chatFilter);
+  }
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    qb = qb.where((builder) => {
+      builder.whereRaw("cu.username LIKE ? ESCAPE '\\'", [like])
+        .orWhereRaw("cu.nickname LIKE ? ESCAPE '\\'", [like])
+        .orWhereRaw("c.name LIKE ? ESCAPE '\\'", [like])
+        // Direct chats carry the generic name "dm"; match their members too
+        // so admins can find a call by any participant username/nickname.
+        .orWhereRaw("EXISTS (SELECT 1 FROM chat_members scm JOIN users su ON su.id = scm.user_id WHERE scm.chat_id = c.id AND (su.username LIKE ? ESCAPE '\\' OR su.nickname LIKE ? ESCAPE '\\'))", [like, like]);
+    });
+  }
+
+  if (safeSortBy === "caller") {
+    qb = qb.orderByRaw(`cu.username COLLATE NOCASE ${safeSortDir}`);
+  } else if (safeSortBy === "chat") {
+    qb = qb.orderByRaw(naturalSortExpr("c.name", safeSortDir));
+  } else {
+    qb = qb.orderBy(`cm.${safeSortBy}`, safeSortDir);
+  }
+
+  qb = qb.limit(safeLimit).offset(safeOffset);
+
+  const processCallRows = (rows) => {
+    const list = rows || [];
+    const total = list.length > 0 ? Number(list[0]._total || 0) : 0;
+    const calls = list.map(({ _total, ...row }) => {
+      const parsed = parseCallMessageBody(row.body) || { type: "audio", status: "failed", durationSeconds: null };
+      return { ...row, ...parsed };
+    });
+    return { calls, total };
+  };
+  const rawRows = getAll(qb);
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(processCallRows);
+  }
+  return processCallRows(rawRows);
+}
+
 // adminCountChats is kept for any future callers that only need the count,
 // but the list endpoint now uses adminListChats which returns both together.
 export function adminCountChats({
@@ -4514,6 +4887,7 @@ export function adminCountChats({
   verifiedFilter = null,
   autoAddFilter = null,
   remoteFilter = null,
+  channelFilter = null,
 } = {}) {
   let qb = dbKnex("chats as c")
     .leftJoin("remote_channel_sources as rcs", "rcs.chat_id", "c.id")
@@ -4530,6 +4904,9 @@ export function adminCountChats({
   }
   if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
+  }
+  if (channelFilter === "support" || channelFilter === "direct") {
+    qb = qb.where("c.channel", channelFilter);
   }
   if (visibilityFilter === "public" || visibilityFilter === "private") {
     qb = qb.where("c.group_visibility", visibilityFilter);
@@ -5041,12 +5418,17 @@ export async function pickOperatorForDepartment(departmentId) {
   return best.operator;
 }
 
+// Tagging a chat with a department makes it a support thread (red headset);
+// clearing the department demotes it back to a direct chat.
 export function markChatDepartment(chatId, departmentId) {
   if (!chatId) return isPostgresMode() ? Promise.resolve(false) : false;
   const res = run(
     dbKnex("chats")
       .where({ id: chatId })
-      .update({ department_id: departmentId ? Number(departmentId) : null })
+      .update({
+        department_id: departmentId ? Number(departmentId) : null,
+        channel: departmentId ? "support" : "direct",
+      })
   );
   if (res && typeof res.then === "function") return res.then(() => true);
   return true;

@@ -10,7 +10,21 @@
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
+import { LanguageProvider } from "../../../src/i18n/index.js";
 import { MessageItem } from "../../../src/components/chat/messages/MessageItem.jsx";
+
+// These suites assert English UI strings, but the app UI defaults to
+// Persian (fa since 99fe1dd). Pin the UI language to English and wrap the
+// component in a LanguageProvider so t() resolves English labels.
+function renderWithLang(ui) {
+  try {
+    window.localStorage.setItem("chatdesk.uiLanguage", "en");
+  } catch {
+    // storage unavailable — provider still defaults to fa; assertions below
+    // are the guardrail.
+  }
+  return render(<LanguageProvider>{ui}</LanguageProvider>);
+}
 
 const ME = { id: "11111111-1111-4111-a111-111111111111", username: "alice", nickname: "Alice", color: "#10b981" };
 const BOB = { id: "22222222-2222-4222-a222-222222222222", username: "bob", nickname: "Bob", color: "#3b82f6" };
@@ -69,7 +83,8 @@ for (const [label, viewport] of [
 ]) {
   // ─── Sender badges — with-avatar branch ──────────────────────────────────────
 
-  describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`, () => {
+  
+describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`, () => {
     beforeEach(async () => {
       await page.viewport(viewport.width, viewport.height);
     });
@@ -554,47 +569,47 @@ for (const [label, viewport] of [["desktop", DESKTOP_VIEWPORT], ["mobile", MOBIL
     });
 
     test("shows Verified badge for a verified forwarded user", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true })} forwardedUserStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true })} forwardedUserStatus="ready" />);
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
     });
 
     test("hides Verified badge for unverified forwarded user", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: false })} forwardedUserStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: false })} forwardedUserStatus="ready" />);
       await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
     });
 
     test("shows Owner badge for forwarded user with role='owner'", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "owner" })} forwardedUserStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "owner" })} forwardedUserStatus="ready" />);
       await expect.element(page.getByLabelText("Server Owner")).toBeInTheDocument();
     });
 
     test("shows Admin badge for forwarded user with role='admin'", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "admin" })} forwardedUserStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "admin" })} forwardedUserStatus="ready" />);
       await expect.element(page.getByLabelText("Server Admin")).toBeInTheDocument();
     });
 
     test("shows both Verified and Admin for verified admin forwarded user", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "admin" })} forwardedUserStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "admin" })} forwardedUserStatus="ready" />);
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Admin")).toBeInTheDocument();
     });
 
     test("shows no badges for plain unverified forwarded user", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: false, role: "user" })} forwardedUserStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: false, role: "user" })} forwardedUserStatus="ready" />);
       await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
     });
 
     test("no badges when forwarded user not yet resolved (null)", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={null} forwardedUserStatus={null} />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={null} forwardedUserStatus={null} />);
       await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
     });
 
     test("forwarded user: Verified before role badge in DOM", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "owner" })} forwardedUserStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "owner" })} forwardedUserStatus="ready" />);
       const verified = page.getByLabelText("Verified");
       const owner = page.getByLabelText("Server Owner");
       await expect.element(verified).toBeInTheDocument();
@@ -609,24 +624,24 @@ for (const [label, viewport] of [["desktop", DESKTOP_VIEWPORT], ["mobile", MOBIL
     });
 
     test("shows Verified badge for a verified forwarded channel", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: true })} forwardedChatStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: true })} forwardedChatStatus="ready" />);
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
     });
 
     test("hides Verified badge for unverified forwarded channel", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: false })} forwardedChatStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: false })} forwardedChatStatus="ready" />);
       await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
     });
 
     test("no role badge for forwarded channel", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: true })} forwardedChatStatus="ready" />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={makeForwardedChat({ verified: true })} forwardedChatStatus="ready" />);
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
     });
 
     test("no Verified badge when forwarded chat not yet resolved (null)", async () => {
-      render(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={null} forwardedChatStatus={null} />);
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeChatForwardedMsg()} forwardedChat={null} forwardedChatStatus={null} />);
       await expect.element(page.getByText("Forwarded from")).toBeInTheDocument();
       await expect.element(page.getByLabelText("Verified")).not.toBeInTheDocument();
     });

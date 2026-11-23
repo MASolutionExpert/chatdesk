@@ -16,6 +16,7 @@ import {
   Wifi,
 } from "../../icons/lucide.js";
 import { api, cardCls, fmtBytes, fmtUptime } from "./adminShared.js";
+import { appMemoryPct, appMemoryCeiling } from "../../utils/dashboardMetrics.js";
 import { SectionHeading } from "./AdminCommon.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import { useI18n } from "../../i18n/index.js";
@@ -197,9 +198,11 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
   const sysPct = displaySys
     ? Math.round((displaySys.memory.systemUsed / displaySys.memory.systemTotal) * 100)
     : 0;
-  const heapPct = displaySys
-    ? Math.round((displaySys.memory.heapUsed / displaySys.memory.heapTotal) * 100)
-    : 0;
+  // App-memory gauge: live heap vs the V8 heap LIMIT (the real ceiling), not
+  // heapTotal — GC keeps usage near heapTotal by design, which made a healthy
+  // process read 85-95% red forever.
+  const heapPct = displaySys ? appMemoryPct(displaySys.memory) : 0;
+  const heapCeiling = displaySys ? appMemoryCeiling(displaySys.memory) : 0;
   const load1 = displaySys?.loadAvg?.[0] ?? null;
   const loadPct = displaySys
     ? Math.round(Math.min(100, (load1 / (displaySys.cpuCount || 1)) * 100))
@@ -332,7 +335,7 @@ const DashboardTab = forwardRef(function DashboardTab({ stats, onStatsChange }, 
               pct={heapPct}
               color={gaugeColor(heapPct)}
               label={t("admin.dashboard.appMemory")}
-              sublabel={displaySys ? `${fmtBytes(displaySys.memory.heapUsed)} / ${fmtBytes(displaySys.memory.heapTotal)}` : "—"}
+              sublabel={displaySys ? `${fmtBytes(displaySys.memory.heapUsed)} / ${fmtBytes(heapCeiling)}` : "—"}
             />
             <SemiCircleGauge
               pct={sysPct}

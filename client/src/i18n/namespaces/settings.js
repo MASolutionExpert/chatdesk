@@ -75,7 +75,7 @@ export const settings = {
       version: "Version",
       unknown: "Unknown",
       rights:
-        "All rights reserved. ChatDesk is a free and open-source project, licensed under the MIT License.",
+        "All rights reserved. ChatDesk is proprietary software of MASolutionExpert.",
     },
     deleteAccount: {
       title: "Delete account",
@@ -156,7 +156,7 @@ export const settings = {
       version: "نسخه",
       unknown: "نامشخص",
       rights:
-        "تمام حقوق محفوظ است. ChatDesk یک پروژهٔ آزاد و متن‌باز است و تحت پروانهٔ MIT منتشر شده است.",
+        "تمام حقوق محفوظ است. ChatDesk نرم‌افزار اختصاصی متعلق به MASolutionExpert است.",
     },
     deleteAccount: {
       title: "حذف حساب",

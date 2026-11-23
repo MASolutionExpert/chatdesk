@@ -50,6 +50,9 @@ function registerMessageRoutes(app, deps) {
     sendPushNotificationToUsers,
     isUserConnected,
     listMessageFilesByMessageIds,
+    listChatFilesForUser,
+    countChatFilesForUser,
+    searchChatMessagesForUser,
     parseUploadFileMetadata,
     path,
     probeVideoMetadata,
@@ -57,6 +60,7 @@ function registerMessageRoutes(app, deps) {
     removePendingPresignedUploads,
     requireSession,
     requireSessionUsernameMatch,
+    writeAdminAuditLog,
     sanitizeDurationSeconds,
     sanitizePositiveInt,
     setMessageExpiresAt,
@@ -110,6 +114,27 @@ function registerMessageRoutes(app, deps) {
           const num = Number(val);
           return Number.isFinite(num) && num >= 0 ? num : null;
         };
+
+  // Best-effort moderation audit logging. Logging must never break the
+  // request flow, and the log writer may be absent in minimal test apps.
+  const logModerationAudit = (entry) => {
+    try {
+      const result = writeAdminAuditLog?.(entry);
+      if (result && typeof result.catch === "function") result.catch(() => {});
+    } catch {
+      // ignore
+    }
+  };
+
+  const isModeratorRole = (role) =>
+    ["owner", "admin", "operator"].includes(String(role || "").toLowerCase());
+
+  // Short human-readable preview of a deleted message for the audit log.
+  const summarizeMessageForAudit = (message) => {
+    const body = String(message?.body || "").replace(/\s+/g, " ").trim();
+    if (!body) return null;
+    return body.length > 80 ? `${body.slice(0, 80)}…` : body;
+  };
 
   const messagePubService = createMessagePublicationService({
     createOrReuseMessage,
@@ -510,6 +535,174 @@ function registerMessageRoutes(app, deps) {
     res.json({ chatId, messages: enriched, hasMore });
   });
 
+  // ─── Per-thread files gallery (profile "Files" option) ──────────────────────
+  // Every file sent in the thread by any member (both sides), newest first,
+  // each with sender identity and the original message timestamp. Members only.
+  app.get("/api/chats/:chatId/files", validateUuidParams("chatId"), async (req, res) => {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const chatId = req.params.chatId;
+    const username = req.query.username?.toString();
+    if (!username) {
+      return res.status(400).json({ error: "Username is required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const rawIsMember = isMember(chatId, user.id);
+    const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+    if (!memberCheck) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const limitRaw = Number(req.query.limit || 60);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.round(limitRaw))) : 60;
+    const offsetRaw = Number(req.query.offset || 0);
+    const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.min(100000, Math.round(offsetRaw))) : 0;
+
+    const rawFiles = listChatFilesForUser(chatId, user.id, { limit, offset });
+    const rawTotal = countChatFilesForUser(chatId, user.id);
+    const rows = (rawFiles && typeof rawFiles.then === "function" ? await rawFiles : rawFiles) || [];
+    const total = Number((rawTotal && typeof rawTotal.then === "function" ? await rawTotal : rawTotal) || 0);
+
+    const hydrated = await hydrateMissingVideoMetadata(rows);
+
+    const files = [];
+    for (const file of hydrated) {
+      let fileUrl = `/api/uploads/messages/${file.stored_name}`;
+      const driver = file.storage_driver;
+      const storageKey = file.storage_key;
+      let thumbUrl = null;
+      try {
+        thumbUrl = await resolveThumbUrl({
+          storageProvider: deps.storageProvider,
+          file,
+          thumbKey: file.thumb_storage_key || null,
+          fileId: file.id,
+        });
+      } catch (_) {
+        thumbUrl = null;
+      }
+      if (
+        (driver === "remote" || driver === "s3") &&
+        deps.storageProvider &&
+        typeof deps.storageProvider.getDownloadUrl === "function" &&
+        storageKey
+      ) {
+        try {
+          fileUrl = await deps.storageProvider.getDownloadUrl(storageKey);
+        } catch (_) {}
+      }
+
+      files.push({
+        id: file.id,
+        messageId: file.message_id,
+        kind: file.kind,
+        name: file.original_name,
+        mimeType: file.mime_type,
+        processing: isVideoFileProcessing(file),
+        sizeBytes: Number(file.size_bytes || 0),
+        width: Number.isFinite(Number(file.width_px)) ? Number(file.width_px) : null,
+        height: Number.isFinite(Number(file.height_px)) ? Number(file.height_px) : null,
+        durationSeconds: Number.isFinite(Number(file.duration_seconds))
+          ? Number(file.duration_seconds)
+          : null,
+        expiresAt: file.expires_at || null,
+        thumbUrl: thumbUrl || null,
+        url: fileUrl,
+        sender: {
+          username: file.username || "",
+          nickname: file.nickname || file.username || "",
+          color: file.color || null,
+          avatarUrl: ensureAvatarExists(file.sender_user_id ?? null, file.avatar_url),
+        },
+        sentAt: file.message_created_at || file.created_at || null,
+      });
+    }
+
+    res.json({
+      chatId,
+      files,
+      total,
+      limit,
+      offset,
+      hasMore: offset + files.length < total,
+    });
+  });
+
+  // ─── Per-thread message search (profile "Search" action) ───────────────────
+  // Full-history search inside ONE thread: message text and attachment file
+  // names, both sides, newest first, each row carrying the sender identity
+  // and the original message timestamp. Members only — identical visibility
+  // contract as the files gallery (hidden-for-everyone and viewer-hidden
+  // messages never match).
+  app.get("/api/chats/:chatId/search", validateUuidParams("chatId"), async (req, res) => {
+    const session = await requireSession(req, res);
+    if (!session) return;
+
+    const chatId = req.params.chatId;
+    const username = req.query.username?.toString();
+    if (!username) {
+      return res.status(400).json({ error: "Username is required." });
+    }
+    if (!requireSessionUsernameMatch(res, session, username)) return;
+
+    const rawUser = findUserByUsername(username.toLowerCase());
+    const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const rawIsMember = isMember(chatId, user.id);
+    const memberCheck = rawIsMember && typeof rawIsMember.then === "function" ? await rawIsMember : rawIsMember;
+    if (!memberCheck) {
+      return res.status(403).json({ error: "Not a member of this chat." });
+    }
+
+    const term = String(req.query.q || "").trim().replace(/^@+/, "");
+    if (!term) {
+      return res.status(400).json({ error: "Search term is required." });
+    }
+
+    const limitRaw = Number(req.query.limit || 50);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.round(limitRaw))) : 50;
+    const offsetRaw = Number(req.query.offset || 0);
+    const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.min(100000, Math.round(offsetRaw))) : 0;
+
+    const rawSearch = searchChatMessagesForUser(chatId, user.id, term, { limit, offset });
+    const search = rawSearch && typeof rawSearch.then === "function" ? await rawSearch : rawSearch;
+    const rows = search?.rows || [];
+    const total = Number(search?.total || 0);
+
+    const results = rows.map((row) => ({
+      messageId: row.id,
+      body: typeof row.body === "string" ? row.body : "",
+      sentAt: row.created_at || null,
+      sender: {
+        username: row.username || "",
+        nickname: row.nickname || row.username || "",
+        color: row.color || null,
+        avatarUrl: ensureAvatarExists(row.user_id ?? null, row.avatar_url),
+      },
+    }));
+
+    res.json({
+      chatId,
+      query: term,
+      results,
+      total,
+      limit,
+      offset,
+      hasMore: offset + results.length < total,
+    });
+  });
+
   app.get("/api/messages/first-unread", async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
@@ -889,6 +1082,14 @@ function registerMessageRoutes(app, deps) {
             removeUploadedFiles(uploadedFiles);
             return res.status(403).json({
               error: "Only the message author can edit this message.",
+            });
+          }
+          // Regular users must never edit messages — even their own.
+          // Moderators (owner/admin/operator) only.
+          if (!isModeratorRole(user.role)) {
+            removeUploadedFiles(uploadedFiles);
+            return res.status(403).json({
+              error: "Only moderators can edit messages.",
             });
           }
         }
@@ -1845,6 +2046,11 @@ function registerMessageRoutes(app, deps) {
     if (!isMessageAuthoredByUser(message, user.id)) {
       return res.status(403).json({ error: "Only the author can edit this message." });
     }
+    // Regular users must never edit messages — even their own.
+    // Moderators (owner/admin/operator) only.
+    if (!isModeratorRole(user.role)) {
+      return res.status(403).json({ error: "Only moderators can edit messages." });
+    }
 
     const editRes = editMessage(messageId, trimmedBody);
     if (editRes && typeof editRes.then === "function") await editRes;
@@ -1878,6 +2084,15 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
+    // Moderation policy: regular users can never delete messages — not
+    // even their own. Only owner/admin/operator roles may delete, and every
+    // moderator deletion is recorded in the admin audit log (گزارش‌ها).
+    const moderatorDelete = isModeratorRole(user.role);
+    if (!moderatorDelete) {
+      return res.status(403).json({
+        error: "Only admins and operators can delete messages.",
+      });
+    }
     const rawIsMem = isMember(chatId, user.id);
     const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
     if (!memberCheck) {
@@ -1905,7 +2120,7 @@ function registerMessageRoutes(app, deps) {
       const canPost = rawCanPost && typeof rawCanPost.then === "function" ? await rawCanPost : rawCanPost;
       const canDeleteForEveryone =
         canPost &&
-        (message.user_id === user.id || role === "owner");
+        (message.user_id === user.id || moderatorDelete || role === "owner");
       if (!canDeleteForEveryone) {
         return res.status(403).json({
           error: "You cannot delete this message for everyone.",
@@ -1918,11 +2133,27 @@ function registerMessageRoutes(app, deps) {
         chatId,
         messageIds: [message.id],
       });
+      logModerationAudit({
+        actorUserId: user.id,
+        actorUsername: user.username,
+        action: "message.delete.everyone",
+        targetType: "message",
+        targetLabel: summarizeMessageForAudit(message),
+        details: { chatId, messageId: message.id, scope: "everyone" },
+      });
       return res.json({ ok: true, scope: "everyone", id: message.id });
     }
 
     const hSelf = hideMessageForUser(message.id, user.id);
     if (hSelf && typeof hSelf.then === "function") await hSelf;
+    logModerationAudit({
+      actorUserId: user.id,
+      actorUsername: user.username,
+      action: "message.delete.self",
+      targetType: "message",
+      targetLabel: summarizeMessageForAudit(message),
+      details: { chatId, messageId: message.id, scope: "self" },
+    });
     return res.json({ ok: true, scope: "self", id: message.id });
   });
 

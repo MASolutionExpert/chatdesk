@@ -1,7 +1,7 @@
 {
   "name": "chatdesk-server",
   "private": true,
-  "license": "MIT",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/MASolutionExpert/chatdesk.git"
@@ -27,6 +27,7 @@
     "db:help": "/bin/bash -p ../scripts/run-data-command.sh node scripts/db-help.js",
     "db:migrate": "/bin/bash -p ../scripts/run-data-command.sh node scripts/migrate.js",
     "db:doctor": "/bin/bash -p ../scripts/run-data-command.sh node scripts/db-doctor.js",
+    "search:doctor": "/bin/bash -p ../scripts/run-data-command.sh node scripts/search-doctor.js",
     "db:backfill": "/bin/bash -p ../scripts/run-data-command.sh node scripts/backfill-message-file-metadata.js",
     "db:chat:create": "/bin/bash -p ../scripts/run-data-command.sh node scripts/create-chat.js",
     "db:chat:add": "/bin/bash -p ../scripts/run-data-command.sh node scripts/add-chat-member.js",

@@ -4,7 +4,7 @@
 
 # <img src="./client/public/chatdesk-logo.svg" alt="ChatDesk"> ChatDesk
 
-![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)
+![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)
 
 **Self-hosted support messenger — a messenger feel with a ticketing engine behind it**
 
@@ -124,5 +124,8 @@ before starting work on a large change.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE)
-file for details.
+ChatDesk is proprietary software owned by MASolutionExpert. You may
+self-host your own instance, but the source code may not be redistributed or
+published. See the [LICENSE](LICENSE) file for the full terms (including the
+required third-party attribution for the upstream code it was originally
+built on).

@@ -127,6 +127,14 @@ import {
   X as Close,
   XCircle as CloseCircle,
   Zap,
+  ArrowDownToLine,
+  CornerUpLeft,
+  ExternalLink,
+  FileText,
+  Film,
+  FolderOpen,
+  Headphones,
+  MoreVertical,
 } from "lucide-react";
 
 export {
@@ -259,4 +267,12 @@ export {
   Close,
   CloseCircle,
   Zap,
+  ArrowDownToLine,
+  CornerUpLeft,
+  ExternalLink,
+  FileText,
+  Film,
+  FolderOpen,
+  Headphones,
+  MoreVertical,
 };

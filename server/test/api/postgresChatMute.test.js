@@ -236,7 +236,9 @@ describe("PostgreSQL Promise mode - Chat Mute, Unmute, and Hide endpoints", () =
       body: "Original text",
     };
 
-    const userStore = makeUserStore([alice]);
+    // Editing is moderator-only now; this test exercises the async
+    // Promise-mode plumbing, so alice acts as an operator here.
+    const userStore = makeUserStore([{ ...alice, role: "operator" }]);
     const { app } = makeApp({
       userStore,
       deps: {

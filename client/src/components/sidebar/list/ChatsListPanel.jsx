@@ -31,6 +31,7 @@ import { formatCompactCount } from "../../../utils/chatFormat.js";
 import Avatar from "../../common/Avatar.jsx";
 import UserRoleBadge from "../../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../../common/VerifiedBadge.jsx";
+import ChannelBadge from "../../common/ChannelBadge.jsx";
 import Tooltip from "../../common/Tooltip.jsx";
 
 export default function ChatsListPanel({
@@ -42,6 +43,7 @@ export default function ChatsListPanel({
   selectedChats,
   formatChatTimestamp,
   requestDeleteChats,
+  canDeleteThread,
   toggleSelectChat,
   setActiveChatId,
   setActivePeer,
@@ -104,7 +106,7 @@ export default function ChatsListPanel({
         );
         return {
           icon: callLog.type === "video" ? "callVideo" : "callVoice",
-          text: getCallLogLabel(callLog, own),
+          text: getCallLogLabel(callLog, own, t),
         };
       }
       return {
@@ -661,6 +663,15 @@ export default function ChatsListPanel({
                     {conv.type === "dm" && !isDeletedDm && other ? (
                       <UserRoleBadge role={other.user_role} size={16} />
                     ) : null}
+                    {/* Channel badge on DM rows: SUPPORT = helpdesk ticket
+                        opened through the department picker, MESSENGER =
+                        messenger-style direct chat. */}
+                    {conv.type === "dm" && !isDeletedDm ? (
+                      <ChannelBadge
+                        channel={conv.channel === "support" ? "support" : "direct"}
+                        departmentName={conv.department_name}
+                      />
+                    ) : null}
                     {conv.type !== "dm" && Boolean(conv.verified) ? (
                       <VerifiedBadge size={16} />
                     ) : null}
@@ -888,7 +899,7 @@ export default function ChatsListPanel({
                 } ${editMode ? "animate-chat-wiggle-ios" : ""}`}
                 style={wiggleStyle}
               >
-                {editMode ? (
+                {editMode && canDeleteThread?.(conv) !== false ? (
                   <button
                     type="button"
                     onClick={(event) => {

@@ -4,6 +4,7 @@ import {
   isCallSupported,
   isScreenShareSupported,
   foldIncomingRemoteStream,
+  classifyMediaError,
 } from "../../utils/callCapabilities.js";
 import { logIceDiagnostics } from "../../utils/iceDiagnostics.js";
 
@@ -26,7 +27,46 @@ export function gradeCallQuality(rttMs, lossPct) {
 
 const UNKNOWN_QUALITY = { level: 0, rttMs: null, packetLossPct: null };
 export const CALL_END_NOTICE_MS = 1750;
+
+/**
+ * True when the ICE server list actually contains a TURN (relay) entry —
+ * used to tell "TURN is configured but did not help" apart from "there is
+ * no TURN at all" on the failure screen.
+ */
+export function isTurnConfigured(iceServers) {
+  return (iceServers || []).some((server) => {
+    const urls = Array.isArray(server?.urls)
+      ? server.urls
+      : [server?.urls || ""];
+    return urls.some((url) => /^turn[s]?:/i.test(String(url)));
+  });
+}
+
+/**
+ * Build the failure detail for a broken media path. Pure and synchronous:
+ * uses the candidate types gathered during the call (tracked via
+ * onicecandidate) plus the current connection states, so the value is
+ * stable no matter when the UI reads it.
+ */
+export function describeIceFailure({
+  candidates = [],
+  turnConfigured = false,
+  connection = null,
+  ice = null,
+} = {}) {
+  const local = [...new Set(candidates.map((c) => String(c).toLowerCase()))];
+  const verdict = local.includes("relay")
+    ? "relay"
+    : local.includes("srflx") || local.includes("prflx")
+      ? "srflx"
+      : local.includes("host")
+        ? "host"
+        : "none";
+  return { kind: "ice", verdict, candidates: local, turnConfigured, connection, ice };
+}
 export const CALL_EXIT_MS = 250;
+// How long an automatic ICE restart has to reconnect before the call ends.
+export const ICE_RESTART_WINDOW_MS = 10000;
 
 /**
  * Capture the local media stream for a call. A video request fails on
@@ -138,6 +178,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   // Set while the call is winding down so the screen can show why it ended
   // (declined | ended | failed) before dropping out.
   const [callEndReason, setCallEndReason] = useState(null);
+  // Machine-readable detail for the failure (media permission, missing TURN,
+  // server error text...). Lets the call screen explain WHY instead of a
+  // generic "Call failed" — see CallScreen's failure messages.
+  const [callEndDetail, setCallEndDetail] = useState(null);
   const [isCallClosing, setIsCallClosing] = useState(false);
   const [callType, setCallType] = useState("voice"); // voice | video
   const [callChatId, setCallChatId] = useState(null);
@@ -167,11 +211,20 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const screenAudioStreamRef = useRef(null);
   const durationTimerRef = useRef(null);
   const disconnectTimerRef = useRef(null);
+  // Automatic ICE-restart recovery (one attempt per call): a "failed" peer
+  // connection usually means a transient network switch (Wi-Fi <-> mobile
+  // data); a fresh ICE gather reconnects it without killing the call.
+  const iceRestartAttemptsRef = useRef(0);
+  const iceRestartTimerRef = useRef(null);
   const endNoticeTimerRef = useRef(null);
   const endExitTimerRef = useRef(null);
   const callEndReasonRef = useRef(null);
+  const callEndDetailRef = useRef(null);
   const iceServersRef = useRef([]);
   const pendingCandidatesRef = useRef([]);
+  // Candidate types gathered by the current peer connection (host/srflx/
+  // relay...). The cheapest reliable input for the failure diagnosis.
+  const iceCandidateTypesRef = useRef([]);
   // Active screen capture track, and the RTP sender carrying outgoing video
   // (camera or screen) so the two can be swapped without renegotiating.
   const screenTrackRef = useRef(null);
@@ -187,6 +240,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const isPolitePeerRef = useRef(false);
   const isMakingOfferRef = useRef(false);
   const isSettingRemoteAnswerRef = useRef(false);
+  // True while an accept is in flight: the accepting session must ignore the
+  // server's ring-ended broadcast for its own call (the SSE event can arrive
+  // before the HTTP accept response does).
+  const isAcceptingRef = useRef(false);
 
   // Mirrors of state used inside stable callbacks so they never read stale values
   const callStateRef = useRef(callState);
@@ -311,9 +368,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
     }
+    if (iceRestartTimerRef.current) {
+      clearTimeout(iceRestartTimerRef.current);
+      iceRestartTimerRef.current = null;
+    }
+    iceRestartAttemptsRef.current = 0;
     clearEndTimers();
     callEndReasonRef.current = null;
+    callEndDetailRef.current = null;
     setCallEndReason(null);
+    setCallEndDetail(null);
+    iceCandidateTypesRef.current = [];
 
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -388,8 +453,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   }, [resetCallState]);
 
   // Show why the call ended for a few seconds before the screen goes away.
+  // `detail` carries the machine-readable failure cause (see callEndDetail).
   const finishCall = useCallback(
-    (reason) => {
+    (reason, detail = null) => {
       if (
         callStateRef.current === "idle" ||
         callEndReasonRef.current ||
@@ -397,7 +463,9 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       )
         return;
       callEndReasonRef.current = reason;
+      callEndDetailRef.current = detail;
       setCallEndReason(reason);
+      setCallEndDetail(detail);
       if (durationTimerRef.current) {
         clearInterval(durationTimerRef.current);
         durationTimerRef.current = null;
@@ -405,6 +473,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       if (disconnectTimerRef.current) {
         clearTimeout(disconnectTimerRef.current);
         disconnectTimerRef.current = null;
+      }
+      if (iceRestartTimerRef.current) {
+        clearTimeout(iceRestartTimerRef.current);
+        iceRestartTimerRef.current = null;
       }
       // Stop capturing immediately; the notice is purely visual.
       if (localStreamRef.current) {
@@ -428,11 +500,25 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   );
 
   // Media path broke locally: tell the peer/server the call is over too.
-  const failCall = useCallback(() => {
-    const chatId = callChatIdRef.current;
-    finishCall("failed");
-    if (chatId) void postSignal("end", { chatId });
-  }, [finishCall, postSignal]);
+  const failCall = useCallback(
+    (detail = null) => {
+      const chatId = callChatIdRef.current;
+      finishCall("failed", detail);
+      if (chatId) void postSignal("end", { chatId });
+    },
+    [finishCall, postSignal],
+  );
+
+  // Snapshot-based ICE failure detail, built synchronously from what this
+  // peer connection gathered (see describeIceFailure).
+  const iceFailureDetail = useCallback((pc) => {
+    return describeIceFailure({
+      candidates: iceCandidateTypesRef.current,
+      turnConfigured: isTurnConfigured(iceServersRef.current),
+      connection: pc?.connectionState || null,
+      ice: pc?.iceConnectionState || null,
+    });
+  }, []);
 
   const createPeerConnection = useCallback(async () => {
     const iceServers = await ensureIceServers();
@@ -443,6 +529,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     const pc = new RTCPeerConnection({ iceServers });
 
     pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        const type = event.candidate.type || event.candidate.candidate?.split(" ")[7];
+        if (type && !iceCandidateTypesRef.current.includes(type)) {
+          iceCandidateTypesRef.current.push(type);
+        }
+      }
       if (event.candidate && callChatIdRef.current) {
         void postSignal("ice-candidate", {
           chatId: callChatIdRef.current,
@@ -489,6 +581,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           clearTimeout(disconnectTimerRef.current);
           disconnectTimerRef.current = null;
         }
+        if (iceRestartTimerRef.current) {
+          clearTimeout(iceRestartTimerRef.current);
+          iceRestartTimerRef.current = null;
+        }
         setCallState("connected");
         callStateRef.current = "connected";
         if (!durationTimerRef.current) {
@@ -503,21 +599,76 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         if (!disconnectTimerRef.current) {
           disconnectTimerRef.current = setTimeout(() => {
             disconnectTimerRef.current = null;
-            failCall();
+            failCall(iceFailureDetail(pc));
           }, 5000);
         }
       }
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
         if (pc.connectionState === "failed") {
           void logIceDiagnostics(pc, "failed");
+          // One automatic ICE restart before giving up — see the refs above.
+          // Both sides may attempt it at once; the polite/impolite offer
+          // collision handling resolves the overlap safely.
+          if (
+            iceRestartAttemptsRef.current >= 1 ||
+            callEndReasonRef.current ||
+            isMakingOfferRef.current ||
+            pc.signalingState !== "stable"
+          ) {
+            failCall(iceFailureDetail(pc));
+            return;
+          }
+          iceRestartAttemptsRef.current += 1;
+          try { pc.restartIce?.(); } catch (_) {}
+          if (iceRestartTimerRef.current) clearTimeout(iceRestartTimerRef.current);
+          iceRestartTimerRef.current = setTimeout(() => {
+            iceRestartTimerRef.current = null;
+            // Still broken after the recovery window -> end the call.
+            if (
+              peerConnectionRef.current === pc &&
+              pc.connectionState !== "connected" &&
+              pc.connectionState !== "connecting"
+            ) {
+              failCall(iceFailureDetail(pc));
+            }
+          }, ICE_RESTART_WINDOW_MS);
+          (async () => {
+            isMakingOfferRef.current = true;
+            try {
+              const offer = await pc.createOffer({ iceRestart: true });
+              await pc.setLocalDescription(offer);
+              // A colliding remote offer may have rolled this one back.
+              if (pc.signalingState !== "have-local-offer") return;
+              const relayRes = await postSignal("offer", {
+                chatId: callChatIdRef.current,
+                sdp: offer,
+              });
+              if (relayRes?.ok === false) {
+                const relayErr = new Error(
+                  relayRes.error || "Offer could not be delivered",
+                );
+                relayErr.detail = {
+                  kind: "signal",
+                  code: relayRes.code || "",
+                  message: relayRes.error || "",
+                };
+                throw relayErr;
+              }
+            } catch (err) {
+              failCall(err?.detail || iceFailureDetail(pc));
+            } finally {
+              isMakingOfferRef.current = false;
+            }
+          })();
+          return;
         }
-        failCall();
+        failCall(iceFailureDetail(pc));
       }
     };
 
     peerConnectionRef.current = pc;
     return pc;
-  }, [postSignal, failCall, ensureIceServers]);
+  }, [postSignal, failCall, ensureIceServers, iceFailureDetail]);
 
   const sendOffer = useCallback(
     async (pc) => {
@@ -527,7 +678,22 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         await pc.setLocalDescription(offer);
         // A colliding remote offer may have rolled this one back already.
         if (pc.signalingState !== "have-local-offer") return;
-        await postSignal("offer", { chatId: callChatIdRef.current, sdp: offer });
+        const res = await postSignal("offer", {
+          chatId: callChatIdRef.current,
+          sdp: offer,
+        });
+        // A failed relay (call dropped server-side, 409...) previously
+        // vanished silently: the caller stayed on the calling screen until
+        // the ring timeout. Surface it as the failure it is.
+        if (res?.ok === false) {
+          const err = new Error(res.error || "Offer could not be delivered");
+          err.detail = {
+            kind: "signal",
+            code: res.code || "",
+            message: res.error || "",
+          };
+          throw err;
+        }
       } finally {
         isMakingOfferRef.current = false;
       }
@@ -552,6 +718,23 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       if (callStateRef.current !== "idle") return;
       if (!isCallSupported()) {
         console.warn("Calls are only supported over secure HTTPS connections");
+        // Do not fail silently: show the call screen for a moment with the
+        // actual reason (needs HTTPS), so the user knows why nothing happened.
+        setCallType(type);
+        callTypeRef.current = type;
+        setCallChatId(normalizedChatId);
+        callChatIdRef.current = normalizedChatId;
+        setCallPeer({
+          username: calleeUsername,
+          nickname: calleeNickname,
+          avatar: calleeAvatar,
+          color: calleeColor,
+          verified: calleeVerified,
+          role: calleeRole,
+        });
+        setCallState("calling");
+        callStateRef.current = "calling";
+        finishCall("failed", { kind: "unsupported" });
         return;
       }
 
@@ -560,6 +743,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       setCallEndReason(null);
       setIsCallClosing(false);
       isPolitePeerRef.current = false;
+      iceRestartAttemptsRef.current = 0;
       setCallState("calling");
       callStateRef.current = "calling";
       setCallType(type);
@@ -596,7 +780,18 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           type,
         });
         if (!res?.ok && !res?.call) {
-          finishCall("failed");
+          // A busy callee (or a disabled-calls server) is not a broken call —
+          // report it as such instead of a scary "Call failed".
+          finishCall(
+            res?.code === "callee_busy" ? "busy" : "failed",
+            res?.code === "callee_busy"
+              ? null
+              : {
+                  kind: "signal",
+                  code: res?.code || "",
+                  message: res?.error || "",
+                },
+          );
         } else if (type === "video" && !hasVideo) {
           // A camera-less video caller joins audio-only.
           void postSignal("camera-state", {
@@ -606,7 +801,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         }
       } catch (err) {
         console.error("Failed to start call:", err);
-        finishCall("failed");
+        finishCall("failed", {
+          kind: classifyMediaError(err),
+          message: String(err?.message || err?.name || ""),
+        });
       }
     },
     [postSignal, finishCall, clearEndTimers]
@@ -702,6 +900,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     const chatId = callChatIdRef.current;
     if (!chatId) return;
 
+    isAcceptingRef.current = true;
     try {
       const acceptedType = callTypeRef.current;
       const { stream, hasVideo } = await acquireLocalMedia(
@@ -725,8 +924,15 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       }
 
       const res = await postSignal("accept", { chatId });
-      if (res === null) {
-        finishCall("failed");
+      // postSignal returns { ok:true } (WS path) or the parsed response
+      // (HTTP path); a rejected/absent call — e.g. the ring timed out just
+      // as accept was pressed — comes back as { ok:false } (or null).
+      if (!res?.ok) {
+        finishCall("failed", {
+          kind: "signal",
+          code: res?.code || "",
+          message: res?.error || "",
+        });
         return;
       }
       if (acceptedType === "video" && !hasVideo) {
@@ -745,8 +951,13 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       }
     } catch (err) {
       console.error("Failed to accept call:", err);
-      finishCall("failed");
-      await postSignal("reject", { chatId });
+      finishCall("failed", {
+        kind: classifyMediaError(err),
+        message: String(err?.message || err?.name || ""),
+      });
+      await postSignal("reject", { chatId, reason: "failed" });
+    } finally {
+      isAcceptingRef.current = false;
     }
   }, [createPeerConnection, postSignal, finishCall]);
 
@@ -1055,18 +1266,17 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
       switch (payload.type) {
         case "call:incoming": {
-          // If this client does not support WebRTC / is on insecure HTTP, auto-reject without showing modal
+          // Insecure context / no WebRTC: do NOT reject the call — another
+          // logged-in session of this user may still be able to answer.
+          // Rejecting here would kill the call for every device. The
+          // server's ring timeout cleans up a truly unreachable callee.
           if (!isCallSupported()) {
-            void postSignal("reject", {
-              chatId: payload.chatId,
-              reason: "unsupported",
-            });
             return;
           }
 
           // Busy: reject second call if already active
           if (callStateRef.current !== "idle") {
-            void postSignal("reject", { chatId: payload.chatId });
+            void postSignal("reject", { chatId: payload.chatId, reason: "busy" });
             return;
           }
           isPolitePeerRef.current = true;
@@ -1104,14 +1314,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
                 .getTracks()
                 .forEach((track) => pc.addTrack(track, localStreamRef.current));
             }
-            
+
             if (!localStreamRef.current?.getVideoTracks().length) {
               pc.addTransceiver("video", { direction: "recvonly" });
             }
             await sendOffer(pc);
           } catch (err) {
             console.error("Failed to create offer:", err);
-            finishCall("failed");
+            finishCall("failed", err.detail || { kind: "sdp" });
           }
           break;
         }
@@ -1154,17 +1364,28 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            await postSignal("answer", {
+            const relayRes = await postSignal("answer", {
               chatId: callChatIdRef.current,
               sdp: answer,
             });
+            if (relayRes?.ok === false) {
+              const relayErr = new Error(
+                relayRes.error || "Answer could not be delivered",
+              );
+              relayErr.detail = {
+                kind: "signal",
+                code: relayRes.code || "",
+                message: relayRes.error || "",
+              };
+              throw relayErr;
+            }
             // Whatever the rolled-back offer carried still has to go out.
             if (!isReadyForOffer && hasUnnegotiatedSend(pc)) {
               await sendOffer(pc);
             }
           } catch (err) {
             console.error("Failed to handle offer:", err);
-            finishCall("failed");
+            finishCall("failed", err.detail || { kind: "sdp" });
           }
           break;
         }
@@ -1204,6 +1425,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             }
           } catch (err) {
             console.error("Failed to handle answer:", err);
+            // Without the remote answer the handshake can never complete —
+            // previously this only logged, leaving the caller hanging in
+            // "calling" until the ring timeout.
+            finishCall("failed", { kind: "sdp" });
           }
           break;
         }
@@ -1265,10 +1490,30 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             return;
           }
           // "unsupported" means the peer could not take the call at all
-          // (e.g. insecure HTTP instance), not a deliberate decline.
-          finishCall(
-            payload.reason === "unsupported" ? "failed" : "declined"
-          );
+          // (e.g. insecure HTTP instance), "failed" means the peer tried to
+          // answer but its media failed — both are failures, not declines.
+          if (payload.reason === "unsupported" || payload.reason === "failed") {
+            finishCall("failed");
+          } else if (payload.reason === "busy") {
+            finishCall("busy");
+          } else {
+            finishCall("declined");
+          }
+          break;
+        }
+
+        case "call:ring-ended": {
+          // The ring was resolved on another session of this account (call
+          // accepted, declined, ended, or timed out there). This session must
+          // leave the ringing screen — otherwise it stays stuck and silently
+          // auto-rejects every future call as "busy" (the "Failed call" bug).
+          if (
+            !isAcceptingRef.current &&
+            callStateRef.current === "ringing" &&
+            String(payload.chatId) === String(callChatIdRef.current)
+          ) {
+            resetCallState();
+          }
           break;
         }
 
@@ -1279,7 +1524,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           ) {
             return;
           }
-          finishCall("ended");
+          finishCall(payload.reason === "unanswered" ? "unanswered" : "ended");
           break;
         }
 
@@ -1288,7 +1533,16 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             callChatIdRef.current &&
             String(payload.chatId) === String(callChatIdRef.current)
           ) {
-            finishCall("failed");
+            finishCall(
+              payload.code === "callee_busy" ? "busy" : "failed",
+              payload.code === "callee_busy"
+                ? null
+                : {
+                    kind: "signal",
+                    code: payload.code || "",
+                    message: payload.error || "",
+                  },
+            );
           }
           break;
         }
@@ -1297,7 +1551,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           break;
       }
     },
-    [createPeerConnection, postSignal, finishCall, sendOffer]
+    [createPeerConnection, postSignal, finishCall, sendOffer, resetCallState]
   );
 
   // Recover a call that started while this app was closed.
@@ -1323,6 +1577,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   return {
     callState,
     callEndReason,
+    callEndDetail,
     isCallClosing,
     callType,
     callChatId,

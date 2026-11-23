@@ -24,6 +24,7 @@ import Avatar from "../common/Avatar.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import { useI18n } from "../../i18n/index.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { useMobileViewport } from "../../hooks/chat/useMobileViewport.js";
@@ -72,6 +73,7 @@ function SignalIndicator({ quality }) {
 export const CallScreen = memo(function CallScreen({
   callState,
   callEndReason,
+  callEndDetail = null,
   isCallClosing,
   callType,
   callPeer,
@@ -104,6 +106,7 @@ export const CallScreen = memo(function CallScreen({
   minimized: controlledMinimized,
   onMinimizeChange,
 }) {
+  const { t } = useI18n();
   const [internalMinimized, setInternalMinimized] = useState(false);
   const minimized =
     controlledMinimized !== undefined ? controlledMinimized : internalMinimized;
@@ -155,10 +158,14 @@ export const CallScreen = memo(function CallScreen({
   const isEnding = Boolean(callEndReason);
   const endLabel =
     callEndReason === "declined"
-      ? "Call declined"
-      : callEndReason === "failed"
-        ? "Call failed"
-        : "Call ended";
+      ? t("chat.call.endedDeclined")
+      : callEndReason === "busy"
+        ? t("chat.call.endedBusy")
+        : callEndReason === "failed"
+          ? t("chat.call.endedFailed")
+          : callEndReason === "unanswered"
+            ? t("chat.call.endedNoAnswer")
+            : t("chat.call.ended");
 
   // Reset minimized state and dragged position if call disconnects
   useEffect(() => {
@@ -457,13 +464,67 @@ export const CallScreen = memo(function CallScreen({
   const stateLabel = isEnding
     ? endLabel
     : callState === "calling"
-      ? "Calling..."
+      ? t("chat.call.calling")
       : callState === "ringing"
-        ? "Incoming call"
+        ? t("chat.call.incoming")
         : callState === "connected"
           ? formatDuration(callDuration)
           : "";
   const stateLabelColor = isEnding ? "text-red-400" : "text-emerald-400";
+  // Every failure says WHY it failed. The TURN hint appears ONLY when the
+  // media path (ICE) genuinely could not connect — permission problems,
+  // missing devices, or server rejections get their own precise message.
+  const failureText = (() => {
+    if (callEndReason !== "failed") return null;
+    const kind = callEndDetail?.kind;
+    switch (kind) {
+      case "media-permission":
+        return t("chat.call.failedPermission");
+      case "media-device":
+        return t("chat.call.failedDevice");
+      case "media-busy":
+        return t("chat.call.failedBusy");
+      case "media-secure":
+      case "unsupported":
+        return t("chat.call.failedSecure");
+      case "media-unknown":
+        return t("chat.call.failedGeneric");
+      case "signal":
+        return callEndDetail?.message
+          ? t("chat.call.failedSignal", { message: callEndDetail.message })
+          : t("chat.call.endedFailed");
+      case "sdp":
+        return t("chat.call.failedHandshake");
+      case "ice": {
+        const verdict = callEndDetail?.verdict;
+        if (verdict === "relay") return t("chat.call.failedIceRelay");
+        if (verdict === "host") return t("chat.call.failedIceHost");
+        if (verdict === "none") return t("chat.call.failedIceNone");
+        return t("chat.call.failedHint");
+      }
+      default:
+        return null;
+    }
+  })();
+  const failedHint = failureText;
+  // One short technical line for genuine media-path failures, so a bug
+  // report contains the facts: gathered candidate types + TURN presence.
+  const iceTechLine =
+    callEndReason === "failed" && callEndDetail?.kind === "ice"
+      ? t("chat.call.iceTechnical", {
+          info: [
+            `${t("chat.call.iceCandidates")}: ${(callEndDetail.candidates || []).join(", ") || "-"}`,
+            `${t("chat.call.iceTurn")}: ${
+              callEndDetail.turnConfigured
+                ? t("chat.call.iceTurnConfigured")
+                : t("chat.call.iceTurnMissing")
+            }`,
+            callEndDetail.ice ? `ICE: ${callEndDetail.ice}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        })
+      : null;
   // Controls stay mounted while the end notice shows, but are inert.
   const controlState = isEnding
     ? "opacity-40 cursor-not-allowed"
@@ -677,6 +738,16 @@ export const CallScreen = memo(function CallScreen({
                   {isEnding ? null : <SignalIndicator quality={callQuality} />}
                   {stateLabel}
                 </p>
+                {failedHint && (
+                  <p className="mt-1 max-w-[20rem] text-xs leading-5 text-white/50">
+                    {failedHint}
+                  </p>
+                )}
+                {iceTechLine && (
+                  <p className="mt-1 max-w-[20rem] font-mono text-[10px] leading-4 text-white/35">
+                    {iceTechLine}
+                  </p>
+                )}
               </div>
             </div>
             <Tooltip label="Back to chats">
@@ -720,11 +791,21 @@ export const CallScreen = memo(function CallScreen({
           </div>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-white/60">
             {isVideo ? <Video size={14} /> : <Phone size={14} />}
-            {isVideo ? "Video call" : "Voice call"}
+            {isVideo ? t("chat.call.video") : t("chat.call.voice")}
           </p>
           <p className={`mt-2 text-sm font-medium ${stateLabelColor}`}>
             {stateLabel}
           </p>
+          {failedHint && (
+            <p className="mt-2 max-w-[22rem] px-4 text-center text-xs leading-5 text-white/50">
+              {failedHint}
+            </p>
+          )}
+          {iceTechLine && (
+            <p className="mt-1 max-w-[22rem] px-4 text-center font-mono text-[10px] leading-4 text-white/35">
+              {iceTechLine}
+            </p>
+          )}
         </div>
       )}
 

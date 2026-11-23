@@ -1,6 +1,7 @@
 {
   "name": "chatdesk-worker",
   "private": true,
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/MASolutionExpert/chatdesk.git"

@@ -23,7 +23,8 @@ export function useDiscoverSearch({
       setDiscoverSaved(false);
       return;
     }
-    const normalizedQuery = query.toLowerCase();
+    // Strip a leading "@" — users habitually type "@id" when searching.
+    const normalizedQuery = query.replace(/^@+/, "").toLowerCase();
     const savedMatch =
       normalizedQuery.includes("saved") || normalizedQuery.includes("bookmark");
     setDiscoverSaved(savedMatch);

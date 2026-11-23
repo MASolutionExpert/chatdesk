@@ -7,6 +7,7 @@ import { readInstallerLog, readNginxLog, readServiceLog, readWorkerLog, probeLog
 import { userEvents } from "../lib/workers/autoAddWorker.js";
 import { dbKnex } from "../db/knex.js";
 import os from "node:os";
+import v8 from "node:v8";
 import crypto from "node:crypto";
 import path from "node:path";
 import multer from "multer";
@@ -85,6 +86,7 @@ function registerAdminPanelRoutes(app, deps) {
     getOnlineCount,
     adminListUsers,
     adminListChats,
+    adminListCalls,
     adminCountUsers,
     adminCountChats,
     adminBanUser,
@@ -488,6 +490,12 @@ function registerAdminPanelRoutes(app, deps) {
       memory: {
         heapUsed:    mem.heapUsed,
         heapTotal:   mem.heapTotal,
+        // The REAL ceiling for the app-memory gauge: the V8 heap limit
+        // (heap_size_limit, ~4GB by default or set via --max-old-space-size).
+        // heapTotal is only the heap V8 has allocated so far — GC keeps
+        // usage NEAR it by design, so heapUsed/heapTotal reads 85-95% on a
+        // perfectly healthy process and made the dashboard permanently red.
+        heapLimit:   v8.getHeapStatistics().heap_size_limit,
         rss:         mem.rss,
         systemTotal: totalMem,
         systemUsed:  usedMem,
@@ -1146,11 +1154,33 @@ function registerAdminPanelRoutes(app, deps) {
     const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
     const autoAddFilter = ["1", "0", "true", "false"].includes(req.query.auto_add) ? req.query.auto_add : null;
     const remoteFilter = ["active", "paused", "disabled", "none"].includes(req.query.remote) ? req.query.remote : null;
-    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter });
+    const channelFilter = ["direct", "support"].includes(req.query.channel) ? req.query.channel : null;
+    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, channelFilter });
     const { chats, total } = (rawResult && typeof rawResult.then === "function"
       ? await rawResult
       : rawResult) || { chats: [], total: 0 };
     res.json({ chats, total, limit, offset });
+  });
+
+  // ─── Calls — history report (every call log in the instance) ───────────────
+
+  app.get("/api/admin/calls", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const limit  = Number(req.query.limit  || 200);
+    const offset = Number(req.query.offset || 0);
+    const search = String(req.query.search || "").trim();
+    const sortBy = ["id", "created_at", "caller", "chat"].includes(req.query.sortBy)
+      ? req.query.sortBy : "created_at";
+    const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+    const typeFilter = ["audio", "video"].includes(req.query.type) ? req.query.type : null;
+    const statusFilter = ["outgoing", "connected", "cancelled", "declined", "missed", "failed"].includes(req.query.status)
+      ? req.query.status : null;
+    const chatFilter = isValidUuid(String(req.query.chat || "")) ? String(req.query.chat) : null;
+    const rawResult = adminListCalls({ limit, offset, search, sortBy, sortDir, typeFilter, statusFilter, chatFilter });
+    const { calls, total } = (rawResult && typeof rawResult.then === "function"
+      ? await rawResult
+      : rawResult) || { calls: [], total: 0 };
+    res.json({ calls, total, limit, offset });
   });
 
   // ─── Chats — create ──────────────────────────────────────────────────────────

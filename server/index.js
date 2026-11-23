@@ -85,6 +85,10 @@ import {
   listPendingPresignedUploads,
   rewriteStorageKeys,
   listMessageFilesByMessageIds,
+  listChatFilesForUser,
+  countChatFilesForUser,
+  searchChatMessagesForUser,
+  countChatMessageSearchForUser,
   markGroupMemberRemoved,
   markChatMemberLeft,
   regenerateGroupInviteToken,
@@ -169,6 +173,7 @@ import {
   getAdminStats,
   adminListUsers,
   adminListChats,
+  adminListCalls,
   adminCountUsers,
   adminCountChats,
   adminBanUser,
@@ -588,6 +593,10 @@ const callManager = createCallManager({
   findChatById,
   listChatMembers,
   findUserById,
+  // Liveness across WS + SSE: lets the call manager reap calls whose
+  // participants have all vanished instead of leaking a 409 poison in the
+  // chat ("Call failed" forever).
+  isUserOnline: (username) => presenceTracker.isConnected(username),
   emitToUser: (username, payload) => {
     emitSseEvent(username, payload);
     wsPresenceBroadcaster?.(username, payload);
@@ -622,6 +631,10 @@ const videoTranscoder = createVideoTranscodeManager({
   adminGetRow,
   adminSave,
   listMessageFilesByMessageIds,
+  listChatFilesForUser,
+  countChatFilesForUser,
+  searchChatMessagesForUser,
+  countChatMessageSearchForUser,
   emitChatEvent,
   debugLog,
   uploadRootDir,
@@ -653,6 +666,10 @@ const messageFileJobs = createMessageFileJobs({
   adminRun,
   adminSave,
   listMessageFilesByMessageIds,
+  listChatFilesForUser,
+  countChatFilesForUser,
+  searchChatMessagesForUser,
+  countChatMessageSearchForUser,
   removeStoredFileNames,
   uploadRootDir,
   fs,
@@ -962,6 +979,10 @@ const apiDeps = {
   listCallHistoryForUser,
   listEnabledRemoteChannelSources,
   listMessageFilesByMessageIds,
+  listChatFilesForUser,
+  countChatFilesForUser,
+  searchChatMessagesForUser,
+  countChatMessageSearchForUser,
   listUsers,
   setMessageForwardOrigin,
   getChatMemberRole,
@@ -1055,6 +1076,7 @@ const apiDeps = {
   getAdminStats,
   adminListUsers,
   adminListChats,
+  adminListCalls,
   adminCountUsers,
   adminCountChats,
   adminBanUser,
@@ -1194,6 +1216,10 @@ const remoteChannelManager = createRemoteChannelManager({
   listEnabledRemoteChannelSources,
   listChatMembers,
   listMessageFilesByMessageIds,
+  listChatFilesForUser,
+  countChatFilesForUser,
+  searchChatMessagesForUser,
+  countChatMessageSearchForUser,
   listMutedUserIdsForChat,
   enqueueRemoteChannelQueueItem,
   releaseStaleRemoteChannelQueueItems,
@@ -1514,8 +1540,10 @@ const wsGateway = createWebSocketGateway({
   getSessionFromToken: getSessionCombined,
   onUserConnected: (username, ws) => presenceTracker.markConnected(username, ws),
   onUserDisconnected: (username, ws) => presenceTracker.markDisconnected(username, ws),
+  isUserOnline: (username) => presenceTracker.isConnected(username),
   heartbeatIntervalMs: wsHeartbeatIntervalMs,
   heartbeatTimeoutMs: wsHeartbeatTimeoutMs,
+  callsEnabled: () => Boolean(getSetting("CALL")),
 });
 wsPresenceBroadcaster = (username, payload) => wsGateway.sendEvent(username, payload);
 wsGlobalBroadcaster = (payload) => wsGateway.broadcastAll(payload);

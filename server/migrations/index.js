@@ -41,6 +41,7 @@ import { migration040QueueMessageIdText } from "./040-queue-message-id-text.js";
 import { migration041AdminAuditLogs } from "./041-admin-audit-logs.js";
 import { migration042Departments } from "./042-departments.js";
 import { migration043UserLanguage } from "./043-user-language.js";
+import { migration044ChatChannel } from "./044-chat-channel.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -86,4 +87,5 @@ export const migrations = [
   migration041AdminAuditLogs,
   migration042Departments,
   migration043UserLanguage,
+  migration044ChatChannel,
 ];

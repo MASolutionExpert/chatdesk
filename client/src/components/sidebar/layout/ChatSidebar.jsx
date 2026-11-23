@@ -34,6 +34,7 @@ export default function ChatSidebar({
   isInCall = false,
   formatChatTimestamp,
   requestDeleteChats,
+  canDeleteThread,
   toggleSelectChat,
   setActiveChatId,
   setActivePeer,
@@ -371,6 +372,7 @@ export default function ChatSidebar({
                 selectedChats={selectedChats}
                 formatChatTimestamp={formatChatTimestamp}
                 requestDeleteChats={requestDeleteChats}
+                canDeleteThread={canDeleteThread}
                 toggleSelectChat={toggleSelectChat}
                 setActiveChatId={setActiveChatId}
                 setActivePeer={setActivePeer}

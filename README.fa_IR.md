@@ -4,7 +4,7 @@
 
 # <img src="./client/public/chatdesk-logo.svg" alt="ChatDesk"> ChatDesk
 
-![License: MIT](https://img.shields.io/badge/License-MIT-red.svg)
+![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)
 
 **پیام‌رسان پشتیبانی خودمیزبان — حس یک پیام‌رسان با موتور تیکتینگ پشت آن**
 
@@ -114,5 +114,7 @@ ChatDesk با پایپ‌لاین DevOps دو کاناله کار می‌کند 
 
 ## مجوز
 
-این پروژه تحت مجوز MIT منتشر شده است. برای جزئیات فایل
-[LICENSE](LICENSE) را ببینید.
+ChatDesk نرم‌افزار اختصاصی متعلق به MASolutionExpert است. می‌توانید نسخهٔ
+خودتان را روی سرور خودتان مستقر کنید، اما بازنشر یا انتشار کد مجاز نیست.
+شرایط کامل در فایل [LICENSE](LICENSE) آمده است (شامل یادداشت انتسابِ
+کد پایه‌ای که این پروژه در ابتدا بر روی آن ساخته شده است).

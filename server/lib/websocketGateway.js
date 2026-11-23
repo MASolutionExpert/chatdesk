@@ -8,8 +8,16 @@ export function createWebSocketGateway({
   getSessionFromToken,
   onUserConnected,
   onUserDisconnected,
+  // Live-session lookup across ALL transports (WS + SSE). A single socket
+  // closing (another tab, a reconnecting phone) must not tear down a call
+  // the user's other session is actively in.
+  isUserOnline = null,
   heartbeatIntervalMs = 30000,
   heartbeatTimeoutMs = 10000,
+  // Live-read of the CALL setting: the WebSocket path must enforce the same
+  // "calls disabled" rule as POST /api/calls/start, otherwise a stale client
+  // can still ring people through the socket while the admin panel says off.
+  callsEnabled = null,
 }) {
   const wss = new WebSocketServer({ noServer: true });
   const clientsByUsername = new Map();
@@ -197,11 +205,18 @@ export function createWebSocketGateway({
               clients.delete(ws);
               if (!clients.size) clientsByUsername.delete(username);
             }
+            // Presence first: it drops THIS socket's ref, so the liveness
+            // check below reflects the user's remaining sessions (WS + SSE).
+            if (onUserDisconnected) onUserDisconnected(username, ws);
             if (callManager && typeof callManager.cleanupUserCalls === "function") {
-              callManager.cleanupUserCalls(username);
+              const stillOnline =
+                typeof isUserOnline === "function" && isUserOnline(username);
+              if (!stillOnline) {
+                callManager.cleanupUserCalls(username);
+              }
             }
           }
-          if (onUserDisconnected) onUserDisconnected(username, ws);
+          if (!username && onUserDisconnected) onUserDisconnected(username, ws);
         });
       }
     };
@@ -232,13 +247,32 @@ export function createWebSocketGateway({
               async () => {
                 try {
                   if (signalType === "start") {
+                    if (typeof callsEnabled === "function" && !callsEnabled()) {
+                      if (typeof ws.send === "function") {
+                        ws.send(
+                          JSON.stringify({
+                            type: "call:error",
+                            chatId,
+                            error: "Calls are disabled on this server",
+                          }),
+                        );
+                      }
+                      return;
+                    }
                     const res = await callManager.startCall({
                       user: currentSession,
                       chatId,
                       type: data?.type,
                     });
                     if (res?.error && typeof ws.send === "function") {
-                      ws.send(JSON.stringify({ type: "call:error", chatId, error: res.error }));
+                      ws.send(
+                        JSON.stringify({
+                          type: "call:error",
+                          chatId,
+                          error: res.error,
+                          ...(res.code ? { code: res.code } : {}),
+                        }),
+                      );
                     }
                   } else if (signalType === "accept") {
                     const res = await callManager.acceptCall({
@@ -260,12 +294,26 @@ export function createWebSocketGateway({
                       chatId,
                     });
                   } else if (["offer", "answer", "ice-candidate", "camera-state", "screen-share-state"].includes(signalType)) {
-                    await callManager.relaySignal({
+                    const res = await callManager.relaySignal({
                       user: currentSession,
                       chatId,
                       signalType,
                       payload: data || {},
                     });
+                    // A failed relay (the call was reaped, wrong chat, ...)
+                    // previously vanished silently: the sending client stayed
+                    // on its call screen forever. Tell it, so it can show a
+                    // precise failure instead of hanging.
+                    if (res?.error && typeof ws.send === "function") {
+                      ws.send(
+                        JSON.stringify({
+                          type: "call:error",
+                          chatId,
+                          error: res.error,
+                          ...(res.code ? { code: res.code } : {}),
+                        }),
+                      );
+                    }
                   }
                 } catch (_) {}
               },
