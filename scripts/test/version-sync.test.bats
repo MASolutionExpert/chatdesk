@@ -62,9 +62,15 @@ setup() {
   run bash "$ROOT_DIR/scripts/next-dev-version.sh" 1.2.0-dev.9
   [ "$status" -eq 0 ]
   [ "$output" = "1.3.0-dev.1" ]
+}
+
+@test "next-dev-version carries into the major when the minor overflows" {
   run bash "$ROOT_DIR/scripts/next-dev-version.sh" 1.9.0-dev.9
   [ "$status" -eq 0 ]
-  [ "$output" = "1.10.0-dev.1" ]
+  [ "$output" = "2.0.0-dev.1" ]
+  run bash "$ROOT_DIR/scripts/next-dev-version.sh" 9.9.0-dev.9
+  [ "$status" -eq 0 ]
+  [ "$output" = "10.0.0-dev.1" ]
 }
 
 @test "next-dev-version starts the counter on a stable version" {
@@ -73,8 +79,12 @@ setup() {
   [ "$output" = "1.3.0-dev.1" ]
 }
 
-@test "next-dev-version rejects illegal versions" {
+@test "next-dev-version rejects any two-digit component" {
   run bash "$ROOT_DIR/scripts/next-dev-version.sh" 1.2.0-dev.10
+  [ "$status" -ne 0 ]
+  run bash "$ROOT_DIR/scripts/next-dev-version.sh" 1.10.0-dev.1
+  [ "$status" -ne 0 ]
+  run bash "$ROOT_DIR/scripts/next-dev-version.sh" 1.2.10
   [ "$status" -ne 0 ]
   run bash "$ROOT_DIR/scripts/next-dev-version.sh" 1.2
   [ "$status" -ne 0 ]

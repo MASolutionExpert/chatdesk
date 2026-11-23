@@ -127,7 +127,7 @@ export default defineConfig({
           text: 'Edit this page on GitHub',
         },
         footer: {
-          message: 'Released under the MIT License.',
+          message: 'Proprietary software. All rights reserved.',
           copyright: 'Copyright © 2026 ChatDesk',
         },
       },
@@ -149,7 +149,7 @@ export default defineConfig({
           text: 'ویرایش این صفحه در GitHub',
         },
         footer: {
-          message: 'تحت لایسنس MIT منتشر شده است.',
+          message: 'نرم‌افزار اختصاصی. تمام حقوق محفوظ است.',
           copyright: 'کپی‌رایت © ۲۰۲۶ ChatDesk',
         },
         docFooter: {

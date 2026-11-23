@@ -1,7 +1,7 @@
 {
   "name": "chatdesk-server",
   "private": true,
-  "license": "MIT",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/MASolutionExpert/chatdesk.git"

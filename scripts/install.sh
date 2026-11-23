@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.3.0-dev.2
+# chatdesk-deploy-version: 1.3.0-dev.3
 
 set -uo pipefail
 
@@ -1798,9 +1798,11 @@ EOF
 # Release channels. ChatDesk ships two completely separate channels so a
 # test install never receives production releases and a production install
 # never receives test builds:
-#   dev branch  -> Test channel    (prereleases vX.Y.Z-dev.N, N in 1..9 —
-#                                   the counter carries into the minor after
-#                                   dev.9, e.g. 1.2.0-dev.9 -> 1.3.0-dev.1)
+#   dev branch  -> Test channel    (prereleases vX.Y.Z-dev.N where minor,
+#                                   patch and the counter N are single digits,
+#                                   1..9 — overflow carries into the next
+#                                   component: 1.2.0-dev.9 -> 1.3.0-dev.1,
+#                                   1.9.0-dev.9 -> 2.0.0-dev.1)
 #   main branch -> Stable channel  (production releases vX.Y.Z)
 channel_label_for_branch() {
   case "$1" in

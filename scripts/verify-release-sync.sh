@@ -53,7 +53,7 @@ fi
 
 if [[ -n "$version" ]]; then
   if ! bash "$SCRIPT_DIR/next-dev-version.sh" --validate >/dev/null 2>&1; then
-    fail_reason "VERSION '$version' is not a legal ChatDesk version (X.Y.Z or X.Y.Z-dev.N with N in 1..9). Dev counters above 9 are forbidden — they scramble GitHub's alphabetical tag ordering. Carry into the minor instead: 1.2.0-dev.9 -> 1.3.0-dev.1. See scripts/next-dev-version.sh."
+    fail_reason "VERSION '$version' is not a legal ChatDesk version (X.Y.Z or X.Y.Z-dev.N where minor, patch and N are single digits — nothing above 9). Overflow carries into the next component: 1.2.0-dev.9 -> 1.3.0-dev.1, 1.9.0-dev.9 -> 2.0.0-dev.1. See scripts/next-dev-version.sh."
   fi
 fi
 

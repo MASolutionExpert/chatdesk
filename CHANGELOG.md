@@ -2,6 +2,17 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.3.0-dev.3
+
+### Changed
+
+- 🔢 **The version scheme now carries all the way up — no component ever shows two digits.** The previous carry rule stopped one level short: `1.9.0-dev.9` computed the next release as `1.10.0-dev.1`, breaking the promise that nothing above 9 ever appears (and scrambling GitHub's alphabetical tag ordering again, since `1.10.x` sorts before `1.2.x`). The law is now a proper positional carry, like odometer digits:
+  - minor, patch and the dev counter are each a **single digit** (0..9; counter 1..9). The major grows freely — it has no left-hand component to carry into, so it is the only place a "10" may ever appear.
+  - `1.2.0-dev.9 → 1.3.0-dev.1` (counter carries into minor), **`1.9.0-dev.9 → 2.0.0-dev.1`** (minor overflow carries into major).
+  - The release-sync gate rejects any two-digit minor/patch/counter, the promote workflow validates the same shape, and `scripts/test/version-sync.test.bats` pins all of it (carry into minor, carry into major, two-digit rejections).
+  - Two promote-workflow defects fixed on the way: the stable-tag collision check tested an **undefined `STABLE_TAG`** variable (it never fired, and the later `git tag` step would have failed with an empty tag), and a second promotion inside one dev series now **bumps the stable base with the same carry law** (`1.2.1 → 1.2.2`, `1.2.9 → 1.3.0`, `1.9.9 → 2.0.0`) instead of erroring out.
+- 📄 **Project identity cleanup + proprietary license.** A full-tree sweep found no remaining functional references to the original upstream project outside the LICENSE attribution (the one historical changelog mention was reworded; the upstream name now exists only where the MIT license legally requires it — the third-party attribution paragraph in LICENSE). The project no longer presents itself as open-source: LICENSE replaced with a proprietary MASolutionExpert license (self-hosting your own instance stays permitted; redistribution does not), all `package.json` files switched to `UNLICENSED`, the README badges and License sections (EN + FA), the docs-site footers (EN + FA) and the in-app About panel text (EN + FA) now say proprietary.
+
 ## 1.3.0-dev.2
 
 ### Added
@@ -94,7 +105,7 @@ All notable changes to ChatDesk are documented in this file.
 
 ### Fixed
 
-- 🔎 **"کاربری یافت نشد" on ID search — the real root cause (client-side), fixed at last.** Deep diffing against upstream Songbird (v0.13.3 and current main) proved the server search chain (`/api/users` route + `searchUsers` SQL) is identical to upstream and works on PostgreSQL — confirmed by `search:doctor` probes on live servers. The breakage happened in the client, one layer above the SQL:
+- 🔎 **"کاربری یافت نشد" on ID search — the real root cause (client-side), fixed at last.** Deep diffing against the upstream codebase this project forked from (see LICENSE for attribution) proved the server search chain (`/api/users` route + `searchUsers` SQL) is identical to upstream and works on PostgreSQL — confirmed by `search:doctor` probes on live servers. The breakage happened in the client, one layer above the SQL:
   - The new-DM modal filtered search results through a hidden "existing DM partners" list (`useDmUsernames` → `dmUsernamesRef`), so anyone the searcher already shared a chat with was silently removed and the modal reported "کاربری یافت نشد" for people who obviously exist.
   - **Why it appeared after the ChatDesk changes**: upstream has no helpdesk. ChatDesk stores support tickets as `type: "dm"` chats with `channel: "support"`, so every ticket partner was added to that hidden list too — on helpdesk servers the hidden set covers essentially every user, and every search came back empty. (The upstream filter only hid plain messenger DM partners; ChatDesk inflated it.)
   - **Fix**: the filter is removed entirely. The search now shows every match; starting a chat with someone you already chat with simply re-opens the existing conversation (`POST /api/chats/dm` reuses it — no duplicates), and support-thread partners are searchable again like any other user. `useDmUsernames` was dead code after this and has been deleted.
