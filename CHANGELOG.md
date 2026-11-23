@@ -2,6 +2,16 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.3.0-dev.8
+
+### Changed
+
+- 🎫 **Messenger and tickets are now two strictly separated message domains — with the ticket owning its own database table.** A deep backend/database audit found the only separation was the `chats.channel` tag: nothing stopped a customer from opening a direct (messenger) chat with an operator or admin via `POST /api/chats/dm`, completely bypassing department routing, fair assignment and the ticket lifecycle. Three layers now enforce the boundary. **Rules:** customers (role `user`) reach staff (operator/admin/owner) ONLY through the support-request flow (department → fairly-routed operator); the DM endpoint refuses customer↔staff pairs in both directions (403 `support_only`); user↔user and staff↔staff remain messenger flows. **Ticket registry (migration 045):** a new `tickets` table — one ticket per support chat — records customer, department, assigned operator and the open/closed lifecycle with `closed_at`; every existing support chat is backfilled (idempotently). **Lifecycle:** both parties can close or reopen a ticket from the chat window; a closed ticket stops accepting messages (403 `ticket_closed`) until reopened; fair routing now counts each operator's open tickets from the table instead of the old customer-replied-last message heuristic; the admin support overview reports per-chat ticket status. Messenger chats never have a ticket row — direct chats are not affected by the lifecycle at all. Existing legacy customer↔staff threads are left untouched (no data migration); they can no longer be re-opened through the DM endpoint.
+
+### Security
+
+- 🔒 The messenger boundary is now server-enforced, not just a UI convention: the customer→staff direct-message path returns a `support_only` error pointing users at the department picker.
+
 ## 1.3.0-dev.7
 
 ### Fixed
