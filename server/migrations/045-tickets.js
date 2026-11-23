@@ -34,9 +34,14 @@
  */
 export const migration045Tickets = {
   version: 45,
-  up: ({ db, getAll, tableExists }) => {
+  // NOTE: `up` MUST be async and MUST await every getAll/db.run call. In
+  // Postgres mode the migration context queues queries onto a promise chain
+  // (migrationContext.getAll returns a Promise, db.run returns a Promise);
+  // only the runner (`await migration.up(...)`) guarantees ordering. A sync
+  // `up` receives Promises instead of row arrays and crashes on the backfill.
+  up: async ({ db, getAll, tableExists }) => {
     if (!tableExists("tickets")) {
-      db.run(`
+      await db.run(`
         CREATE TABLE IF NOT EXISTS tickets (
           id TEXT PRIMARY KEY,
           chat_id TEXT NOT NULL UNIQUE,
@@ -49,11 +54,15 @@ export const migration045Tickets = {
         )
       `);
     }
-    db.run(
+    await db.run(
       "CREATE INDEX IF NOT EXISTS idx_tickets_department_status ON tickets(department_id, status)",
     );
-    db.run("CREATE INDEX IF NOT EXISTS idx_tickets_customer ON tickets(customer_id)");
-    db.run("CREATE INDEX IF NOT EXISTS idx_tickets_operator ON tickets(operator_id)");
+    await db.run(
+      "CREATE INDEX IF NOT EXISTS idx_tickets_customer ON tickets(customer_id)",
+    );
+    await db.run(
+      "CREATE INDEX IF NOT EXISTS idx_tickets_operator ON tickets(operator_id)",
+    );
 
     if (!tableExists("chats")) return;
 
@@ -61,7 +70,7 @@ export const migration045Tickets = {
     // the chat member with users.role = 'user' (fallback: earliest member);
     // operator = the member with a support role. Missing either side → skip
     // (the app falls back to treating such chats as open).
-    const supportChats = getAll(`
+    const supportChats = (await getAll(`
       SELECT c.id AS chat_id,
              c.department_id,
              c.created_at,
@@ -78,18 +87,20 @@ export const migration045Tickets = {
       WHERE c.type = 'dm'
         AND c.channel = 'support'
         AND c.department_id IS NOT NULL
-    `);
-    const existing = getAll("SELECT chat_id FROM tickets");
-    const existingChatIds = new Set((existing || []).map((r) => String(r.chat_id)));
+    `)) || [];
+    const existing = (await getAll("SELECT chat_id FROM tickets")) || [];
+    const existingChatIds = new Set(existing.map((r) => String(r.chat_id)));
 
-    const isThenable = (v) => v && typeof v.then === "function";
-    for (const row of supportChats || []) {
+    for (const row of supportChats) {
       if (!row || !row.chat_id || existingChatIds.has(String(row.chat_id))) continue;
       if (!row.customer_id || !row.operator_id || !row.department_id) continue;
       const id = globalThis.crypto?.randomUUID
         ? globalThis.crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const res = db.run(
+      // Awaited in both modes: SQLite resolves synchronously, Postgres queues
+      // onto the migration promise chain AND propagates insert errors here
+      // (instead of swallowing them into the chain's silent catch).
+      await db.run(
         `INSERT INTO tickets (id, chat_id, department_id, customer_id, operator_id, status, created_at, closed_at)
          VALUES (?, ?, ?, ?, ?, 'open', COALESCE(?, datetime('now')), NULL)`,
         [
@@ -101,10 +112,6 @@ export const migration045Tickets = {
           row.created_at || null,
         ],
       );
-      if (isThenable(res)) {
-        // Postgres mode: db.run queues onto the migration promise chain, so
-        // ordering is preserved without awaiting here.
-      }
     }
   },
 };

@@ -2,6 +2,13 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.1
+
+### Fixed
+
+- 🐘 **Migration 045 now actually completes on PostgreSQL — "(existing || []).map is not a function" is fixed.** The production incident: on the user's Postgres server the migration created the `tickets` table and indexes, then crashed in the backfill step. Root cause: in Postgres mode the migration context queues every query onto a promise chain, so `getAll`/`db.run` return **Promises** — while migration 045's `up` was written synchronously and treated the result as a plain row array. SQLite mode (and the stubbed CI test context) returns plain arrays, which is why the whole suite was green in CI yet the migration failed on the real server, leaving schema version stuck at 44. The fix: `up` is now async and awaits every `getAll` and every `db.run` in both driver modes; insert errors now propagate to the migration runner instead of being silently swallowed by the chain's catch. **Safe to re-run on the affected server:** the migration is idempotent (`IF NOT EXISTS` + guarded backfill), the existing empty `tickets` table is detected and the backfill fills it — nothing else on the server was changed (schema still at v44, pre-migration backup was taken automatically).
+- 🧪 New regression suite `server/test/db/tickets045PostgresBackfill.test.js` (6 tests) reproduces the exact production crash with a thenable (Postgres-style) context: async contract, error propagation, guarded backfill for the partially-applied server state, incomplete-chat skipping, and SQLite-mode equivalence.
+
 ## 1.3.0-dev.9
 
 ### Changed
