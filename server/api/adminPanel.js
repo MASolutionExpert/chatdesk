@@ -876,9 +876,16 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Non-owners cannot edit the owner account
-    if (user.role === "owner" && !(await actorIsOwner(session))) {
-      return res.status(403).json({ error: "Cannot edit the owner account." });
+    // The owner account is immutable through the app — for EVERY actor,
+    // including the owner themselves. The only supported path to change the
+    // owner account (username, nickname, status, color, verification, ...)
+    // is the interactive server menu (CLI db-tools), which operates outside
+    // the HTTP surface.
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner account can only be changed from the server's interactive menu.",
+        code: "owner_protected",
+      });
     }
 
     const b = req.body || {};
@@ -953,9 +960,13 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // The owner cannot be banned
+    // The owner cannot be banned — by anyone, through the app (owner role is
+    // permanent; lifecycle actions on the owner belong to the server CLI).
     if (user.role === "owner") {
-      return res.status(403).json({ error: "Cannot ban the owner account." });
+      return res.status(403).json({
+        error: "The owner account cannot be banned.",
+        code: "owner_protected",
+      });
     }
 
     const banned = Boolean(req.body?.banned);
@@ -985,16 +996,25 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Non-owners cannot change the role of the owner
-    if (user.role === "owner" && !(await actorIsOwner(session))) {
-      return res.status(403).json({ error: "Cannot change the role of the owner." });
+    // The owner role is permanent — nobody (not even the owner) may change
+    // the owner's role from the app. Owner transfers belong to the server's
+    // interactive menu only.
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner role is permanent and can only be changed from the server's interactive menu.",
+        code: "owner_protected",
+      });
     }
 
-    // Only one owner is allowed — block promoting if another owner already exists
-    if (role === "owner" && user.role !== "owner") {
+    // Only one owner is allowed — block promoting a second owner (reassignment
+    // is only possible from the server's interactive menu).
+    if (role === "owner") {
       const existing = await resolveMaybePromise(getOwnerUser());
       if (existing && existing.id !== userId) {
-        return res.status(409).json({ error: "An owner already exists. Demote them first." });
+        return res.status(409).json({
+          error: "An owner already exists. Owner reassignment is only possible from the server's interactive menu.",
+          code: "owner_protected",
+        });
       }
     }
 
@@ -1015,9 +1035,14 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Non-owners cannot reset the owner's password
-    if (user.role === "owner" && !(await actorIsOwner(session))) {
-      return res.status(403).json({ error: "Cannot reset the owner's password." });
+    // The owner's password can never be reset through the app — by anyone.
+    // The owner changes their own password via their profile page; server-
+    // level changes go through the interactive menu (CLI).
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner's password can only be changed by the owner or via the server's interactive menu.",
+        code: "owner_protected",
+      });
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
@@ -1124,9 +1149,14 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // The owner cannot be deleted
+    // The owner cannot be deleted — the owner is the permanent owner of the
+    // whole system (deletion, like every owner change, belongs to the
+    // server's interactive menu only).
     if (user.role === "owner") {
-      return res.status(403).json({ error: "Cannot delete the owner account." });
+      return res.status(403).json({
+        error: "The owner account cannot be deleted.",
+        code: "owner_protected",
+      });
     }
 
     const rawDeletion = adminDeleteUser(userId);

@@ -4422,6 +4422,16 @@ export async function getUserRole(userId) {
   return row?.role || "user";
 }
 
+/**
+ * True when at least one user account exists. Used by the registration flow
+ * to detect the FIRST setup user, who becomes the system owner (role
+ * 'owner') — the single permanent owner of the whole installation.
+ */
+export async function hasAnyUser() {
+  const row = await getRow(dbKnex("users").select("id").first());
+  return Boolean(row?.id);
+}
+
 export async function isUserAdmin(userId) {
   const role = await getUserRole(userId);
   return role === "admin" || role === "owner";

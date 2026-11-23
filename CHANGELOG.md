@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.2
+
+### Added
+
+- 👑 **The system owner: first-setup ownership, permanent protection, owner-only "What's new" (backend-first).** **First-setup rule:** the very first user registered on a fresh installation automatically becomes the **owner** of the whole system (role `owner`) — the permanent owner of everything. **Full access:** the owner has every capability in the project (admin panel, settings, departments, helpdesk, calls — everywhere `isUserAdmin`/role gates apply, the owner passes). **Permanent protection (server-enforced, `403 owner_protected`):** nobody through the app — admins, operators, regular users, and even the owner via the admin panel — can edit, ban, delete, re-role or password-reset the owner account; a second owner can never be promoted while one exists. **Changes to the owner account happen ONLY from the server's interactive menu** (`chatdesk-deploy` → Manage Database → Edit user), which runs directly on the server outside the web surface; the owner's own profile self-service (nickname, avatar, own password) stays available in-app. **"What's new" is owner-only:** a new `GET /api/app/whats-new` endpoint serves the per-version changelog payload exclusively to the owner session (everyone else gets `403 owner_only`), the public `/api/app/info` no longer carries changelog fields, and the client shows the per-version changelog popup and the "What's new" (امکانات جدید) settings entry only when the server granted the payload. **Tests:** new `server/test/api/ownerAccount.test.js` — 16 tests covering the first-setup rule, immutability for every mutation endpoint (admin and owner actors), the one-owner rule, middleware pass-through, and the owner-only what's-new contract. Suite: 1267 server / 427 client unit green.
+
 ## 1.4.0-dev.1
 
 ### Fixed

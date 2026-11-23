@@ -7,6 +7,10 @@ import {
 
 export const fetchAppInfo = () => apiFetch("/api/app/info");
 
+// Owner-only: the server answers 403 (owner_only) for every non-owner
+// session, so a failed call simply means "this user never sees what's new".
+export const fetchWhatsNew = () => apiFetch("/api/app/whats-new");
+
 export const checkAppVersion = async (appInfo = null) => {
   const owner = String(appInfo?.repository?.owner || "").trim();
   const repo = String(appInfo?.repository?.repo || "").trim();

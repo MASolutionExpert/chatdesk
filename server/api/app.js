@@ -1,7 +1,15 @@
 import { readAppMeta } from "../lib/appMeta.js";
 
 function registerAppRoutes(app, deps) {
-  const { REMOTE_CHANNELS, getSetting, fs, path, projectRootDir } = deps;
+  const {
+    REMOTE_CHANNELS,
+    getSetting,
+    fs,
+    path,
+    projectRootDir,
+    getSessionFromRequest,
+    isUserOwner,
+  } = deps;
 
   app.get("/api/app/info", (_req, res) => {
     const appMeta = readAppMeta({ fs, path, projectRootDir });
@@ -9,9 +17,9 @@ function registerAppRoutes(app, deps) {
       version: appMeta.version,
       normalizedVersion: appMeta.normalizedVersion,
       channel: appMeta.channel,
-      changelog: appMeta.changelog,
-      changelogSections: appMeta.changelogSections,
-      currentChangelog: appMeta.currentChangelog,
+      // NOTE: changelog fields are intentionally NOT exposed here — the
+      // "What's new" payload is a privilege of the system owner and is
+      // served exclusively by GET /api/app/whats-new (owner-only).
       repository: appMeta.repository,
       // Live runtime config the client needs before it can render auth/chat
       // UI correctly. Read via getSetting() on every request so admin-panel
@@ -53,6 +61,39 @@ function registerAppRoutes(app, deps) {
         chatdeskConfigured: Boolean(REMOTE_CHANNELS?.enabled),
         proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
       },
+    });
+  });
+
+  // ─── What's new (OWNER-ONLY) ────────────────────────────────────────────────
+  //
+  // The per-version "what's new" payload (changelog popup + the "What's new"
+  // settings entry) is a privilege of the system owner alone. The server is
+  // the authority: non-owner sessions (admins, operators, users, anonymous)
+  // get 403/401 and the client never shows the popup or the settings entry
+  // for them.
+  app.get("/api/app/whats-new", async (req, res) => {
+    const rawSession = getSessionFromRequest ? getSessionFromRequest(req) : null;
+    const session =
+      rawSession && typeof rawSession.then === "function"
+        ? await rawSession
+        : rawSession;
+    if (!session || !session.id) {
+      return res.status(401).json({ error: "Not authenticated." });
+    }
+    const rawIsOwner = typeof isUserOwner === "function" ? isUserOwner(session.id) : false;
+    const isOwner =
+      rawIsOwner && typeof rawIsOwner.then === "function" ? await rawIsOwner : rawIsOwner;
+    if (!isOwner) {
+      return res.status(403).json({ error: "Owner access required.", code: "owner_only" });
+    }
+    const appMeta = readAppMeta({ fs, path, projectRootDir });
+    res.json({
+      version: appMeta.version,
+      normalizedVersion: appMeta.normalizedVersion,
+      channel: appMeta.channel,
+      changelog: appMeta.changelog,
+      changelogSections: appMeta.changelogSections,
+      currentChangelog: appMeta.currentChangelog,
     });
   });
 }

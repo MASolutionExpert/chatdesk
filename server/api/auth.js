@@ -19,6 +19,7 @@ function registerAuthRoutes(app, deps) {
     setUserColor,
     updateLastSeen,
     getSessionFromRequest,
+    hasAnyUser,
   } = deps;
 
   app.post("/api/register", async (req, res) => {
@@ -82,12 +83,23 @@ function registerAuthRoutes(app, deps) {
     const assignedColor = setUserColor();
     const passwordHash = bcrypt.hashSync(password, 10);
 
+    // First-setup rule: the VERY FIRST user account created on a fresh
+    // installation becomes the system owner (role 'owner') — the permanent,
+    // protected owner of the whole system. Every later registration is a
+    // normal user.
+    let firstUser = false;
+    if (typeof hasAnyUser === "function") {
+      const rawAny = hasAnyUser();
+      firstUser = !(rawAny && typeof rawAny.then === "function" ? await rawAny : rawAny);
+    }
+
     const rawId = createUser(
       trimmed,
       passwordHash,
       nickname?.trim() || null,
       avatarUrl?.trim() || null,
       assignedColor,
+      firstUser ? { role: "owner" } : {},
     );
     const id = rawId && typeof rawId.then === "function" ? await rawId : rawId;
 
@@ -107,6 +119,7 @@ function registerAuthRoutes(app, deps) {
       avatarUrl: ensureAvatarExists(id, avatarUrl?.trim()) || null,
       color: assignedColor,
       status: "online",
+      role: firstUser ? "owner" : "user",
     });
   });
 
@@ -147,6 +160,7 @@ function registerAuthRoutes(app, deps) {
       avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
       color: user.color || USER_COLORS[0],
       status: user.status || "online",
+      role: user.role || "user",
     });
   });
 

@@ -14,6 +14,26 @@ Only one user with owner role can exist at a time.
 
 :::
 
+## The Owner Account (system owner)
+
+The **first user registered on a fresh installation automatically becomes the owner** of the whole system (role `owner`). The owner has full access to every feature of ChatDesk — admin panel, settings, departments, and every capability an admin has.
+
+The owner account is **permanently protected**:
+
+- No admin (and no other user, and not even the owner through the admin panel) can **edit, ban, delete, re-role, or password-reset** the owner account. Every such attempt through the app is refused with `403 owner_protected`.
+- A second owner can never be promoted while an owner exists.
+- The **"What's new" feature** (the per-version changelog popup shown on each new release and the "What's new" entry in Settings) is a privilege of the owner alone — no other account ever sees it.
+
+Changes to the owner account (username, role transfer, password, ban state, …) are only possible from the **server's interactive menu** (`chatdesk-deploy` → Manage Database → Edit user), which runs directly on the server outside the web surface:
+
+```bash
+chatdesk-deploy
+# Navigate to "Manage Database" → "Edit user"
+# Select the owner account and change what you need
+```
+
+The owner can still manage their own profile (nickname, avatar, own password) from the in-app profile page — that is self-service, not an administrative change.
+
 ## Accessing the Admin Panel
 
 There are two primary ways to grant an account **owner** or **admin** privileges:

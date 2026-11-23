@@ -38,8 +38,10 @@ export function makeUserStore(initialUsers = []) {
   const users = new Map(initialUsers.map((u) => [u.username, u]));
   return {
     users,
-    createUser: (username, passwordHash, nickname, avatarUrl, color) => {
+    createUser: (username, passwordHash, nickname, avatarUrl, color, options = {}) => {
       const id = generateUuid();
+      const role =
+        typeof options === "string" ? options : (options?.role || "user");
       users.set(username, {
         id,
         username,
@@ -48,7 +50,7 @@ export function makeUserStore(initialUsers = []) {
         avatar_url: avatarUrl,
         color,
         status: "online",
-        role: "user",
+        role,
         banned: false,
       });
       return id;
@@ -128,6 +130,7 @@ export function makeApp(overrides = {}) {
     createUser: userStore.createUser,
     findUserByUsername: userStore.findUserByUsername,
     findUserById: userStore.findUserById,
+    hasAnyUser: () => userStore.users.size > 0,
     updateLastSeen: userStore.updateLastSeen,
     ensureAvatarExists: (_id, url) => url || null,
     findChatByGroupUsername: () => null,

@@ -532,6 +532,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     appInfo,
     appInfoLoading,
     appInfoError,
+    whatsNewData,
+    whatsNewAvailable,
     whatsNewOpen,
     openWhatsNew,
     dismissWhatsNew,
@@ -7198,6 +7200,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onOpenOwnProfile={openOwnProfileModal}
         displayInitials={displayInitials}
         onOpenWhatsNew={handleOpenWhatsNew}
+        whatsNewAvailable={whatsNewAvailable}
         adminPanelEnabled={adminPanelEnabled}
         permissionsPrompt={{
           show: showPermissionsPrompt,
@@ -7723,9 +7726,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         <Suspense fallback={null}>
           <WhatsNewModal
             open={whatsNewOpen}
-            version={appInfo?.version || ""}
-            changelog={appInfo?.currentChangelog || appInfo?.changelog || ""}
-            changelogSections={appInfo?.changelogSections || []}
+            version={whatsNewData?.version || ""}
+            changelog={whatsNewData?.currentChangelog || whatsNewData?.changelog || ""}
+            changelogSections={whatsNewData?.changelogSections || []}
             onClose={() => dismissWhatsNew(true)}
           />
         </Suspense>
