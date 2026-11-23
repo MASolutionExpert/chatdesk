@@ -7,6 +7,7 @@ import { readInstallerLog, readNginxLog, readServiceLog, readWorkerLog, probeLog
 import { userEvents } from "../lib/workers/autoAddWorker.js";
 import { dbKnex } from "../db/knex.js";
 import os from "node:os";
+import v8 from "node:v8";
 import crypto from "node:crypto";
 import path from "node:path";
 import multer from "multer";
@@ -489,6 +490,12 @@ function registerAdminPanelRoutes(app, deps) {
       memory: {
         heapUsed:    mem.heapUsed,
         heapTotal:   mem.heapTotal,
+        // The REAL ceiling for the app-memory gauge: the V8 heap limit
+        // (heap_size_limit, ~4GB by default or set via --max-old-space-size).
+        // heapTotal is only the heap V8 has allocated so far — GC keeps
+        // usage NEAR it by design, so heapUsed/heapTotal reads 85-95% on a
+        // perfectly healthy process and made the dashboard permanently red.
+        heapLimit:   v8.getHeapStatistics().heap_size_limit,
         rss:         mem.rss,
         systemTotal: totalMem,
         systemUsed:  usedMem,
