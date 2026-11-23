@@ -2,6 +2,24 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.3.0-dev.5
+
+### Fixed
+
+- 📞 **Every call failure now says WHY it failed — in the user's language, on the call screen.** Until now every possible failure collapsed into one generic "Call failed" with a TURN hint, even when the cause had nothing to do with TURN (denied microphone permission, an HTTP (non-HTTPS) deployment, a missing microphone, the server rejecting the call). That made remote diagnosis impossible — a failure report said nothing about the actual cause. Each failure path now carries a precise machine-readable detail, and the call screen renders a specific message for it (English + Persian):
+  - **Microphone/camera permission denied**, **no microphone/camera found**, **microphone busy with another app**, and **insecure context (HTTPS required)** each get their own message. An unsupported environment (calls attempted over plain HTTP) no longer fails silently without any feedback either.
+  - **Server rejections show the server's own reason** ("The person you are calling is busy", "Calls are disabled on this server", ...) instead of a fake "Call failed".
+  - **The TURN hint appears ONLY for a genuine media-path (ICE) failure**, and now says which level failed: relay candidates gathered but the call still failed (check the TURN server's credentials/logs), only STUN worked (classic restrictive NAT — set up TURN), even local candidates failed (the network blocks WebRTC — TURN over TCP/443), or no candidates at all. A short technical line under the message shows the gathered candidate types and whether TURN is configured, so a bug report finally contains the facts.
+- 🔌 **Silent signaling failures no longer strand a call screen.** Three places where the call could die without either side ever learning about it:
+  - A failed offer/answer relay over WebSocket (call reaped server-side, wrong chat) returned nothing — the sender hung on the calling/cConnected screen until the ring timeout. The gateway now sends `call:error` back to the sending socket with the server's reason (regression-tested).
+  - The caller's offer relay and the callee's answer relay now verify delivery over the HTTP fallback too, and fail the call with the reason instead of leaving the other side hanging.
+  - A failed `setRemoteDescription(answer)` on the caller only logged to the console, leaving the call dead on screen; it now ends the call as a handshake failure.
+- 🔁 **A peer whose answer attempt itself failed no longer reports a bogus "Call declined" to the caller.** The reject path now distinguishes declined / busy / peer-media-failed / unsupported, and the caller's screen shows the matching label.
+
+### Tests
+
+- 17 new tests: WS gateway relay-error → `call:error` emission; media-error classification (permission/device/busy/insecure-context); TURN-configuration detection (`turn:`/`turns:` URLs, arrays, STUN-only); ICE failure verdicts (relay / srflx / host / none) with candidate de-duplication. Full suites: server 1231, client 422 (unit), worker 35 — all passing.
+
 ## 1.3.0-dev.4
 
 ### Fixed

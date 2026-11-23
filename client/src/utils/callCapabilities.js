@@ -58,3 +58,47 @@ export function foldIncomingRemoteStream(event, remoteStream) {
   }
   return stream;
 }
+
+/**
+ * Turn a getUserMedia failure into a precise, user-facing failure kind so
+ * the call screen can say WHAT went wrong (permission, missing device,
+ * device busy, insecure context) instead of a generic "Call failed".
+ *
+ * Kinds:
+ * - media-secure     the page is not a secure context: no getUserMedia at all
+ * - media-permission the user (or the browser settings) denied mic/camera
+ * - media-device     no microphone/camera exists on this device
+ * - media-busy       the device is locked by another app (NotReadable)
+ * - media-unknown    anything else
+ */
+export function classifyMediaError(err) {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.mediaDevices ||
+    typeof navigator.mediaDevices.getUserMedia !== "function"
+  ) {
+    return "media-secure";
+  }
+  const name = String(err?.name || "");
+  switch (name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+    case "SecurityError":
+      return "media-permission";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "media-device";
+    case "NotReadableError":
+    case "TrackStartError":
+      return "media-busy";
+    case "OverconstrainedError":
+      return "media-device";
+    default:
+      // Chrome throws TypeError with no devices selected only when the
+      // request is malformed; treat an insecure context as the likely cause.
+      if (typeof window !== "undefined" && window.isSecureContext === false) {
+        return "media-secure";
+      }
+      return "media-unknown";
+  }
+}

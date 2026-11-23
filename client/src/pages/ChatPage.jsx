@@ -1098,6 +1098,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     flipCamera,
     canFlipCamera,
     isScreenAudioMuted,
+    callEndDetail,
     handleSignal: handleCallSignal,
   } = useWebRTCCall({ realtimeSenderRef });
   // Screen sharing sends video, so it follows the video-call setting.
@@ -7318,6 +7319,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         <CallScreen
           callState={callState}
           callEndReason={callEndReason}
+          callEndDetail={callEndDetail}
           isCallClosing={isCallClosing}
           callType={callType}
           callPeer={resolvedCallPeer}

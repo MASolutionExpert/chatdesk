@@ -294,12 +294,26 @@ export function createWebSocketGateway({
                       chatId,
                     });
                   } else if (["offer", "answer", "ice-candidate", "camera-state", "screen-share-state"].includes(signalType)) {
-                    await callManager.relaySignal({
+                    const res = await callManager.relaySignal({
                       user: currentSession,
                       chatId,
                       signalType,
                       payload: data || {},
                     });
+                    // A failed relay (the call was reaped, wrong chat, ...)
+                    // previously vanished silently: the sending client stayed
+                    // on its call screen forever. Tell it, so it can show a
+                    // precise failure instead of hanging.
+                    if (res?.error && typeof ws.send === "function") {
+                      ws.send(
+                        JSON.stringify({
+                          type: "call:error",
+                          chatId,
+                          error: res.error,
+                          ...(res.code ? { code: res.code } : {}),
+                        }),
+                      );
+                    }
                   }
                 } catch (_) {}
               },

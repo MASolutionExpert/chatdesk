@@ -245,4 +245,52 @@ describe("WebSocket Gateway Call Signaling", () => {
     expect(callManager.cleanupUserCalls).toHaveBeenCalledWith("alice");
     gateway.close();
   });
+
+  test("a failed relay sends call:error back to the sending socket", async () => {
+    // Regression: a relay failure (call reaped server-side, wrong chat, ...)
+    // used to vanish silently — the sending client stayed on its call
+    // screen forever with no idea why.
+    const callManager = {
+      startCall: vi.fn(async () => ({ status: 200, call: {} })),
+      acceptCall: vi.fn(async () => ({ status: 200, call: {} })),
+      rejectCall: vi.fn(async () => ({ status: 200 })),
+      endCall: vi.fn(async () => ({ status: 200 })),
+      relaySignal: vi.fn(async () => ({
+        status: 404,
+        error: "No active call found for this chat",
+      })),
+      cleanupUserCalls: vi.fn(),
+    };
+
+    const gateway = createWebSocketGateway({ callManager });
+    const ws = new EventEmitter();
+    ws.isAlive = true;
+    ws.readyState = 1;
+    ws.send = vi.fn();
+    gateway.wss.emit("connection", ws, {}, { id: "user-1", username: "alice" });
+
+    ws.emit(
+      "message",
+      Buffer.from(
+        JSON.stringify({
+          action: "call_signal",
+          signalType: "offer",
+          chatId: "chat-uuid-1",
+          data: { sdp: "dummy-sdp" },
+        }),
+      ),
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(callManager.relaySignal).toHaveBeenCalled();
+    expect(ws.send).toHaveBeenCalled();
+    const sent = JSON.parse(ws.send.mock.calls[0][0]);
+    expect(sent).toMatchObject({
+      type: "call:error",
+      chatId: "chat-uuid-1",
+      error: "No active call found for this chat",
+    });
+    gateway.close();
+  });
 });
