@@ -106,7 +106,7 @@ export default function ChatsListPanel({
         );
         return {
           icon: callLog.type === "video" ? "callVideo" : "callVoice",
-          text: getCallLogLabel(callLog, own),
+          text: getCallLogLabel(callLog, own, t),
         };
       }
       return {

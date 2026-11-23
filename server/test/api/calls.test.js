@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import { makeApp, makeUserStore } from "../helpers/makeApp.js";
+import { createCallManager } from "../../lib/callManager.js";
 
 const ALICE_ID = "11111111-1111-4111-8111-111111111111";
 const BOB_ID = "22222222-2222-4222-8222-222222222222";
 const CHAT_ID = "33333333-3333-4333-8333-333333333333";
+const CHAT_ID_2 = "77777777-7777-7777-8777-777777777777";
 const ALICE = {
   id: ALICE_ID,
   username: "alice",
@@ -644,6 +646,204 @@ describe("/api/calls endpoints", () => {
         .set("Cookie", "sid=alice-token8")
         .send({ messageId: MSG_ID });
       expect(res.status).toBe(404);
+    });
+  });
+
+  // ─── Multi-session robustness (the "Failed call" bug) ────────────────────────
+
+  describe("call log statuses and multi-session notifications", () => {
+    function makeLoggingApp({ ringTimeoutMs } = {}) {
+      const createCallMessage = vi.fn(() => "call-log-message-id");
+      const updateCallMessageBody = vi.fn();
+      const managerDeps = {
+        isMember: vi.fn(
+          (cId, uId) => cId === CHAT_ID && (uId === ALICE_ID || uId === BOB_ID),
+        ),
+        findChatById: vi.fn((id) => (id === CHAT_ID ? { id, type: "dm" } : null)),
+        listChatMembers: vi.fn(() => [
+          { id: ALICE_ID, username: "alice" },
+          { id: BOB_ID, username: "bob" },
+        ]),
+        emitToUser: emitSseEvent,
+        createCallMessage,
+        updateCallMessageBody,
+        ...(ringTimeoutMs !== undefined ? { ringTimeoutMs } : {}),
+      };
+      const callManager = createCallManager(managerDeps);
+      const instance = makeApp({
+        userStore: makeUserStore([
+          { id: ALICE_ID, username: "alice", nickname: "Alice", avatar_url: "" },
+          { id: BOB_ID, username: "bob", nickname: "Bob", avatar_url: "" },
+        ]),
+        deps: {
+          findChatById: vi.fn((id) => (id === CHAT_ID ? { id, type: "dm" } : null)),
+          isMember: vi.fn(
+            (cId, uId) => cId === CHAT_ID && (uId === ALICE_ID || uId === BOB_ID),
+          ),
+          listChatMembers: vi.fn(() => [
+            { id: ALICE_ID, username: "alice" },
+            { id: BOB_ID, username: "bob" },
+          ]),
+          emitSseEvent,
+          createCallMessage,
+          updateCallMessageBody,
+          callManager,
+          ...(ringTimeoutMs !== undefined ? { ringTimeoutMs } : {}),
+        },
+      });
+      instance.sessionStore.createSession(ALICE_ID, "log-alice");
+      instance.sessionStore.createSession(BOB_ID, "log-bob");
+      return {
+        app: instance.app,
+        callManager,
+        createCallMessage,
+        updateCallMessageBody,
+        emit: emitSseEvent,
+      };
+    }
+
+    it("logs a declined call (not failed) when the callee rejects while ringing", async () => {
+      const { app, createCallMessage, updateCallMessageBody } = makeLoggingApp();
+      await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=log-alice")
+        .send({ chatId: CHAT_ID, type: "voice" });
+      await request(app)
+        .post("/api/calls/reject")
+        .set("Cookie", "sid=log-bob")
+        .send({ chatId: CHAT_ID });
+
+      // First write is the "outgoing" entry; the status update rewrites it.
+      const bodies = createCallMessage.mock.calls.map((c) => c[2]);
+      expect(bodies[0]).toBe("[[call:voice:outgoing]]");
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        "call-log-message-id",
+        "[[call:voice:declined]]",
+      );
+    });
+
+    it("logs a missed call when the callee's session drops while ringing", async () => {
+      const { app, callManager, createCallMessage, updateCallMessageBody } = makeLoggingApp();
+      await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=log-alice")
+        .send({ chatId: CHAT_ID, type: "voice" });
+
+      callManager.cleanupUserCalls("bob");
+
+      const bodies = createCallMessage.mock.calls.map((c) => c[2]);
+      expect(bodies[0]).toBe("[[call:voice:outgoing]]");
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        "call-log-message-id",
+        "[[call:voice:missed]]",
+      );
+    });
+
+    it("auto-ends an unanswered call after the ring timeout and logs it as missed", async () => {
+      const { app, updateCallMessageBody, emit } = makeLoggingApp({ ringTimeoutMs: 50 });
+      await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=log-alice")
+        .send({ chatId: CHAT_ID, type: "voice" });
+
+      await new Promise((resolve) => setTimeout(resolve, 450));
+
+      expect(updateCallMessageBody).toHaveBeenCalledWith(
+        "call-log-message-id",
+        "[[call:voice:missed]]",
+      );
+      // Both parties leave the ringing screen, and the caller's screen shows
+      // the "unanswered" reason.
+      expect(emit).toHaveBeenCalledWith(
+        "alice",
+        expect.objectContaining({ type: "call:ring-ended", chatId: CHAT_ID }),
+      );
+      expect(emit).toHaveBeenCalledWith(
+        "bob",
+        expect.objectContaining({ type: "call:ring-ended", chatId: CHAT_ID }),
+      );
+      expect(emit).toHaveBeenCalledWith(
+        "alice",
+        expect.objectContaining({
+          type: "call:ended",
+          chatId: CHAT_ID,
+          reason: "unanswered",
+        }),
+      );
+
+      // The chat is free again afterwards.
+      const res = await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=log-alice")
+        .send({ chatId: CHAT_ID, type: "voice" });
+      expect(res.status).toBe(200);
+    });
+
+    it("tells the callee's other sessions the ring ended when the call is accepted", async () => {
+      const { app, emit } = makeLoggingApp();
+      await request(app)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=log-alice")
+        .send({ chatId: CHAT_ID, type: "voice" });
+      await request(app)
+        .post("/api/calls/accept")
+        .set("Cookie", "sid=log-bob")
+        .send({ chatId: CHAT_ID });
+
+      expect(emit).toHaveBeenCalledWith(
+        "bob",
+        expect.objectContaining({ type: "call:ring-ended", chatId: CHAT_ID }),
+      );
+      expect(emit).toHaveBeenCalledWith(
+        "alice",
+        expect.objectContaining({ type: "call:accepted", chatId: CHAT_ID }),
+      );
+    });
+
+    it("returns 409 callee_busy when the callee is already in another call", async () => {
+      const instance = makeApp({
+        userStore: makeUserStore([
+          { id: ALICE_ID, username: "alice", nickname: "Alice", avatar_url: "" },
+          { id: BOB_ID, username: "bob", nickname: "Bob", avatar_url: "" },
+        ]),
+        deps: {
+          findChatById: vi.fn((id) =>
+            id === CHAT_ID || id === CHAT_ID_2 ? { id, type: "dm" } : null,
+          ),
+          isMember: vi.fn(
+            (cId, uId) =>
+              (cId === CHAT_ID || cId === CHAT_ID_2) &&
+              (uId === ALICE_ID || uId === BOB_ID),
+          ),
+          listChatMembers: vi.fn((id) => [
+            { id: ALICE_ID, username: "alice" },
+            { id: BOB_ID, username: "bob" },
+          ]),
+          emitSseEvent,
+        },
+      });
+      instance.sessionStore.createSession(ALICE_ID, "busy-alice");
+      instance.sessionStore.createSession(BOB_ID, "busy-bob");
+      const busyApp = instance.app;
+
+      // Alice calls Bob in chat A; Bob answers.
+      await request(busyApp)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=busy-alice")
+        .send({ chatId: CHAT_ID, type: "voice" });
+      await request(busyApp)
+        .post("/api/calls/accept")
+        .set("Cookie", "sid=busy-bob")
+        .send({ chatId: CHAT_ID });
+
+      // While that call is up, a second chat between the same two users
+      // (e.g. another device's thread) must report busy instead of ringing.
+      const res = await request(busyApp)
+        .post("/api/calls/start")
+        .set("Cookie", "sid=busy-alice")
+        .send({ chatId: CHAT_ID_2, type: "voice" });
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/busy/i);
     });
   });
 });

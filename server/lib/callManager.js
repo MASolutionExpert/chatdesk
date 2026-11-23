@@ -16,11 +16,29 @@ export function createCallManager(deps) {
     emitChatEvent,
     env = process.env,
     maxCallDurationMs = 0,
+    // Nobody answered within this window -> the call is dropped with a
+    // "missed" log entry instead of ringing forever (stale sessions, phones
+    // asleep, push never delivered...).
+    ringTimeoutMs = 60000,
   } = deps;
   const MAX_CALL_DURATION_MS = Math.max(0, Math.trunc(Number(maxCallDurationMs) || 0));
+  const RING_TIMEOUT_MS = Math.max(250, Math.trunc(Number(ringTimeoutMs) || 60000));
 
   // chatId (UUID) -> { chatId, callerId, callerUsername, calleeId, calleeUsername, type, startedAt, status }
   const activeCalls = new Map();
+  // Timers live OUTSIDE the call objects: the call objects are returned to
+  // HTTP clients as JSON, and a Node Timeout handle is circular and would
+  // crash res.json (a latent 500 on every start/accept).
+  const ringTimers = new Map();
+  const durationTimers = new Map();
+
+  function clearTimer(map, key) {
+    const timer = map.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      map.delete(key);
+    }
+  }
 
   const TURN_STUN_URL = env.TURN_STUN_URL || "stun:stun.l.google.com:19302";
   const TURN_URL = env.TURN_URL || "";
@@ -93,6 +111,53 @@ export function createCallManager(deps) {
   function getActiveCall(chatId) {
     if (!chatId) return undefined;
     return activeCalls.get(String(chatId).toLowerCase());
+  }
+
+  function armRingTimer(call) {
+    const key = String(call.chatId).toLowerCase();
+    clearTimer(ringTimers, key);
+    ringTimers.set(
+      key,
+      setTimeout(() => {
+        ringTimers.delete(key);
+        // Stale timer after a manual accept/reject/end: no-op.
+        if (activeCalls.get(key) !== call || call.status !== "ringing") return;
+        activeCalls.delete(key);
+        dismissCallPush(call);
+        // Both parties' sessions must leave the ringing/calling screen —
+        // including the callee's OTHER logged-in sessions, which are the
+        // ones that never receive peer-directed events.
+        for (const username of [call.callerUsername, call.calleeUsername]) {
+          if (typeof emitToUser === "function" && username) {
+            emitToUser(username, {
+              type: "call:ring-ended",
+              chatId: call.chatId,
+            });
+            emitToUser(username, {
+              type: "call:ended",
+              chatId: call.chatId,
+              reason: "unanswered",
+            });
+          }
+        }
+        void writeCallLog(call, "missed");
+      }, RING_TIMEOUT_MS),
+    );
+  }
+
+  // Is this username already a participant in ANY other active call?
+  function findActiveCallForUser(username) {
+    if (!username) return null;
+    const lower = String(username).toLowerCase();
+    for (const call of activeCalls.values()) {
+      if (
+        String(call.callerUsername).toLowerCase() === lower ||
+        String(call.calleeUsername).toLowerCase() === lower
+      ) {
+        return call;
+      }
+    }
+    return null;
   }
 
   function isParticipant(call, username) {
@@ -220,6 +285,19 @@ export function createCallManager(deps) {
       return { status: 400, error: "Cannot call a deleted user" };
     }
 
+    // The callee may be busy in a call in ANOTHER chat (different device or
+    // thread). Ring anyway and the callee's client would auto-reject as busy
+    // — surfacing a scary "Failed call" to the caller for a doomed ring.
+    // Tell the caller the line is busy instead.
+    const calleeBusyCall = findActiveCallForUser(callee.username);
+    if (calleeBusyCall) {
+      return {
+        status: 409,
+        error: "The person you are calling is busy.",
+        code: "callee_busy",
+      };
+    }
+
     const call = {
       chatId: normalizedChatId,
       callerId: user.id,
@@ -232,6 +310,7 @@ export function createCallManager(deps) {
     };
 
     activeCalls.set(key, call);
+    armRingTimer(call);
 
     if (typeof emitToUser === "function") {
       emitToUser(otherMember.username, {
@@ -312,32 +391,44 @@ export function createCallManager(deps) {
       return { status: 403, error: "Only the recipient can accept the call" };
     }
 
+    clearTimer(ringTimers, key);
     dismissCallPush(call);
 
     call.status = "connected";
 
     if (MAX_CALL_DURATION_MS > 0) {
-      const key = String(chatId || "").toLowerCase();
-      call.maxDurationTimer = setTimeout(() => {
-        // Stale timer after a manual end/other removal: no-op.
-        if (activeCalls.get(key) !== call) return;
-        activeCalls.delete(key);
-        dismissCallPush(call);
-        for (const peer of [call.callerUsername, call.calleeUsername]) {
-          if (typeof emitToUser === "function" && peer) {
-            emitToUser(peer, {
-              type: "call:ended",
-              chatId: call.chatId,
-            });
+      clearTimer(durationTimers, key);
+      durationTimers.set(
+        key,
+        setTimeout(() => {
+          durationTimers.delete(key);
+          // Stale timer after a manual end/other removal: no-op.
+          if (activeCalls.get(key) !== call) return;
+          activeCalls.delete(key);
+          dismissCallPush(call);
+          for (const peer of [call.callerUsername, call.calleeUsername]) {
+            if (typeof emitToUser === "function" && peer) {
+              emitToUser(peer, {
+                type: "call:ended",
+                chatId: call.chatId,
+              });
+            }
           }
-        }
-        void writeCallLog(call, "connected", secondsSinceStart(call));
-      }, MAX_CALL_DURATION_MS);
+          void writeCallLog(call, "connected", secondsSinceStart(call));
+        }, MAX_CALL_DURATION_MS),
+      );
     }
 
     if (typeof emitToUser === "function") {
       emitToUser(call.callerUsername, {
         type: "call:accepted",
+        chatId: call.chatId,
+      });
+      // The callee's OTHER sessions are still showing the ringing screen and
+      // never receive peer-directed events — tell them the ring is over, or
+      // they stay stuck and auto-reject every future call as "busy".
+      emitToUser(call.calleeUsername, {
+        type: "call:ring-ended",
         chatId: call.chatId,
       });
     }
@@ -359,26 +450,36 @@ export function createCallManager(deps) {
       return { status: 403, error: "You are not a participant in this call" };
     }
 
+    clearTimer(ringTimers, key);
     activeCalls.delete(key);
 
     dismissCallPush(call);
 
     const peer = peerUsernameOf(call, user.username);
-    if (typeof emitToUser === "function" && peer) {
-      emitToUser(peer, {
-        type: "call:rejected",
+    if (typeof emitToUser === "function") {
+      if (peer) {
+        emitToUser(peer, {
+          type: "call:rejected",
+          chatId: call.chatId,
+          ...(reason ? { reason } : {}),
+        });
+      }
+      // The rejecting user's other sessions may still be ringing for this
+      // call — end their ring too, or they stay stuck and auto-reject every
+      // future call as "busy" (the "Failed call" bug).
+      emitToUser(user.username, {
+        type: "call:ring-ended",
         chatId: call.chatId,
-        ...(reason ? { reason } : {}),
       });
     }
 
-    // Callee declined while ringing -> the caller's attempt failed.
+    // Callee declined while ringing -> a declined call, not a failed one.
     if (
       call.status === "ringing" &&
       String(user.username).toLowerCase() ===
         String(call.calleeUsername).toLowerCase()
     ) {
-      await writeCallLog(call, "failed");
+      await writeCallLog(call, "declined");
     }
 
     return { status: 200, ok: true };
@@ -403,23 +504,36 @@ export function createCallManager(deps) {
       String(user.username).toLowerCase() ===
       String(call.callerUsername).toLowerCase();
 
-    if (call.maxDurationTimer) clearTimeout(call.maxDurationTimer);
+    clearTimer(ringTimers, key);
+    clearTimer(durationTimers, key);
     activeCalls.delete(key);
 
     dismissCallPush(call);
 
     const peer = peerUsernameOf(call, user.username);
-    if (typeof emitToUser === "function" && peer) {
-      emitToUser(peer, {
-        type: "call:ended",
-        chatId: call.chatId,
-      });
+    if (typeof emitToUser === "function") {
+      if (peer) {
+        emitToUser(peer, {
+          type: "call:ended",
+          chatId: call.chatId,
+        });
+      }
+      // Every session of BOTH participants that still shows the ringing or
+      // calling screen for this call must leave it (multi-session accounts).
+      for (const username of [call.callerUsername, call.calleeUsername]) {
+        if (username) {
+          emitToUser(username, {
+            type: "call:ring-ended",
+            chatId: call.chatId,
+          });
+        }
+      }
     }
 
     if (endedRinging) {
-      // Caller hung up before an answer -> cancelled; anything else (callee
-      // hung up / dropped while ringing) -> failed attempt.
-      await writeCallLog(call, wasCaller ? "cancelled" : "failed");
+      // Caller hung up before an answer -> cancelled; the callee dismissing
+      // the ringing screen -> declined (their other sessions get ring-ended).
+      await writeCallLog(call, wasCaller ? "cancelled" : "declined");
     } else if (call.logMessageId) {
       await writeCallLog(call, "connected", secondsSinceStart(call));
     }
@@ -465,7 +579,8 @@ export function createCallManager(deps) {
         String(call.callerUsername).toLowerCase() === lower ||
         String(call.calleeUsername).toLowerCase() === lower
       ) {
-        if (call.maxDurationTimer) clearTimeout(call.maxDurationTimer);
+        clearTimer(ringTimers, key);
+        clearTimer(durationTimers, key);
         activeCalls.delete(key);
 
         dismissCallPush(call);
@@ -473,17 +588,26 @@ export function createCallManager(deps) {
         const wasCaller =
           String(call.callerUsername).toLowerCase() === lower;
         // Session dropped during ringing: caller vanishing -> cancelled,
-        // callee vanishing -> failed. Drops mid-call keep "connected".
+        // callee vanishing -> missed (nobody answered). Drops mid-call keep
+        // "connected".
         if (call.status === "ringing") {
-          void writeCallLog(call, wasCaller ? "cancelled" : "failed");
+          void writeCallLog(call, wasCaller ? "cancelled" : "missed");
         } else if (call.logMessageId) {
           void writeCallLog(call, "connected", secondsSinceStart(call));
         }
 
         const peer = peerUsernameOf(call, lower);
-        if (typeof emitToUser === "function" && peer) {
-          emitToUser(peer, {
-            type: "call:ended",
+        if (typeof emitToUser === "function") {
+          if (peer) {
+            emitToUser(peer, {
+              type: "call:ended",
+              chatId: call.chatId,
+            });
+          }
+          // The dropped user's OTHER sessions may still show the ringing
+          // screen — end it there too.
+          emitToUser(username, {
+            type: "call:ring-ended",
             chatId: call.chatId,
           });
         }

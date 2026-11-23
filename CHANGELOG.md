@@ -2,6 +2,19 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.10
+
+### Fixed
+
+- 📞 **Calls no longer fail or get stuck — the whole call system was reworked for stability.** After re-enabling calls, every attempt surfaced "Failed call" and callee sessions could stay stuck on the ringing screen, silently auto-rejecting every later call as busy. Root causes and fixes:
+  - **Circular-JSON 500 on every accept** (`CALL_MAX_DURATION` set): the max-duration timer handle lived inside the call object, and `POST /api/calls/accept` serialises that object — Node throws on the circular reference and the accept dies. Timers now live outside the call objects in dedicated maps.
+  - **Stuck ringing on multi-session accounts**: when a call was accepted/declined/ended on one device, the account's OTHER sessions kept ringing forever and auto-rejected every future call as busy ("Failed call" at dial time). The server now broadcasts `call:ring-ended` to every session of both participants on accept/reject/end/disconnect, and the client leaves the ringing screen when it arrives.
+  - **Rings never timed out**: an unanswered call now ends server-side after 60s with a `missed` log entry, a push dismissal, and a "No answer" notice on both sides — instead of ringing forever.
+  - **Doomed rings surfaced as failures**: calling someone already in a call now returns `409 callee_busy` before ringing (WS + HTTP), and the caller sees «خط اشغال است / Line busy» instead of "Call failed".
+  - **Unsupported clients no longer kill calls**: a session on insecure HTTP / without WebRTC no longer auto-rejects an incoming call (which ended the call for every device of that user); the server's ring timeout is the single authority.
+  - **Declined ≠ failed**: call-log semantics were split properly — outgoing / connected / cancelled (caller hung up) / declined (callee rejected) / missed (nobody answered) / failed (technical fault) — with rose styling for never-connected calls and full i18n (fa/en) for call screens and call-log labels, which were previously hardcoded English.
+- 🧪 New API test suite for `/api/calls` (84 call-system tests green); full suites re-run: server 1206, client 406, worker 35 — all passing.
+
 ## 1.2.0-dev.9
 
 ### Fixed

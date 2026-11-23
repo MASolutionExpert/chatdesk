@@ -154,6 +154,7 @@ export function MessageComposer({
         replyCallLog,
         String(replyTarget?.username || "").toLowerCase() ===
           String(currentUsername || "").toLowerCase(),
+        t,
       )
     : null;
   const isPluralMediaSummary =

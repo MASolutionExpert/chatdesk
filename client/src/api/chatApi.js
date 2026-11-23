@@ -825,10 +825,15 @@ export async function sendCallSignal(action, body = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    return res.ok ? await res.json().catch(() => ({})) : null;
+    if (res.ok) return await res.json().catch(() => ({}));
+    // Surface the server's error (and machine-readable code, e.g.
+    // "callee_busy") so the caller UI can show WHY the call did not connect
+    // instead of a generic failure.
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, error: data?.error || "", code: data?.code || "" };
   } catch (err) {
     console.error(`Call signal '${action}' failed:`, err);
-    return null;
+    return { ok: false, error: "", code: "" };
   }
 }
 

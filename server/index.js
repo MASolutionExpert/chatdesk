@@ -1536,6 +1536,7 @@ const wsGateway = createWebSocketGateway({
   onUserDisconnected: (username, ws) => presenceTracker.markDisconnected(username, ws),
   heartbeatIntervalMs: wsHeartbeatIntervalMs,
   heartbeatTimeoutMs: wsHeartbeatTimeoutMs,
+  callsEnabled: () => Boolean(getSetting("CALL")),
 });
 wsPresenceBroadcaster = (username, payload) => wsGateway.sendEvent(username, payload);
 wsGlobalBroadcaster = (payload) => wsGateway.broadcastAll(payload);

@@ -10,6 +10,10 @@ export function createWebSocketGateway({
   onUserDisconnected,
   heartbeatIntervalMs = 30000,
   heartbeatTimeoutMs = 10000,
+  // Live-read of the CALL setting: the WebSocket path must enforce the same
+  // "calls disabled" rule as POST /api/calls/start, otherwise a stale client
+  // can still ring people through the socket while the admin panel says off.
+  callsEnabled = null,
 }) {
   const wss = new WebSocketServer({ noServer: true });
   const clientsByUsername = new Map();
@@ -232,13 +236,32 @@ export function createWebSocketGateway({
               async () => {
                 try {
                   if (signalType === "start") {
+                    if (typeof callsEnabled === "function" && !callsEnabled()) {
+                      if (typeof ws.send === "function") {
+                        ws.send(
+                          JSON.stringify({
+                            type: "call:error",
+                            chatId,
+                            error: "Calls are disabled on this server",
+                          }),
+                        );
+                      }
+                      return;
+                    }
                     const res = await callManager.startCall({
                       user: currentSession,
                       chatId,
                       type: data?.type,
                     });
                     if (res?.error && typeof ws.send === "function") {
-                      ws.send(JSON.stringify({ type: "call:error", chatId, error: res.error }));
+                      ws.send(
+                        JSON.stringify({
+                          type: "call:error",
+                          chatId,
+                          error: res.error,
+                          ...(res.code ? { code: res.code } : {}),
+                        }),
+                      );
                     }
                   } else if (signalType === "accept") {
                     const res = await callManager.acceptCall({

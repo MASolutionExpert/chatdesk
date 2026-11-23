@@ -7,14 +7,16 @@ import {
   parseCallLogBody,
 } from "../../utils/messageContent.js";
 import { formatChatCardTimestamp } from "../../utils/chatFormat.js";
+import { useI18n } from "../../i18n/index.js";
 import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 
-const MISSED_STATUSES = new Set(["failed", "cancelled"]);
+// Calls that never connected: muted icon styling.
+const MISSED_STATUSES = new Set(["failed", "cancelled", "missed", "declined"]);
 
-function mapCallRow(row) {
+function mapCallRow(row, t) {
   const callLog = parseCallLogBody(String(row?.body || ""));
   if (!callLog) return null;
   const peer = {
@@ -36,7 +38,7 @@ function mapCallRow(row) {
     status: callLog.status,
     durationSeconds: callLog.durationSeconds,
     own,
-    label: getCallLogLabel(callLog, own),
+    label: getCallLogLabel(callLog, own, t),
     peer,
   };
 }
@@ -53,12 +55,13 @@ export default function CallsPanel({
   callsDisabled = false,
   isInCall = false,
 }) {
+  const { t } = useI18n();
   const visibleCalls = useMemo(() => {
     if (!Array.isArray(calls)) return [];
     return calls
-      .map((row) => mapCallRow({ ...row, viewerId: user?.id }))
+      .map((row) => mapCallRow({ ...row, viewerId: user?.id }, t))
       .filter(Boolean);
-  }, [calls, user?.id]);
+  }, [calls, user?.id, t]);
 
   const isEmptyState = !loadingCalls && !visibleCalls.length;
 

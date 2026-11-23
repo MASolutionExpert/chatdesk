@@ -24,6 +24,7 @@ import Avatar from "../common/Avatar.jsx";
 import Tooltip from "../common/Tooltip.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
+import { useI18n } from "../../i18n/index.js";
 import { getAvatarInitials } from "../../utils/avatarInitials.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { useMobileViewport } from "../../hooks/chat/useMobileViewport.js";
@@ -104,6 +105,7 @@ export const CallScreen = memo(function CallScreen({
   minimized: controlledMinimized,
   onMinimizeChange,
 }) {
+  const { t } = useI18n();
   const [internalMinimized, setInternalMinimized] = useState(false);
   const minimized =
     controlledMinimized !== undefined ? controlledMinimized : internalMinimized;
@@ -155,10 +157,14 @@ export const CallScreen = memo(function CallScreen({
   const isEnding = Boolean(callEndReason);
   const endLabel =
     callEndReason === "declined"
-      ? "Call declined"
-      : callEndReason === "failed"
-        ? "Call failed"
-        : "Call ended";
+      ? t("chat.call.endedDeclined")
+      : callEndReason === "busy"
+        ? t("chat.call.endedBusy")
+        : callEndReason === "failed"
+          ? t("chat.call.endedFailed")
+          : callEndReason === "unanswered"
+            ? t("chat.call.endedNoAnswer")
+            : t("chat.call.ended");
 
   // Reset minimized state and dragged position if call disconnects
   useEffect(() => {
@@ -457,9 +463,9 @@ export const CallScreen = memo(function CallScreen({
   const stateLabel = isEnding
     ? endLabel
     : callState === "calling"
-      ? "Calling..."
+      ? t("chat.call.calling")
       : callState === "ringing"
-        ? "Incoming call"
+        ? t("chat.call.incoming")
         : callState === "connected"
           ? formatDuration(callDuration)
           : "";
@@ -720,7 +726,7 @@ export const CallScreen = memo(function CallScreen({
           </div>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-white/60">
             {isVideo ? <Video size={14} /> : <Phone size={14} />}
-            {isVideo ? "Video call" : "Voice call"}
+            {isVideo ? t("chat.call.video") : t("chat.call.voice")}
           </p>
           <p className={`mt-2 text-sm font-medium ${stateLabelColor}`}>
             {stateLabel}

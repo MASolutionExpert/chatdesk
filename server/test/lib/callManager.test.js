@@ -619,7 +619,7 @@ describe("callManager", () => {
       );
     });
 
-    it("marks the log failed when the callee rejects while ringing", async () => {
+    it("marks the log declined when the callee rejects while ringing", async () => {
       await callManager.startCall({
         user: callerUser,
         chatId: dummyChatId,
@@ -629,7 +629,7 @@ describe("callManager", () => {
       expect(res.status).toBe(200);
       expect(updateCallMessageBody).toHaveBeenCalledWith(
         expect.any(String),
-        "[[call:video:failed]]",
+        "[[call:video:declined]]",
       );
     });
 
@@ -678,7 +678,7 @@ describe("callManager", () => {
       );
     });
 
-    it("marks the log failed when the callee goes offline while ringing", async () => {
+    it("marks the log missed when the callee goes offline while ringing", async () => {
       await callManager.startCall({
         user: callerUser,
         chatId: dummyChatId,
@@ -687,7 +687,7 @@ describe("callManager", () => {
       callManager.cleanupUserCalls(calleeUser.username);
       expect(updateCallMessageBody).toHaveBeenCalledWith(
         expect.any(String),
-        "[[call:voice:failed]]",
+        "[[call:voice:missed]]",
       );
     });
 
