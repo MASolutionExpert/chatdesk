@@ -27,6 +27,8 @@ export function gradeCallQuality(rttMs, lossPct) {
 const UNKNOWN_QUALITY = { level: 0, rttMs: null, packetLossPct: null };
 export const CALL_END_NOTICE_MS = 1750;
 export const CALL_EXIT_MS = 250;
+// How long an automatic ICE restart has to reconnect before the call ends.
+export const ICE_RESTART_WINDOW_MS = 10000;
 
 /**
  * Capture the local media stream for a call. A video request fails on
@@ -167,6 +169,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const screenAudioStreamRef = useRef(null);
   const durationTimerRef = useRef(null);
   const disconnectTimerRef = useRef(null);
+  // Automatic ICE-restart recovery (one attempt per call): a "failed" peer
+  // connection usually means a transient network switch (Wi-Fi <-> mobile
+  // data); a fresh ICE gather reconnects it without killing the call.
+  const iceRestartAttemptsRef = useRef(0);
+  const iceRestartTimerRef = useRef(null);
   const endNoticeTimerRef = useRef(null);
   const endExitTimerRef = useRef(null);
   const callEndReasonRef = useRef(null);
@@ -315,6 +322,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
     }
+    if (iceRestartTimerRef.current) {
+      clearTimeout(iceRestartTimerRef.current);
+      iceRestartTimerRef.current = null;
+    }
+    iceRestartAttemptsRef.current = 0;
     clearEndTimers();
     callEndReasonRef.current = null;
     setCallEndReason(null);
@@ -410,6 +422,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         clearTimeout(disconnectTimerRef.current);
         disconnectTimerRef.current = null;
       }
+      if (iceRestartTimerRef.current) {
+        clearTimeout(iceRestartTimerRef.current);
+        iceRestartTimerRef.current = null;
+      }
       // Stop capturing immediately; the notice is purely visual.
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -493,6 +509,10 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
           clearTimeout(disconnectTimerRef.current);
           disconnectTimerRef.current = null;
         }
+        if (iceRestartTimerRef.current) {
+          clearTimeout(iceRestartTimerRef.current);
+          iceRestartTimerRef.current = null;
+        }
         setCallState("connected");
         callStateRef.current = "connected";
         if (!durationTimerRef.current) {
@@ -514,6 +534,47 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
         if (pc.connectionState === "failed") {
           void logIceDiagnostics(pc, "failed");
+          // One automatic ICE restart before giving up — see the refs above.
+          // Both sides may attempt it at once; the polite/impolite offer
+          // collision handling resolves the overlap safely.
+          if (
+            iceRestartAttemptsRef.current >= 1 ||
+            callEndReasonRef.current ||
+            isMakingOfferRef.current ||
+            pc.signalingState !== "stable"
+          ) {
+            failCall();
+            return;
+          }
+          iceRestartAttemptsRef.current += 1;
+          try { pc.restartIce?.(); } catch (_) {}
+          if (iceRestartTimerRef.current) clearTimeout(iceRestartTimerRef.current);
+          iceRestartTimerRef.current = setTimeout(() => {
+            iceRestartTimerRef.current = null;
+            // Still broken after the recovery window -> end the call.
+            if (
+              peerConnectionRef.current === pc &&
+              pc.connectionState !== "connected" &&
+              pc.connectionState !== "connecting"
+            ) {
+              failCall();
+            }
+          }, ICE_RESTART_WINDOW_MS);
+          (async () => {
+            isMakingOfferRef.current = true;
+            try {
+              const offer = await pc.createOffer({ iceRestart: true });
+              await pc.setLocalDescription(offer);
+              // A colliding remote offer may have rolled this one back.
+              if (pc.signalingState !== "have-local-offer") return;
+              await postSignal("offer", { chatId: callChatIdRef.current, sdp: offer });
+            } catch (_) {
+              failCall();
+            } finally {
+              isMakingOfferRef.current = false;
+            }
+          })();
+          return;
         }
         failCall();
       }
@@ -564,6 +625,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       setCallEndReason(null);
       setIsCallClosing(false);
       isPolitePeerRef.current = false;
+      iceRestartAttemptsRef.current = 0;
       setCallState("calling");
       callStateRef.current = "calling";
       setCallType(type);

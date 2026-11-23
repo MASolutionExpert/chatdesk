@@ -2,6 +2,17 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.3.0-dev.2
+
+### Added
+
+- 📞 **Call-history report in the admin panel.** The Chats (گفتگوها) tab now has a "Call history" sub-view showing every voice and video call in the instance — caller (avatar/username/nickname), chat, type (voice/video), outcome (answered / outgoing / cancelled / declined / missed / failed), duration and exact time — with search across callers, participants and chats, type/outcome filters, sortable columns, mobile cards + desktop table, and server-side pagination. Backed by the new admin-only `GET /api/admin/calls` endpoint over the existing call-log messages (encrypted user-typed look-alikes can never appear in the report). Full fa/en i18n.
+- 🛡️ **One-click TURN relay deployment for 10/10 call quality** (`scripts/setup-turn.sh`). STUN alone cannot connect peers behind symmetric NAT (most mobile carriers); those calls only work through a TURN relay. The new script installs and configures coturn on the ChatDesk host (auto-detects the public IP, generates credentials, opens firewall ports) and wires `TURN_URL` / `TURN_USERNAME` / `TURN_CREDENTIAL` into the server's `.env` — existing non-empty TURN values are never overwritten. With a relay available, ICE picks the fastest usable path per call and essentially every call connects.
+
+### Changed
+
+- 📶 **Calls now self-heal instead of dying.** When the media path drops (Wi-Fi ↔ mobile data switch, brief network outage), the peer connection previously went straight to "Call failed". The client now attempts one automatic ICE restart with a 10-second recovery window before giving up — transient network switches no longer kill the call. Both sides may attempt the restart simultaneously; the existing perfect-negotiation offer-collision handling resolves the overlap safely. Timer cleanup covers all exit paths (hang-up, failure, unmount, ring-ended).
+
 ## 1.3.0-dev.1
 
 ### Added

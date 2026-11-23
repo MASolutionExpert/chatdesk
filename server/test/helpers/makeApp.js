@@ -424,6 +424,7 @@ export function makeApp(overrides = {}) {
     getAdminStats: () => ({}),
     adminListUsers: () => [],
     adminListChats: () => [],
+    adminListCalls: () => ({ calls: [], total: 0 }),
     adminCountUsers: () => 0,
     adminCountChats: () => 0,
     adminBanUser: () => {},

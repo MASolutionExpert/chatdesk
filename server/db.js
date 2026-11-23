@@ -4769,6 +4769,115 @@ export function adminListChats({
   return processChatRows(rawRows);
 }
 
+// Parses the plain-text call-log bodies the callManager writes
+// ("[[call:<audio|video>:<status>[:<durationSeconds>]]]"). Returns null for
+// anything that is not a call log; used to expose structured fields to the
+// admin panel while the raw body stays untouched.
+export function parseCallMessageBody(body) {
+  if (typeof body !== "string") return null;
+  const match = /^\[\[call:(audio|video):(outgoing|connected|cancelled|declined|missed|failed)(?::(\d+))?\]\]$/.exec(body.trim());
+  if (!match) return null;
+  return {
+    type: match[1],
+    status: match[2],
+    durationSeconds: match[3] == null ? null : Number(match[3]),
+  };
+}
+
+/**
+ * Paginated call-history report for the admin panel: every call-log entry in
+ * the instance (all chats, all users), with caller, chat, type (audio/video),
+ * outcome status and duration. Call logs are the plain-text messages the
+ * callManager writes into chat_messages, so no schema is needed.
+ */
+export function adminListCalls({
+  limit = 200,
+  offset = 0,
+  search = "",
+  sortBy = "created_at",
+  sortDir = "DESC",
+  typeFilter = null,
+  statusFilter = null,
+  chatFilter = null,
+}) {
+  const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeSortBy  = ["id", "created_at", "caller", "chat"].includes(sortBy) ? sortBy : "created_at";
+  const safeSortDir = sortDir === "ASC" ? "ASC" : "DESC";
+
+  // DM chats have no meaningful name of their own; expose the member
+  // usernames so the admin panel can label and search direct conversations.
+  const participantsExpr = isPostgresMode()
+    ? dbKnex.raw("(SELECT string_agg(pu.username, ', ' ORDER BY pu.username) FROM chat_members pcm JOIN users pu ON pu.id = pcm.user_id WHERE pcm.chat_id = c.id) AS participants")
+    : dbKnex.raw("(SELECT GROUP_CONCAT(pu.username, ', ') FROM chat_members pcm JOIN users pu ON pu.id = pcm.user_id WHERE pcm.chat_id = c.id) AS participants");
+
+  let qb = dbKnex("chat_messages as cm")
+    .join("users as cu", "cu.id", "cm.user_id")
+    .join("chats as c", "c.id", "cm.chat_id")
+    .select(
+      "cm.id", "cm.chat_id", "cm.body", "cm.created_at",
+      "cu.username as caller_username", "cu.nickname as caller_nickname",
+      "cu.avatar_url as caller_avatar_url", "cu.color as caller_color", "cu.role as caller_role", "cu.verified as caller_verified",
+      "c.name as chat_name", "c.type as chat_type",
+      participantsExpr,
+      dbKnex.raw("COUNT(*) OVER() AS _total"),
+    )
+    // Call logs are the only messages whose body carries the [[call: prefix.
+    .where("cm.body", "like", "[[call:%")
+    .whereIn("c.type", ["group", "channel", "dm"]);
+
+  if (typeFilter === "audio" || typeFilter === "video") {
+    qb = qb.where("cm.body", "like", `[[call:${typeFilter}:%`);
+  }
+  if (statusFilter && ["outgoing", "connected", "cancelled", "declined", "missed", "failed"].includes(statusFilter)) {
+    // Status is the third segment: [[call:audio:missed]] or
+    // [[call:audio:connected:65]] — match both the 3- and 4-segment shapes.
+    qb = qb.where((builder) => {
+      builder.where("cm.body", "like", `%:${statusFilter}]]`)
+        .orWhere("cm.body", "like", `%:${statusFilter}:%`);
+    });
+  }
+  if (chatFilter) {
+    qb = qb.where("cm.chat_id", chatFilter);
+  }
+  if (search) {
+    const like = `%${escapeLikePattern(search)}%`;
+    qb = qb.where((builder) => {
+      builder.whereRaw("cu.username LIKE ? ESCAPE '\\'", [like])
+        .orWhereRaw("cu.nickname LIKE ? ESCAPE '\\'", [like])
+        .orWhereRaw("c.name LIKE ? ESCAPE '\\'", [like])
+        // Direct chats carry the generic name "dm"; match their members too
+        // so admins can find a call by any participant username/nickname.
+        .orWhereRaw("EXISTS (SELECT 1 FROM chat_members scm JOIN users su ON su.id = scm.user_id WHERE scm.chat_id = c.id AND (su.username LIKE ? ESCAPE '\\' OR su.nickname LIKE ? ESCAPE '\\'))", [like, like]);
+    });
+  }
+
+  if (safeSortBy === "caller") {
+    qb = qb.orderByRaw(`cu.username COLLATE NOCASE ${safeSortDir}`);
+  } else if (safeSortBy === "chat") {
+    qb = qb.orderByRaw(naturalSortExpr("c.name", safeSortDir));
+  } else {
+    qb = qb.orderBy(`cm.${safeSortBy}`, safeSortDir);
+  }
+
+  qb = qb.limit(safeLimit).offset(safeOffset);
+
+  const processCallRows = (rows) => {
+    const list = rows || [];
+    const total = list.length > 0 ? Number(list[0]._total || 0) : 0;
+    const calls = list.map(({ _total, ...row }) => {
+      const parsed = parseCallMessageBody(row.body) || { type: "audio", status: "failed", durationSeconds: null };
+      return { ...row, ...parsed };
+    });
+    return { calls, total };
+  };
+  const rawRows = getAll(qb);
+  if (rawRows && typeof rawRows.then === "function") {
+    return rawRows.then(processCallRows);
+  }
+  return processCallRows(rawRows);
+}
+
 // adminCountChats is kept for any future callers that only need the count,
 // but the list endpoint now uses adminListChats which returns both together.
 export function adminCountChats({

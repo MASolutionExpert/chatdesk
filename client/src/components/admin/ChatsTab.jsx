@@ -1,7 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Plus, Trash, User, Users } from "../../icons/lucide.js";
+import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Phone, Plus, Trash, User, Users } from "../../icons/lucide.js";
 import { api, cardCls, btnPrimary, iconBtn, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterPopover, SortTh, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
+import CallsHistory from "./CallsHistory.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
 import ConfirmModal from "../modals/ConfirmModal.jsx";
 import Avatar from "../common/Avatar.jsx";
@@ -33,6 +34,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const [createType, setCreateType]   = useState(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
+  // Sub-views of the Chats tab: the chat list itself and the instance-wide
+  // call-history report.
+  const [view, setView] = useState("chats");
+  const callsHistoryRef = useRef(null);
   const createMenuRef = useRef(null);
   const debounceRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -185,6 +190,26 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
 
   return (
     <div className="space-y-3">
+      {/* Sub-view switch: chats list / call history */}
+      <div className="flex gap-1 self-start rounded-2xl border border-emerald-200/70 bg-white/90 p-1 dark:border-emerald-500/30 dark:bg-slate-950/50" role="tablist" aria-label={t("admin.chats.viewCalls")}>
+        <button type="button" role="tab" aria-selected={view === "chats"} onClick={() => setView("chats")}
+          className={"flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold transition " + (view === "chats"
+            ? "bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+            : "text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 dark:text-slate-300 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200")}>
+          <MessageCircleMore size={14} className="icon-anim-bob shrink-0" /> {t("admin.chats.viewChats")}
+        </button>
+        <button type="button" role="tab" aria-selected={view === "calls"} onClick={() => { setView("calls"); requestAnimationFrame(() => callsHistoryRef.current?.refresh?.()); }}
+          className={"flex h-8 items-center gap-1.5 rounded-xl px-3 text-xs font-semibold transition " + (view === "calls"
+            ? "bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+            : "text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 dark:text-slate-300 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200")}>
+          <Phone size={14} className="icon-anim-pop shrink-0" /> {t("admin.chats.viewCalls")}
+        </button>
+      </div>
+
+      {view === "calls" ? (
+        <CallsHistory ref={callsHistoryRef} active={active} />
+      ) : (
+      <>
       <TabToolbar>
         <TabSearchInput value={search} onChange={changeSearch} placeholder="admin.chats.search" />
         <FilterPopover sections={chatFilterSections} onReset={resetChatFilters} />
@@ -390,6 +415,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
         onConfirm={async () => { await handleDelete(pendingDelete); setPendingDelete(null); }}
         onClose={() => setPendingDelete(null)}
       />
+      </>
+      )}
     </div>
   );
 });
