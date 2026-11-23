@@ -81,10 +81,20 @@ function applyDocumentLanguage(lang) {
   document.documentElement.lang = lang;
 }
 
+// Default context used when a component renders WITHOUT a
+// <LanguageProvider> ancestor — which production never does (App is wrapped),
+// but component tests do (they render bare components). Both the language and
+// every t() call resolve the persisted UI language dynamically instead of a
+// hard-coded DEFAULT_LANGUAGE, so test environments that seed
+// localStorage["chatdesk.uiLanguage"] (see client/test/setup/browser-i18n.js)
+// get a consistent dictionary. Destructuring `lang` freezes the value at that
+// moment — live updates remain the provider's job.
 const LanguageContext = createContext({
-  lang: DEFAULT_LANGUAGE,
+  get lang() {
+    return getLanguage();
+  },
   setLang: () => {},
-  t: (key, vars) => translate(DEFAULT_LANGUAGE, key, vars),
+  t: (key, vars) => translate(getLanguage(), key, vars),
 });
 
 export function LanguageProvider({ children }) {

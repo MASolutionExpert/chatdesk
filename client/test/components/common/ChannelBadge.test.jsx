@@ -1,7 +1,15 @@
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, beforeEach } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
 import ChannelBadge from "../../../src/components/common/ChannelBadge.jsx";
+
+// This suite asserts the Persian labels explicitly. The global browser-test
+// setup pins the UI language to English (see test/setup/browser-i18n.js), so
+// re-seed "fa" here — the provider-less render resolves t() from the stored
+// language at call time.
+beforeEach(() => {
+  window.localStorage.setItem("chatdesk.uiLanguage", "fa");
+});
 
 // The i18n default language is Persian (fa), so the labels below are the fa
 // strings rendered in a fresh browser context.
