@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.4
+
+### Changed
+
+- 📈 **Per-operator report cards now show the full department-grade metric set.** On the dedicated department page, each operator card replaces the previous seven compact chips with the same ten server-computed metric cards used by the department summary: conversations (assigned), answered, unanswered, messages (every in-range message inside the operator's attributed conversations), tickets opened / closed / still open, average first response, the operator's own staff replies, and customer messages in their conversations. Three of these are new server-side metrics — `messagesInConversations`, `customerMessages`, and `openTickets` per operator — computed by the pure aggregation layer (still driver-neutral for SQLite and PostgreSQL) and covered by 2 new aggregation tests. Suite: 134 files / 1288 server tests, 427 client unit tests green.
+
 ## 1.4.0-dev.3
 
 ### Added

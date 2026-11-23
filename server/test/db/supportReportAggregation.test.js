@@ -179,6 +179,76 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     expect(bob.assigned).toBe(1);
     expect(carol.assigned).toBe(1);
   });
+
+  it("counts every in-range message of an attributed conversation for that operator (messages + customer split)", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" }, // → bob (ticket)
+          { id: 101, department_id: 1, created_at: "2025-01-02T09:00:00Z" }, // older chat, no ticket → carol via first reply
+        ],
+        messages: [
+          // Chat 100: 2 customer + 1 bob message in range
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:01:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:02:00Z" },
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:03:00Z" },
+          // Out-of-range message of chat 100 → not counted
+          { chat_id: 100, user_id: 30, created_at: "2025-09-01T09:00:00Z" },
+          // Chat 101 (attributed to carol): 1 customer + 1 carol reply in range
+          { chat_id: 101, user_id: 31, created_at: "2025-06-11T09:01:00Z" },
+          { chat_id: 101, user_id: 11, created_at: "2025-06-11T09:02:00Z" },
+        ],
+        tickets: [
+          { chat_id: 100, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
+        ],
+        from: "2025-06-01",
+        to: "2025-06-30",
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    const bob = billing.operators.find((o) => o.id === 10);
+    const carol = billing.operators.find((o) => o.id === 11);
+    // Bob owns chat 100 → 3 in-range messages, 2 of them from the customer.
+    expect(bob.messagesInConversations).toBe(3);
+    expect(bob.customerMessages).toBe(2);
+    // His own reply is counted separately as messagesSent.
+    expect(bob.messagesSent).toBe(1);
+    // Carol owns the older chat 101 via first-reply fallback.
+    expect(carol.messagesInConversations).toBe(2);
+    expect(carol.customerMessages).toBe(1);
+    expect(carol.messagesSent).toBe(1);
+    // Department totals remain message-based, not operator-sum based.
+    expect(billing.totals.messages).toBe(5);
+    expect(billing.totals.customerMessages).toBe(3);
+    expect(billing.totals.staffMessages).toBe(2);
+  });
+
+  it("reports still-open tickets per operator", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
+          { id: 101, department_id: 1, created_at: "2025-06-11T09:00:00Z" },
+          { id: 102, department_id: 1, created_at: "2025-06-12T09:00:00Z" },
+        ],
+        tickets: [
+          { chat_id: 100, department_id: 1, customer_id: 30, operator_id: 10, status: "closed", created_at: "2025-06-10T09:00:00Z", closed_at: "2025-06-12T10:00:00Z" },
+          { chat_id: 101, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-11T09:00:00Z", closed_at: null },
+          { chat_id: 102, department_id: 1, customer_id: 31, operator_id: 11, status: "open", created_at: "2025-06-12T09:00:00Z", closed_at: null },
+        ],
+        from: "2025-06-01",
+        to: "2025-06-30",
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    const bob = billing.operators.find((o) => o.id === 10);
+    const carol = billing.operators.find((o) => o.id === 11);
+    expect(bob.ticketsOpened).toBe(2);
+    expect(bob.openTickets).toBe(1); // the closed one no longer counts
+    expect(carol.ticketsOpened).toBe(1);
+    expect(carol.openTickets).toBe(1);
+    expect(billing.totals.openTickets).toBe(2);
+  });
 });
 
 describe("aggregateSupportReport — ticket metrics", () => {

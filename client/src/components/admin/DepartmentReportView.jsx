@@ -274,16 +274,28 @@ const DepartmentReportView = function DepartmentReportView({ departmentId, onBac
                         {op.role}
                       </span>
                     </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-                      <OpMetric label={t("admin.helpdesk.report.opAssigned")} value={op.assigned} />
-                      <OpMetric label={t("admin.helpdesk.report.metricAnswered")} value={op.answered} tone="emerald" />
-                      <OpMetric label={t("admin.helpdesk.report.metricUnanswered")} value={op.unanswered} tone={op.unanswered > 0 ? "amber" : "slate"} />
-                      <OpMetric label={t("admin.helpdesk.metricMsgs")} value={op.messagesSent} />
-                      <OpMetric label={t("admin.helpdesk.report.metricTicketsOpened")} value={op.ticketsOpened} />
-                      <OpMetric label={t("admin.helpdesk.report.metricTicketsClosed")} value={op.ticketsClosed} />
-                      <OpMetric
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                      <TotalCard icon={<MessageCircleMore size={14} />} label={t("admin.helpdesk.metricChats")} value={op.assigned} />
+                      <TotalCard icon={<CircleCheck size={14} />} label={t("admin.helpdesk.report.metricAnswered")} value={op.answered} tone="emerald" />
+                      <TotalCard icon={<TriangleAlert size={14} />} label={t("admin.helpdesk.report.metricUnanswered")} value={op.unanswered} tone={op.unanswered > 0 ? "amber" : "slate"} />
+                      <TotalCard icon={<MessageCircleMore size={14} />} label={t("admin.helpdesk.metricMsgs")} value={op.messagesInConversations} />
+                      <TotalCard icon={<LifeBuoy size={14} />} label={t("admin.helpdesk.report.metricTicketsOpened")} value={op.ticketsOpened} />
+                      <TotalCard icon={<CircleCheck size={14} />} label={t("admin.helpdesk.report.metricTicketsClosed")} value={op.ticketsClosed} />
+                      <TotalCard icon={<Clock12 size={14} />} label={t("admin.helpdesk.report.metricOpenTickets")} value={op.openTickets} tone={op.openTickets > 0 ? "amber" : "slate"} />
+                      <TotalCard
+                        icon={<Gauge size={14} />}
                         label={t("admin.helpdesk.report.metricAvgResponse")}
                         value={op.avgFirstResponseSeconds === null ? "—" : t("admin.helpdesk.report.seconds", { n: op.avgFirstResponseSeconds })}
+                      />
+                      <TotalCard
+                        icon={<Headset size={14} />}
+                        label={t("admin.helpdesk.report.metricStaffMsgs")}
+                        value={op.messagesSent}
+                      />
+                      <TotalCard
+                        icon={<Users size={14} />}
+                        label={t("admin.helpdesk.report.metricCustomerMsgs")}
+                        value={op.customerMessages}
                       />
                     </div>
                   </div>
@@ -315,21 +327,6 @@ function TotalCard({ icon, label, value, tone = "slate" }) {
         <span className="truncate">{label}</span>
       </div>
       <p className="mt-1.5 text-lg font-bold leading-none">{value}</p>
-    </div>
-  );
-}
-
-function OpMetric({ label, value, tone = "slate" }) {
-  const toneCls =
-    tone === "emerald"
-      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-      : tone === "amber"
-        ? "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-        : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
-  return (
-    <div className={"rounded-xl px-2 py-1.5 text-center " + toneCls}>
-      <p className="text-sm font-bold leading-none">{value}</p>
-      <p className="mt-1 truncate text-[10px] font-medium opacity-80" title={label}>{label}</p>
     </div>
   );
 }

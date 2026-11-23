@@ -25,7 +25,10 @@
 // Operator attribution: a conversation is assigned to the operator recorded
 // on its ticket row; legacy chats without a ticket row fall back to the
 // author of the first staff reply. `messagesSent` counts every message the
-// operator authored in the range inside the department's chats.
+// operator authored in the range inside the department's chats, while
+// `messagesInConversations` / `customerMessages` count all in-range messages
+// inside the conversations attributed to the operator, and `openTickets`
+// counts their in-range tickets that are still open.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const STAFF_ROLES = new Set(["operator", "admin", "owner"]);
@@ -96,12 +99,15 @@ function newOperatorEntry(op) {
     assigned: 0,
     answered: 0,
     unanswered: 0,
+    messagesInConversations: 0,
+    customerMessages: 0,
     messagesSent: 0,
     firstResponses: 0,
     responseTimeTotalMs: 0,
     avgFirstResponseSeconds: null,
     ticketsOpened: 0,
     ticketsClosed: 0,
+    openTickets: 0,
   };
 }
 
@@ -208,6 +214,26 @@ export function aggregateSupportReport({
     const entryFor = (userId) =>
       operatorEntries.get(Number(userId)) || null;
 
+    // ── Conversation → operator attribution (any chat age) ────────────────────
+    // A chat belongs to its ticket's operator; legacy chats without a ticket
+    // row fall back to the author of the first staff reply. Only operators on
+    // the department roster receive attribution.
+    const chatOperator = new Map(); // chatId -> operatorId
+    for (const chat of deptChats) {
+      const ticket = ticketByChat.get(Number(chat.id));
+      let opId = ticket && ticket.operator_id !== null && ticket.operator_id !== undefined
+        ? Number(ticket.operator_id)
+        : null;
+      if (opId === null) {
+        const msgs = messagesByChat.get(Number(chat.id)) || [];
+        const firstStaffReply = msgs.find((m) => isStaffAuthor(m.user_id));
+        if (firstStaffReply) opId = Number(firstStaffReply.user_id);
+      }
+      if (opId !== null && operatorEntries.has(opId)) {
+        chatOperator.set(Number(chat.id), opId);
+      }
+    }
+
     // ── Conversations cohort (created in range) ─────────────────────────────
     let responseTimeTotalMs = 0;
     let responseChatCount = 0;
@@ -229,13 +255,7 @@ export function aggregateSupportReport({
 
       // First staff reply → response time + operator attribution.
       const firstStaffReply = chatMessages.find((m) => isStaffAuthor(m.user_id));
-      let assignedOperatorId = null;
-      const ticket = ticketByChat.get(Number(chat.id));
-      if (ticket && ticket.operator_id !== null && ticket.operator_id !== undefined) {
-        assignedOperatorId = Number(ticket.operator_id);
-      } else if (firstStaffReply) {
-        assignedOperatorId = Number(firstStaffReply.user_id);
-      }
+      const assignedOperatorId = chatOperator.get(Number(chat.id)) ?? null;
       const opEntry = assignedOperatorId !== null ? entryFor(assignedOperatorId) : null;
       if (opEntry) opEntry.assigned += 1;
 
@@ -265,16 +285,24 @@ export function aggregateSupportReport({
     const deptChatIdSet = new Set(deptChats.map((c) => Number(c.id)));
     for (const [chatId, chatMessages] of messagesByChat) {
       if (!deptChatIdSet.has(chatId)) continue;
+      const ownerEntry = chatOperator.has(chatId) ? entryFor(chatOperator.get(chatId)) : null;
       for (const msg of chatMessages) {
         const at = parseTime(msg.created_at);
         if (!inRange(at, range)) continue;
         totals.messages += 1;
-        if (isStaffAuthor(msg.user_id)) {
+        const authorIsStaff = isStaffAuthor(msg.user_id);
+        if (authorIsStaff) {
           totals.staffMessages += 1;
           const opEntry = entryFor(msg.user_id);
           if (opEntry) opEntry.messagesSent += 1;
         } else {
           totals.customerMessages += 1;
+        }
+        // Per-operator conversation activity: every in-range message of a
+        // chat counts for the operator that chat is attributed to.
+        if (ownerEntry) {
+          ownerEntry.messagesInConversations += 1;
+          if (!authorIsStaff) ownerEntry.customerMessages += 1;
         }
       }
     }
@@ -295,7 +323,12 @@ export function aggregateSupportReport({
         const opEntry = ticket.operator_id !== null && ticket.operator_id !== undefined
           ? entryFor(ticket.operator_id)
           : null;
-        if (opEntry) opEntry.ticketsOpened += 1;
+        if (opEntry) {
+          opEntry.ticketsOpened += 1;
+          if (String(ticket.status || "").toLowerCase() !== "closed") {
+            opEntry.openTickets += 1;
+          }
+        }
       }
       if (closedInRange) {
         totals.ticketsClosed += 1;
