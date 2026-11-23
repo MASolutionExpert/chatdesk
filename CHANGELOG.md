@@ -2,6 +2,16 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.3.0-dev.7
+
+### Fixed
+
+- 🧪 **CI browser tests are green again — 554 tests, zero 20-second locator hangs.** ChatDesk defaults its UI language to Persian, but component tests render bare components (no `LanguageProvider`) and assert the English labels ("Type a message", "Call failed", …), so every name-based locator (`getByRole("textbox", { name: /type a message/i })`) waited out the full 20-second test timeout — dozens of tests per file, until the whole CI job hit its 10-minute cap. The suite had never actually run in CI (repository Actions were disabled; the check only appeared on the first stable promotion). Three-part fix: the provider-less default i18n context now resolves the persisted language dynamically instead of a hard-coded `fa` (production always mounts the provider, so behavior is unchanged), a new browser-test setup (`client/test/setup/browser-i18n.js`) seeds `localStorage["chatdesk.uiLanguage"] = "en"` before any component mounts, and `ChannelBadge` — the one suite asserting Persian labels on purpose — re-seeds `fa` per test. Locally verified: chromium 51 files / 554 tests all green (MessageComposer now 0.6 s instead of 499 s), unit suite 427 green.
+
+### CI
+
+- ⏱️ The "Run client browser tests" step timeout is raised 10 → 15 minutes for chromium + firefox headroom (healthy runtime is now ~6 minutes).
+
 ## 1.3.0-dev.6
 
 ### Fixed
