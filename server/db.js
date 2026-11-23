@@ -5621,3 +5621,74 @@ export async function getSupportOverview() {
     chats: decryptedChats,
   };
 }
+
+// ─── Support performance report (time-filtered) ─────────────────────────────
+// Raw-row fetch for the department/operator performance report. The metrics
+// themselves are computed by the pure aggregator in lib/supportReport.js so
+// SQLite and PostgreSQL yield identical numbers. See that module for the
+// metric definitions.
+export async function getSupportReport({ departmentId = null, from = null, to = null } = {}) {
+  const { aggregateSupportReport } = await import("./lib/supportReport.js");
+
+  const departments = listDepartments({ activeOnly: false });
+  const deptList = departments && typeof departments.then === "function"
+    ? await departments
+    : departments;
+
+  const reportDepartments = departmentId
+    ? (deptList || []).filter((d) => Number(d.id) === Number(departmentId))
+    : deptList || [];
+  if (departmentId && !reportDepartments.length) {
+    return { range: { from: from || null, to: to || null }, departments: [] };
+  }
+
+  // Staff users assigned to any department (the reportable operator pool).
+  const operatorRows = await getAll(
+    dbKnex("users")
+      .select("id", "username", "nickname", "color", "role", "department_id", "banned")
+      .whereNotNull("department_id")
+      .whereIn("role", SUPPORT_ROLES)
+  );
+
+  // Support chats (any age) — the range filter is applied by the aggregator.
+  const chatQb = dbKnex("chats as c")
+    .whereNotNull("c.department_id")
+    .where("c.type", "dm")
+    .select("c.id", "c.department_id", "c.created_at");
+  if (departmentId) chatQb.andWhere("c.department_id", Number(departmentId));
+  const chatRows = await getAll(chatQb);
+
+  // Full message history of the involved chats (aggregator applies ranges).
+  const chatIds = (chatRows || []).map((r) => Number(r.id));
+  const messageRows = chatIds.length
+    ? await getAll(
+        dbKnex("chat_messages")
+          .whereIn("chat_id", chatIds)
+          .select("chat_id", "user_id", "created_at")
+      )
+    : [];
+
+  const ticketQb = dbKnex("tickets").select(
+    "chat_id",
+    "department_id",
+    "operator_id",
+    "status",
+    "created_at",
+    "closed_at"
+  );
+  if (departmentId) ticketQb.where("department_id", Number(departmentId));
+  const ticketRows = await getAll(ticketQb);
+
+  const roleRows = await getAll(dbKnex("users").select("id", "role"));
+
+  return aggregateSupportReport({
+    departments: reportDepartments,
+    operators: operatorRows || [],
+    chats: chatRows || [],
+    messages: messageRows || [],
+    users: roleRows || [],
+    tickets: ticketRows || [],
+    from,
+    to,
+  });
+}

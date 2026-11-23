@@ -67,15 +67,33 @@ Operators are normal accounts with the `operator` role:
 | `PATCH` | `/api/admin/departments/:id` | Edit / activate / deactivate |
 | `DELETE` | `/api/admin/departments/:id` | Soft delete (deactivates, keeps history) |
 | `GET` | `/api/admin/support/overview` | Per-department reports + latest conversations |
+| `GET` | `/api/admin/support/report` | Time-filtered performance report (`?departmentId=&from=&to=`, dates inclusive) |
 
-## Reports
+## Department performance report
 
-The `Helpdesk` tab in the admin panel shows, per department:
+Clicking a department name in the Helpdesk tab's summary opens a **dedicated
+report page** for that department — a standard reporting panel for department
+and operator performance with a precise time filter (from/to dates, plus
+Today / Last 7 days / Last 30 days / All-time presets).
 
-- Total conversations, open conversations, total messages
-- Operators on duty
-- The latest support conversations with their state
-  (`awaiting reply` = the customer sent the last message)
+Every number is computed **server-side** (`GET /api/admin/support/report`),
+so SQLite and PostgreSQL installations report identical figures. Metrics:
+
+| Metric | Definition |
+| --- | --- |
+| Conversations | support chats **created** in the range |
+| Messages | messages **authored** in the range inside the department's chats (any chat age) |
+| Staff replies / Customer messages | the author-role split of those messages |
+| Tickets opened / closed / still open | ticket lifecycle rows created / closed in the range; "still open" = opened in-range and not yet closed |
+| Answered / Unanswered | conversations created in the range whose last message is staff-authored vs customer-authored (or never written) |
+| Avg first response | mean of (first staff reply − conversation creation), per operator and per department |
+
+A conversation is attributed to its ticket's operator; legacy chats without a
+ticket row fall back to the author of the first staff reply. The per-operator
+table also shows each operator's assigned conversations, replies, messages
+sent and ticket counts inside the selected range.
+
+> گزارش عملکرد دپارتمان — با کلیک روی نام هر دپارتمان در خلاصهٔ میز خدمت، صفحهٔ اختصاصی آن دپارتمان باز می‌شود: فهرست اپراتورها، خلاصهٔ وضعیت و عملکرد آن‌ها، و یک پنل گزارش‌گیری استاندارد با فیلتر زمانی دقیق (از/تا + میان‌برهای امروز، ۷ روز، ۳۰ روز و همهٔ زمان‌ها). تعداد گفتگوها و تیکت‌ها، پاسخ‌های داده‌شده و بدون پاسخ و میانگین زمان اولین پاسخ در همان بازهٔ انتخابی، همه سمت سرور محاسبه می‌شود.
 
 ## Database
 

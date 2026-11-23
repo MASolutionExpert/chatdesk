@@ -102,6 +102,7 @@ function registerAdminPanelRoutes(app, deps) {
     listOperatorsForDepartment,
     setUserDepartment,
     getSupportOverview,
+    getSupportReport,
     removeStoredFileNames,
     setUserRole,
     // user creation / editing
@@ -770,6 +771,46 @@ function registerAdminPanelRoutes(app, deps) {
     if (!requireAdmin(req, res)) return;
     const overview = await resolveMaybePromise(getSupportOverview());
     res.json(overview || { departments: [], chats: [] });
+  });
+
+  // Time-filtered department/operator performance report.
+  //   ?departmentId=7   optional — restrict to one department
+  //   ?from=2025-01-01  optional — inclusive ("YYYY-MM-DD" or ISO)
+  //   ?to=2025-01-31    optional — inclusive
+  app.get("/api/admin/support/report", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    const rawDepartmentId = String(req.query.departmentId || "").trim();
+    let departmentId = null;
+    if (rawDepartmentId) {
+      departmentId = Number(rawDepartmentId);
+      if (!Number.isInteger(departmentId) || departmentId <= 0) {
+        return res.status(400).json({ error: "Invalid departmentId." });
+      }
+    }
+
+    const rawFrom = String(req.query.from || "").trim();
+    const rawTo = String(req.query.to || "").trim();
+    const rangeDate = (value) => {
+      if (!value) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isNaN(Date.parse(value))) return null;
+      return value;
+    };
+    const from = rangeDate(rawFrom);
+    const to = rangeDate(rawTo);
+    if ((rawFrom && from === null) || (rawTo && to === null)) {
+      return res.status(400).json({ error: "Invalid date range." });
+    }
+
+    const report = await resolveMaybePromise(getSupportReport({ departmentId, from, to }));
+    if (!report) {
+      return res.status(400).json({ error: "Invalid date range." });
+    }
+    if (departmentId && !(report.departments || []).length) {
+      return res.status(404).json({ error: "Department not found." });
+    }
+    res.json(report);
   });
 
   // ─── Users — list ────────────────────────────────────────────────────────────

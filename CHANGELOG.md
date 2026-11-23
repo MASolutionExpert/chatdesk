@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.3
+
+### Added
+
+- 📊 **Department performance report — a dedicated, time-filtered reporting panel per department (backend-first).** The admin Helpdesk tab's "latest support conversations" list is gone (the full history already lives in the messages), and every department name in the summary now opens a dedicated department page: its operators, their status and performance at a glance, and a standard reporting panel with a precise time filter (from/to dates plus Today / 7 days / 30 days / All-time presets). The server owns every number: a new pure aggregation layer (`server/lib/supportReport.js`) computes, per department and per operator, conversations created in the range, messages authored in the range (staff vs customer split), tickets opened / closed / still open, answered vs unanswered conversations, and the average first-response time — all behind the new admin-only `GET /api/admin/support/report?departmentId=&from=&to=` endpoint (401/403 for non-admins, 404 for unknown departments, 400 for invalid ranges). The aggregation is driver-neutral: SQLite and PostgreSQL produce identical numbers, and mixed timestamp formats (SQLite `datetime('now')` vs ISO) normalize to the same UTC instants. A conversation is attributed to its ticket's operator, falling back to the author of the first staff reply for legacy chats. **Tests:** 19 new tests — 13 pure-aggregation tests locking the metric contract for both drivers, 6 API contract tests (auth, param validation, 404, payload passthrough). Suite: 134 files / 1286 server tests, 427 client unit tests green.
+
 ## 1.4.0-dev.2
 
 ### Added

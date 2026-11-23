@@ -15,9 +15,9 @@ import {
   inputCls,
   labelCls,
   iconBtn,
-  fmtDate,
 } from "./adminShared.js";
 import { EmptyState, TabToolbar } from "./AdminCommon.jsx";
+import DepartmentReportView from "./DepartmentReportView.jsx";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 import { hasPersian } from "../../utils/fontUtils.js";
 import { useI18n } from "../../i18n/index.js";
@@ -28,8 +28,9 @@ const DEPARTMENT_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#f43f5e", "#8b5cf6"
  * HelpdeskTab — the enterprise ticketing layer of the admin panel.
  *
  * Sections:
- *  1. Reports  — per-department volume / open conversations / operator load,
- *                plus the latest support conversations.
+ *  1. Reports  — per-department volume / open conversations / operator load;
+ *                every department name opens its dedicated performance report
+ *                (operators, answered/unanswered, precise time filters).
  *  2. Departments — create, edit, deactivate support departments.
  */
 const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }, ref) {
@@ -40,6 +41,8 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState("");
+  // Drill-down: when set, the tab renders the department's dedicated report.
+  const [selectedDept, setSelectedDept] = useState(null);
 
   // Department create/edit modal state
   const [editorOpen, setEditorOpen] = useState(false);
@@ -140,6 +143,21 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
   const nameHasPersian = hasPersian(name);
   const descHasPersian = hasPersian(description);
 
+  // Department drill-down: the dedicated per-department performance page.
+  if (selectedDept) {
+    return (
+      <div className="space-y-6">
+        <DepartmentReportView
+          departmentId={selectedDept.id}
+          onBack={() => {
+            setSelectedDept(null);
+            void refresh();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <TabToolbar>
@@ -183,12 +201,19 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
               {(overview.departments || []).map((d) => (
                 <div
                   key={d.id}
-                  className="rounded-2xl border border-emerald-100/70 bg-white/70 p-3 dark:border-emerald-500/20 dark:bg-slate-900/50"
+                  className="rounded-2xl border border-emerald-100/70 bg-white/70 p-3 transition hover:border-emerald-300 dark:border-emerald-500/20 dark:bg-slate-900/50 dark:hover:border-emerald-500/40"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100" dir="auto">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDept({ id: Number(d.id), name: d.name })}
+                      className="min-w-0 flex-1 truncate text-start text-sm font-semibold text-emerald-700 underline-offset-4 transition hover:underline dark:text-emerald-300"
+                      dir="auto"
+                      title={t("admin.helpdesk.report.openTitle", { name: d.name })}
+                      aria-label={t("admin.helpdesk.report.openTitle", { name: d.name })}
+                    >
                       {d.name}
-                    </span>
+                    </button>
                     {!d.active ? (
                       <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                         {t("admin.helpdesk.inactive")}
@@ -211,54 +236,6 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                 </p>
               ) : null}
             </div>
-
-            {(overview.chats || []).length ? (
-              <div className="mt-4">
-                <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  {t("admin.helpdesk.latestConversations")}
-                </h4>
-                <div className="app-scroll max-h-72 space-y-2 overflow-y-auto pr-1">
-                  {(overview.chats || []).slice(0, 30).map((c) => (
-                    <div
-                      key={c.id}
-                      className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-white/70 px-3 py-2.5 dark:border-white/5 dark:bg-slate-900/50"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" dir="auto">
-                          {c.customerNickname || c.customerUsername}
-                          <span className="ms-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                            {c.departmentName || "—"}
-                          </span>
-                          {c.operatorUsername ? (
-                            <span className="ms-1.5 hidden text-[10px] text-slate-400 sm:inline">
-                              → {c.operatorNickname || c.operatorUsername}
-                            </span>
-                          ) : null}
-                        </p>
-                        <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400" dir="auto">
-                          {c.lastMessageBody || t("admin.helpdesk.noMessages")}
-                        </p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <span
-                          className={
-                            "rounded-full px-2 py-0.5 text-[10px] font-bold " +
-                            (c.lastMessageByCustomer
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
-                              : "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300")
-                          }
-                        >
-                          {c.lastMessageByCustomer ? t("admin.helpdesk.awaitingReply") : t("admin.helpdesk.handled")}
-                        </span>
-                        <p className="mt-1 text-[10px] text-slate-400">
-                          {fmtDate(c.lastMessageAt || c.createdAt)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </>
         )}
       </section>
