@@ -2,6 +2,18 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.2.0-dev.9
+
+### Fixed
+
+- 🐛 **Picking any action in the message context menu kicked you out of the chat.** After tapping حذف (delete) or forward — whether you completed the action or cancelled it — the app exited the open chat and landed back on the chats list, in every chat and thread. Root cause: when a menu item opened a follow-up dialog (delete-scope, forward), the menu's deferred `history.back()` found the dialog's history entry on top and skipped its own pop, leaving an orphaned `{sbContextMenu: true}` sentinel in the history stack between the chat's entry and the dialog's. When the dialog later closed, its pop landed on that orphaned entry, and the open chat's `useOverlayBack` handler — whose guard only recognised its own key — misread it as a genuine back gesture and called `closeChat()`.
+  - Fix in the shared `useOverlayBack` hook: sentinel ownership is now tracked in a module-level registry, so a pop that lands on any overlay's **stale** sentinel (owner already closed without popping) is treated as internal bookkeeping — not a back gesture — and the stale entry is disposed automatically with a follow-up `back()`. Works for every overlay that opens on top of a closing one, not just the context menu.
+  - Regression tests: the existing "opening a modal while the context menu closes in the same commit keeps the modal open" suite still passes; no overlay closes unexpectedly when a sibling overlay's stale sentinel is popped.
+
+### Changed
+
+- 🛡️ **Message editing is now a moderator-only capability.** Regular users (نقش user) can no longer edit messages — the ویرایش entry no longer appears in their message context menu, and both server edit paths (`POST /api/messages` with `editMessageId`, and `POST /api/messages/edit`) return 403 `Only moderators can edit messages.` for the `user` role, even on their own messages. Owner/admin/operator keep editing their own messages exactly as before.
+
 ## 1.2.0-dev.8
 
 ### Fixed
