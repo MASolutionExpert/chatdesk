@@ -2,7 +2,11 @@
 
 All notable changes to ChatDesk are documented in this file.
 
-## 1.2.0-dev.10
+## 1.3.0-dev.1
+
+### Added
+
+- 🔢 **Engineered version scheme: no more two-digit dev counters.** Dev prereleases used an open-ended counter (`1.2.0-dev.10`, `dev.11`, …), which scrambled GitHub's alphabetical tags/releases ordering (`dev.10` sorts before `dev.2`). The dev counter is now a single digit 1–9; when the next increment would reach `.dev.10` it **carries into the minor version** (`1.2.0-dev.9` → `1.3.0-dev.1`), so alphabetical tag order always equals chronological order. Enforced end-to-end: `scripts/next-dev-version.sh` is the canonical next-version calculator, the release-sync gate rejects any version with a dev counter above 9, and the `chatdesk-deploy` CLI's `dpkg --compare-versions` comparisons remain fully compatible with the scheme. This release is the first to use it: the call-stability work previously staged as `1.2.0-dev.10` ships as **1.3.0-dev.1** (same commit content, clean order).
 
 ### Fixed
 

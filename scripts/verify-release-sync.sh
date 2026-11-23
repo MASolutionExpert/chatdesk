@@ -51,6 +51,12 @@ elif [[ -n "$version" && "$header_version" != "$version" ]]; then
   fail_reason "Installer header version ($header_version) does not match VERSION ($version). The chatdesk-deploy CLI would never self-update."
 fi
 
+if [[ -n "$version" ]]; then
+  if ! bash "$SCRIPT_DIR/next-dev-version.sh" --validate >/dev/null 2>&1; then
+    fail_reason "VERSION '$version' is not a legal ChatDesk version (X.Y.Z or X.Y.Z-dev.N with N in 1..9). Dev counters above 9 are forbidden — they scramble GitHub's alphabetical tag ordering. Carry into the minor instead: 1.2.0-dev.9 -> 1.3.0-dev.1. See scripts/next-dev-version.sh."
+  fi
+fi
+
 # 3. CHANGELOG documents the released version
 if [[ -n "$version" && -f "$ROOT_DIR/CHANGELOG.md" ]]; then
   if ! grep -Eq "^## ${version//./\\.}\s*$" "$ROOT_DIR/CHANGELOG.md"; then
