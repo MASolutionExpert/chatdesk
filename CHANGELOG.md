@@ -2,8 +2,7 @@
 
 All notable changes to ChatDesk are documented in this file.
 
-## 1.3.0-dev.6
-
+## 1.3.0
 ### Fixed
 
 - 📊 **The dashboard's "App Memory" gauge is no longer permanently red.** It divided the Node process's live heap (`heapUsed`) by the *currently allocated* heap (`heapTotal`) — but V8's garbage collector deliberately keeps live usage **near** the allocated heap and grows it on demand, so a perfectly healthy process reads 85–95% there. That is exactly what the user saw: ~94% red while the machine had 3.8 GB free and zero leaks. The gauge now measures the heap against its **real ceiling** — the V8 heap limit (`heap_size_limit`, ~4 GB by default, or `--max-old-space-size` when configured), which the server now exposes alongside the existing fields. The same healthy process now reads ~1% green, a genuinely leaking process still turns orange/red as it approaches the limit, and the gauge sublabel shows `used / limit` instead of `used / allocated`. Old server payloads without the new field fall back to the previous behavior.
