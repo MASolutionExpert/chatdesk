@@ -268,7 +268,9 @@ describe("POST /api/messages", () => {
 // ─── POST /api/messages/edit ──────────────────────────────────────────────────
 
 describe("POST /api/messages/edit", () => {
-  function makeEditApp(messageOverride = {}) {
+  // Editing is a moderator-only capability: owner/admin/operator. Regular
+  // users get 403 even on their own messages (see the regression test below).
+  function makeEditApp(messageOverride = {}, role = "operator") {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
@@ -279,7 +281,7 @@ describe("POST /api/messages/edit", () => {
         avatar_url: null,
         color: "#10b981",
         status: "online",
-        role: "user",
+        role,
         banned: false,
       },
     ]);
@@ -358,6 +360,21 @@ describe("POST /api/messages/edit", () => {
       .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, body: "New body" });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/author/i);
+  });
+
+  test("returns 403 when a regular user edits their own message", async () => {
+    const { app } = makeEditApp({}, "user");
+    const cookie = (
+      await request(app)
+        .post("/api/login")
+        .send({ username: "alice", password: "secret123" })
+    ).headers["set-cookie"];
+    const res = await request(app)
+      .post("/api/messages/edit")
+      .set("Cookie", cookie)
+      .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, body: "New body" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/moderator/i);
   });
 
   test("returns 200 on successful edit", async () => {

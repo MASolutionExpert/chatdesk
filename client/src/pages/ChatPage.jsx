@@ -3219,11 +3219,15 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     [activeChat?.type, canCurrentUserEditGroup, canModerateContent, isActiveChannelChat, user?.username],
   );
 
+  // Only moderators (owner/admin/operator) may edit messages at all —
+  // regular users never see the edit entry. The server enforces the same
+  // rule on both edit paths.
   const canEditMessageFromContext = useCallback(
     (message) =>
+      canModerateContent &&
       (!isActiveChannelChat || canCurrentUserEditGroup) &&
       isMessageAuthoredByUser(message, { username: user?.username }),
-    [canCurrentUserEditGroup, isActiveChannelChat, user?.username],
+    [canCurrentUserEditGroup, isActiveChannelChat, canModerateContent, user?.username],
   );
 
   function handleDeleteMessageRequest(message, _options = {}) {

@@ -1084,6 +1084,14 @@ function registerMessageRoutes(app, deps) {
               error: "Only the message author can edit this message.",
             });
           }
+          // Regular users must never edit messages — even their own.
+          // Moderators (owner/admin/operator) only.
+          if (!isModeratorRole(user.role)) {
+            removeUploadedFiles(uploadedFiles);
+            return res.status(403).json({
+              error: "Only moderators can edit messages.",
+            });
+          }
         }
 
         const localBytes = uploadedFiles.reduce(
@@ -2037,6 +2045,11 @@ function registerMessageRoutes(app, deps) {
     }
     if (!isMessageAuthoredByUser(message, user.id)) {
       return res.status(403).json({ error: "Only the author can edit this message." });
+    }
+    // Regular users must never edit messages — even their own.
+    // Moderators (owner/admin/operator) only.
+    if (!isModeratorRole(user.role)) {
+      return res.status(403).json({ error: "Only moderators can edit messages." });
     }
 
     const editRes = editMessage(messageId, trimmedBody);
