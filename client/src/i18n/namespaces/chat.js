@@ -144,6 +144,8 @@ export const chat = {
       endedFailed: "Call failed",
       endedNoAnswer: "No answer",
       endedBusy: "Line busy",
+      failedHint:
+        "The media connection could not be established — usually a restrictive network (carrier/home NAT). A TURN relay on the server fixes this: sudo bash scripts/setup-turn.sh",
     },
     callLog: {
       outgoing: "Outgoing call",
@@ -381,6 +383,8 @@ export const chat = {
       endedFailed: "تماس ناموفق بود",
       endedNoAnswer: "بی‌پاسخ",
       endedBusy: "خط اشغال است",
+      failedHint:
+        "اتصال رسانه برقرار نشد — معمولاً به‌دلیل شبکهٔ محدود (NAT اپراتور یا اینترنت خانگی). راه‌حل: اجرای sudo bash scripts/setup-turn.sh روی سرور برای راه‌اندازی رلهٔ TURN",
     },
     callLog: {
       outgoing: "تماس خروجی",

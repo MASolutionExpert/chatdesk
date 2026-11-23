@@ -2,6 +2,20 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.3.0-dev.4
+
+### Fixed
+
+- 📞 **"Call failed" root causes, round two — the server could poison a chat against itself.** Three defects that made every call attempt fail (often permanently) were found and fixed:
+  - **Stale call entries poisoned the chat with 409s.** An active-call entry whose clients had all vanished (SSE-only client whose stream died without a close event, a device that never sent a clean disconnect) stayed in memory forever when `CALL_MAX_DURATION` was unset — and every later dial in that DM then hit `409 Call already in progress` and surfaced "Call failed". Instantly and forever, until the server restarted. Two fixes: the call manager now runs a **stale-call sweep** (default every 30s) that reaps a connected call once BOTH participants have been offline past a 45s grace window (a client mid-reconnect survives; a ringing call stays bounded by its own 60s ring timer), plus an absolute lifetime cap on any call entry; and `startCall` now **takes over** a stale entry instead of returning 409. With the sweep wired to the presence tracker, a leaked entry can no longer exist.
+  - **One disconnected session killed the other session's live call.** The WebSocket gateway tore down all of a user's active calls whenever ANY of their sockets closed — closing a second tab, a phone sleeping, or a transient reconnect dropped the user's other session straight into a call the server had already deleted; every further signaling message 404'd and the call died as "Call failed". The gateway now cleans up only when the user's **last** realtime session (WS or SSE) is gone, using the presence tracker.
+  - **A redial during the ring failed with 409.** If the caller's browser refreshed mid-ring, the server kept ringing for up to 60s while the caller's screen was gone — and redialling in that window returned `409` → "Call failed". A redial from the same caller now **resumes the same ringing call** instead.
+- 🧭 **The failure now explains itself.** When the media path (ICE) genuinely cannot connect — the remaining physical cause, typically a restrictive network such as carrier/home NAT without a TURN relay — the call screen now shows a hint under "Call failed" pointing at the one-command fix (`scripts/setup-turn.sh`), in English and Persian, instead of a dead end.
+
+### Tests
+
+- 9 new server tests: reaper lifecycle (grace window, online participant, lifetime cap, log semantics), stale takeover, redial resume, and the gateway's last-session-only cleanup. Full suites: server 1230, client 406, worker 35 — all passing.
+
 ## 1.3.0-dev.3
 
 ### Changed

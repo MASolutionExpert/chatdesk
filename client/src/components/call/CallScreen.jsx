@@ -470,6 +470,10 @@ export const CallScreen = memo(function CallScreen({
           ? formatDuration(callDuration)
           : "";
   const stateLabelColor = isEnding ? "text-red-400" : "text-emerald-400";
+  // When the media path itself died (ICE failure), tell the user why it
+  // usually happens and how the server operator fixes it (TURN relay).
+  const failedHint =
+    callEndReason === "failed" ? t("chat.call.failedHint") : null;
   // Controls stay mounted while the end notice shows, but are inert.
   const controlState = isEnding
     ? "opacity-40 cursor-not-allowed"
@@ -683,6 +687,11 @@ export const CallScreen = memo(function CallScreen({
                   {isEnding ? null : <SignalIndicator quality={callQuality} />}
                   {stateLabel}
                 </p>
+                {failedHint && (
+                  <p className="mt-1 max-w-[20rem] text-xs leading-5 text-white/50">
+                    {failedHint}
+                  </p>
+                )}
               </div>
             </div>
             <Tooltip label="Back to chats">
@@ -731,6 +740,11 @@ export const CallScreen = memo(function CallScreen({
           <p className={`mt-2 text-sm font-medium ${stateLabelColor}`}>
             {stateLabel}
           </p>
+          {failedHint && (
+            <p className="mt-2 max-w-[22rem] px-4 text-center text-xs leading-5 text-white/50">
+              {failedHint}
+            </p>
+          )}
         </div>
       )}
 

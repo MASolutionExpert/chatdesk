@@ -8,6 +8,10 @@ export function createWebSocketGateway({
   getSessionFromToken,
   onUserConnected,
   onUserDisconnected,
+  // Live-session lookup across ALL transports (WS + SSE). A single socket
+  // closing (another tab, a reconnecting phone) must not tear down a call
+  // the user's other session is actively in.
+  isUserOnline = null,
   heartbeatIntervalMs = 30000,
   heartbeatTimeoutMs = 10000,
   // Live-read of the CALL setting: the WebSocket path must enforce the same
@@ -201,11 +205,18 @@ export function createWebSocketGateway({
               clients.delete(ws);
               if (!clients.size) clientsByUsername.delete(username);
             }
+            // Presence first: it drops THIS socket's ref, so the liveness
+            // check below reflects the user's remaining sessions (WS + SSE).
+            if (onUserDisconnected) onUserDisconnected(username, ws);
             if (callManager && typeof callManager.cleanupUserCalls === "function") {
-              callManager.cleanupUserCalls(username);
+              const stillOnline =
+                typeof isUserOnline === "function" && isUserOnline(username);
+              if (!stillOnline) {
+                callManager.cleanupUserCalls(username);
+              }
             }
           }
-          if (onUserDisconnected) onUserDisconnected(username, ws);
+          if (!username && onUserDisconnected) onUserDisconnected(username, ws);
         });
       }
     };

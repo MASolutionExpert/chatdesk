@@ -593,6 +593,10 @@ const callManager = createCallManager({
   findChatById,
   listChatMembers,
   findUserById,
+  // Liveness across WS + SSE: lets the call manager reap calls whose
+  // participants have all vanished instead of leaking a 409 poison in the
+  // chat ("Call failed" forever).
+  isUserOnline: (username) => presenceTracker.isConnected(username),
   emitToUser: (username, payload) => {
     emitSseEvent(username, payload);
     wsPresenceBroadcaster?.(username, payload);
@@ -1536,6 +1540,7 @@ const wsGateway = createWebSocketGateway({
   getSessionFromToken: getSessionCombined,
   onUserConnected: (username, ws) => presenceTracker.markConnected(username, ws),
   onUserDisconnected: (username, ws) => presenceTracker.markDisconnected(username, ws),
+  isUserOnline: (username) => presenceTracker.isConnected(username),
   heartbeatIntervalMs: wsHeartbeatIntervalMs,
   heartbeatTimeoutMs: wsHeartbeatTimeoutMs,
   callsEnabled: () => Boolean(getSetting("CALL")),

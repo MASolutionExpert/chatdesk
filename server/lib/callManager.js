@@ -20,6 +20,18 @@ export function createCallManager(deps) {
     // "missed" log entry instead of ringing forever (stale sessions, phones
     // asleep, push never delivered...).
     ringTimeoutMs = 60000,
+    // Live-session lookup (WS + SSE). Used to reap calls whose participants
+    // have all vanished — without it a leaked entry makes EVERY later call in
+    // that chat fail with 409 "already in progress" -> "Call failed" forever.
+    isUserOnline = null,
+    // Both participants offline for longer than this while "connected" -> the
+    // call is dead (a client reconnecting for a few seconds must survive).
+    offlineGraceMs = 45000,
+    // Absolute lifetime cap for any call entry, ringing or connected.
+    staleCallMaxMs = 4 * 60 * 60 * 1000,
+    // Stale-call sweep cadence; 0 disables the timer (tests call
+    // sweepStaleCalls() directly).
+    sweepIntervalMs = 30000,
   } = deps;
   const MAX_CALL_DURATION_MS = Math.max(0, Math.trunc(Number(maxCallDurationMs) || 0));
   const RING_TIMEOUT_MS = Math.max(250, Math.trunc(Number(ringTimeoutMs) || 60000));
@@ -31,6 +43,9 @@ export function createCallManager(deps) {
   // crash res.json (a latent 500 on every start/accept).
   const ringTimers = new Map();
   const durationTimers = new Map();
+  // chatId -> timestamp of the first sweep that saw both participants offline
+  // while the call was "connected" (grace window before the reaper fires).
+  const offlineSince = new Map();
 
   function clearTimer(map, key) {
     const timer = map.get(key);
@@ -111,6 +126,97 @@ export function createCallManager(deps) {
   function getActiveCall(chatId) {
     if (!chatId) return undefined;
     return activeCalls.get(String(chatId).toLowerCase());
+  }
+
+  function isUserReachable(username) {
+    if (typeof isUserOnline !== "function") return true;
+    if (!username) return false;
+    return Boolean(isUserOnline(username));
+  }
+
+  function participantsOffline(call) {
+    return (
+      !isUserReachable(call.callerUsername) && !isUserReachable(call.calleeUsername)
+    );
+  }
+
+  // Remove a call the hard way: timers, log entry and every still-attached
+  // screen. Used by the stale-call reaper and by startCall's takeover.
+  function forceEndCall(call, { logStatus, durationSeconds = null } = {}) {
+    const key = String(call.chatId).toLowerCase();
+    clearTimer(ringTimers, key);
+    clearTimer(durationTimers, key);
+    activeCalls.delete(key);
+    offlineSince.delete(key);
+
+    dismissCallPush(call);
+
+    if (logStatus) {
+      void writeCallLog(call, logStatus, durationSeconds);
+    }
+
+    if (typeof emitToUser === "function") {
+      for (const username of [call.callerUsername, call.calleeUsername]) {
+        if (username) {
+          emitToUser(username, {
+            type: "call:ring-ended",
+            chatId: call.chatId,
+          });
+          if (isUserReachable(username)) {
+            emitToUser(username, {
+              type: "call:ended",
+              chatId: call.chatId,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  function isCallStale(call) {
+    if (Date.now() - Number(call.startedAt || 0) > staleCallMaxMs) return true;
+    // A ringing call is bounded by its own ring timer — only a connected
+    // call with both sessions gone is takeover material (no client is
+    // attached to it; it would otherwise poison the chat with 409s).
+    if (call.status === "connected" && participantsOffline(call)) return true;
+    return false;
+  }
+
+  function sweepStaleCalls() {
+    for (const call of [...activeCalls.values()]) {
+      const key = String(call.chatId).toLowerCase();
+      if (Date.now() - Number(call.startedAt || 0) > staleCallMaxMs) {
+        forceEndCall(call, {
+          logStatus: call.status === "ringing" ? "missed" : "connected",
+          durationSeconds:
+            call.status === "ringing" ? null : secondsSinceStart(call),
+        });
+        continue;
+      }
+      if (call.status !== "connected") {
+        offlineSince.delete(key);
+        continue;
+      }
+      if (!participantsOffline(call)) {
+        offlineSince.delete(key);
+        continue;
+      }
+      // Both sessions gone while connected: allow a short grace window (a
+      // client mid-reconnect), then end the call for everyone.
+      const since = offlineSince.get(key) || Date.now();
+      offlineSince.set(key, since);
+      if (Date.now() - since >= offlineGraceMs) {
+        forceEndCall(call, {
+          logStatus: "connected",
+          durationSeconds: secondsSinceStart(call),
+        });
+      }
+    }
+  }
+
+  if (sweepIntervalMs > 0) {
+    const sweepTimer = setInterval(sweepStaleCalls, sweepIntervalMs);
+    if (typeof sweepTimer.unref === "function") sweepTimer.unref();
   }
 
   function armRingTimer(call) {
@@ -260,8 +366,31 @@ export function createCallManager(deps) {
     }
 
     const key = normalizedChatId.toLowerCase();
-    if (activeCalls.has(key)) {
-      return { status: 409, error: "Call already in progress in this chat" };
+    const existingCall = activeCalls.get(key);
+    if (existingCall) {
+      // A redial from the same caller while the ring is still up (e.g. the
+      // caller's browser refreshed mid-ring and lost the call screen):
+      // resume the same ring instead of a scary 409 -> "Call failed".
+      const sameCaller =
+        String(existingCall.callerUsername).toLowerCase() ===
+        String(user.username).toLowerCase();
+      if (existingCall.status === "ringing" && sameCaller) {
+        return { status: 200, call: existingCall };
+      }
+      // A stale entry (participants gone, or an ancient leftover) must not
+      // poison the chat forever — take it over.
+      if (isCallStale(existingCall)) {
+        forceEndCall(existingCall, {
+          logStatus:
+            existingCall.status === "ringing" ? "missed" : "connected",
+          durationSeconds:
+            existingCall.status === "ringing"
+              ? null
+              : secondsSinceStart(existingCall),
+        });
+      } else {
+        return { status: 409, error: "Call already in progress in this chat" };
+      }
     }
 
     const members =
@@ -626,5 +755,6 @@ export function createCallManager(deps) {
     endCall,
     relaySignal,
     cleanupUserCalls,
+    sweepStaleCalls,
   };
 }

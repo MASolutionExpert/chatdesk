@@ -179,8 +179,8 @@ describe("/api/calls endpoints", () => {
       );
     });
 
-    it("returns 409 when call already active", async () => {
-      await request(app)
+    it("resumes the same ringing call when the same caller redials", async () => {
+      const first = await request(app)
         .post("/api/calls/start")
         .set("Cookie", "sid=alice-token")
         .send({ chatId: CHAT_ID, type: "voice" });
@@ -189,7 +189,8 @@ describe("/api/calls endpoints", () => {
         .post("/api/calls/start")
         .set("Cookie", "sid=alice-token")
         .send({ chatId: CHAT_ID, type: "voice" });
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(200);
+      expect(res.body.call.chatId).toBe(first.body.call.chatId);
     });
   });
 

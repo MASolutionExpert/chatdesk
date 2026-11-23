@@ -187,4 +187,62 @@ describe("WebSocket Gateway Call Signaling", () => {
     ws.emit("close");
     gateway.close();
   });
+
+  // Regression: closing ONE socket of a multi-session account (another tab,
+  // a reconnecting phone) used to tear down every active call of that user —
+  // the other session kept playing the call while the server had already
+  // deleted it, so all further signaling 404'd and the call died as
+  // "Call failed". Cleanup must only fire when the user's LAST session
+  // (WS or SSE) is gone.
+  test("keeps calls alive when another session of the user is still connected", async () => {
+    const callManager = {
+      startCall: vi.fn(async () => ({ status: 200, call: {} })),
+      acceptCall: vi.fn(async () => ({ status: 200, call: {} })),
+      rejectCall: vi.fn(async () => ({ status: 200 })),
+      endCall: vi.fn(async () => ({ status: 200 })),
+      relaySignal: vi.fn(async () => ({ status: 200 })),
+      cleanupUserCalls: vi.fn(),
+    };
+
+    const gateway = createWebSocketGateway({
+      callManager,
+      isUserOnline: () => true, // an SSE session (or second tab) is alive
+    });
+    const ws = new EventEmitter();
+    ws.isAlive = true;
+    ws.readyState = 1;
+    ws.send = vi.fn();
+    gateway.wss.emit("connection", ws, {}, { id: "user-1", username: "alice" });
+
+    ws.emit("close");
+
+    expect(callManager.cleanupUserCalls).not.toHaveBeenCalled();
+    gateway.close();
+  });
+
+  test("cleans up calls only when the last session of the user drops", async () => {
+    const callManager = {
+      startCall: vi.fn(async () => ({ status: 200, call: {} })),
+      acceptCall: vi.fn(async () => ({ status: 200, call: {} })),
+      rejectCall: vi.fn(async () => ({ status: 200 })),
+      endCall: vi.fn(async () => ({ status: 200 })),
+      relaySignal: vi.fn(async () => ({ status: 200 })),
+      cleanupUserCalls: vi.fn(),
+    };
+
+    const gateway = createWebSocketGateway({
+      callManager,
+      isUserOnline: () => false, // no other WS/SSE session
+    });
+    const ws = new EventEmitter();
+    ws.isAlive = true;
+    ws.readyState = 1;
+    ws.send = vi.fn();
+    gateway.wss.emit("connection", ws, {}, { id: "user-1", username: "alice" });
+
+    ws.emit("close");
+
+    expect(callManager.cleanupUserCalls).toHaveBeenCalledWith("alice");
+    gateway.close();
+  });
 });
