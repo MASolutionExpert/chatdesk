@@ -16,7 +16,7 @@ All notable changes to ChatDesk are documented in this file.
 
 - 👥 **The group/channel edit modal now shows the EXISTING members.** Previously, editing a group that visibly had members in the chat list opened an edit page with an empty member selection — the admin could never see the current membership. The modal now loads `GET /api/admin/chats/:id/members` on mount and renders every existing member as a selected chip (the owner stays in the OwnerPicker). The chips are now a real membership editor: kept chips are no-ops on save, removed chips delete the member (`DELETE /api/admin/chats/:id/members/:userId`), new chips add them — with guards so ownership transfer (which rides the PATCH) is never clobbered.
 
-**Tests:** 140 files / 1335 server tests (6 new: real-SQLite integration for the support-type filter and the mixed-format date window incl. spanning/out-of-range/intersect cases, plus API param-passthrough and 400-on-bad-date), 427 client unit tests green.
+**Tests:** 140 files / 1335 server tests (6 new: real-SQLite integration for the support-type filter and the mixed-format date window incl. spanning/out-of-range/intersect cases, plus API param-passthrough and 400-on-bad-date), 427 client unit tests, **556 client browser tests** — the CI Browser job failure of 1.4.0-dev.8 is also fixed here: the Emergency Claim UI suite is re-pinned to the new gating contract (lockout-only form, Access denied on healthy installs, monitoring sessions never see the form).
 
 ## 1.4.0-dev.8
 
