@@ -29,6 +29,12 @@
 // `messagesInConversations` / `customerMessages` count all in-range messages
 // inside the conversations attributed to the operator, and `openTickets`
 // counts their in-range tickets that are still open.
+//
+// ID KEYING (regression guard): since migration 036 the users / chats /
+// chat_messages primary keys are TEXT UUIDs (departments keep INTEGER ids).
+// Every map below therefore keys by String(id) — NEVER Number(id), which
+// yields NaN for UUIDs and, because Maps match NaN via SameValueZero, would
+// collapse every operator/chat/message onto a single "last row wins" bucket.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const STAFF_ROLES = new Set(["operator", "admin", "owner"]);
@@ -91,7 +97,7 @@ function inRange(ms, range) {
 
 function newOperatorEntry(op) {
   return {
-    id: Number(op.id),
+    id: op.id,
     username: op.username,
     nickname: op.nickname || op.username,
     color: op.color || null,
@@ -139,9 +145,10 @@ export function aggregateSupportReport({
   const range = resolveRange({ from, to });
   if (!range) return null;
 
-  const roleByUser = new Map(users.map((u) => [Number(u.id), String(u.role || "user")]));
+  // users.id is a TEXT UUID since migration 036 — key by String, not Number.
+  const roleByUser = new Map(users.map((u) => [String(u.id), String(u.role || "user")]));
   const isStaffAuthor = (userId) =>
-    STAFF_ROLES.has(roleByUser.get(Number(userId)) || "user");
+    STAFF_ROLES.has(roleByUser.get(String(userId)) || "user");
 
   // ── Index chats per department ────────────────────────────────────────────
   const chatsByDept = new Map();
@@ -157,7 +164,7 @@ export function aggregateSupportReport({
   // ── Index messages per chat (full history) ────────────────────────────────
   const messagesByChat = new Map();
   for (const msg of messages || []) {
-    const chatId = Number(msg.chat_id);
+    const chatId = String(msg.chat_id); // chat ids are UUIDs — never Number()
     if (!messagesByChat.has(chatId)) messagesByChat.set(chatId, []);
     messagesByChat.get(chatId).push(msg);
   }
@@ -173,7 +180,7 @@ export function aggregateSupportReport({
   const ticketByChat = new Map();
   for (const ticket of tickets || []) {
     if (ticket.chat_id !== null && ticket.chat_id !== undefined) {
-      ticketByChat.set(Number(ticket.chat_id), ticket);
+      ticketByChat.set(String(ticket.chat_id), ticket); // chat ids are UUIDs
     }
   }
 
@@ -181,6 +188,7 @@ export function aggregateSupportReport({
   const operatorsByDept = new Map();
   for (const op of operators || []) {
     if (op.department_id === null || op.department_id === undefined) continue;
+    // departments.id stays INTEGER — Number() is safe here.
     const deptId = Number(op.department_id);
     if (!chatsByDept.has(deptId)) continue;
     if (!operatorsByDept.has(deptId)) operatorsByDept.set(deptId, []);
@@ -208,29 +216,32 @@ export function aggregateSupportReport({
       avgFirstResponseSeconds: null,
     };
 
+    // users.id is a TEXT UUID — operator entries are keyed by String(op.id).
+    // Number() would map EVERY operator to NaN, collapsing the roster into a
+    // single "last operator wins" entry (the regression this guards against).
     const operatorEntries = new Map(
-      (operatorsByDept.get(deptId) || []).map((op) => [Number(op.id), newOperatorEntry(op)])
+      (operatorsByDept.get(deptId) || []).map((op) => [String(op.id), newOperatorEntry(op)])
     );
     const entryFor = (userId) =>
-      operatorEntries.get(Number(userId)) || null;
+      operatorEntries.get(String(userId)) || null;
 
     // ── Conversation → operator attribution (any chat age) ────────────────────
     // A chat belongs to its ticket's operator; legacy chats without a ticket
     // row fall back to the author of the first staff reply. Only operators on
     // the department roster receive attribution.
-    const chatOperator = new Map(); // chatId -> operatorId
+    const chatOperator = new Map(); // String(chatId) -> operator key
     for (const chat of deptChats) {
-      const ticket = ticketByChat.get(Number(chat.id));
+      const ticket = ticketByChat.get(String(chat.id));
       let opId = ticket && ticket.operator_id !== null && ticket.operator_id !== undefined
-        ? Number(ticket.operator_id)
+        ? String(ticket.operator_id)
         : null;
       if (opId === null) {
-        const msgs = messagesByChat.get(Number(chat.id)) || [];
+        const msgs = messagesByChat.get(String(chat.id)) || [];
         const firstStaffReply = msgs.find((m) => isStaffAuthor(m.user_id));
-        if (firstStaffReply) opId = Number(firstStaffReply.user_id);
+        if (firstStaffReply) opId = String(firstStaffReply.user_id);
       }
       if (opId !== null && operatorEntries.has(opId)) {
-        chatOperator.set(Number(chat.id), opId);
+        chatOperator.set(String(chat.id), opId);
       }
     }
 
@@ -244,7 +255,7 @@ export function aggregateSupportReport({
 
       totals.conversations += 1;
 
-      const chatMessages = (messagesByChat.get(Number(chat.id)) || []).slice();
+      const chatMessages = (messagesByChat.get(String(chat.id)) || []).slice();
       const lastMessage = chatMessages.length ? chatMessages[chatMessages.length - 1] : null;
       const lastAuthorStaff = lastMessage ? isStaffAuthor(lastMessage.user_id) : false;
       if (lastMessage && lastAuthorStaff) {
@@ -255,7 +266,7 @@ export function aggregateSupportReport({
 
       // First staff reply → response time + operator attribution.
       const firstStaffReply = chatMessages.find((m) => isStaffAuthor(m.user_id));
-      const assignedOperatorId = chatOperator.get(Number(chat.id)) ?? null;
+      const assignedOperatorId = chatOperator.get(String(chat.id)) ?? null;
       const opEntry = assignedOperatorId !== null ? entryFor(assignedOperatorId) : null;
       if (opEntry) opEntry.assigned += 1;
 
@@ -282,7 +293,7 @@ export function aggregateSupportReport({
       : null;
 
     // ── Messages authored in range inside this department's chats ───────────
-    const deptChatIdSet = new Set(deptChats.map((c) => Number(c.id)));
+    const deptChatIdSet = new Set(deptChats.map((c) => String(c.id)));
     for (const [chatId, chatMessages] of messagesByChat) {
       if (!deptChatIdSet.has(chatId)) continue;
       const ownerEntry = chatOperator.has(chatId) ? entryFor(chatOperator.get(chatId)) : null;
@@ -321,7 +332,7 @@ export function aggregateSupportReport({
           totals.openTickets += 1;
         }
         const opEntry = ticket.operator_id !== null && ticket.operator_id !== undefined
-          ? entryFor(ticket.operator_id)
+          ? entryFor(String(ticket.operator_id))
           : null;
         if (opEntry) {
           opEntry.ticketsOpened += 1;
@@ -333,7 +344,7 @@ export function aggregateSupportReport({
       if (closedInRange) {
         totals.ticketsClosed += 1;
         const opEntry = ticket.operator_id !== null && ticket.operator_id !== undefined
-          ? entryFor(ticket.operator_id)
+          ? entryFor(String(ticket.operator_id))
           : null;
         if (opEntry) opEntry.ticketsClosed += 1;
       }

@@ -355,3 +355,153 @@ describe("aggregateSupportReport — department/operator scoping", () => {
     expect(billing.totals.unanswered).toBe(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGRESSION — production id shapes.
+//
+// Migration 036 made users / chats / chat_messages primary keys TEXT UUIDs.
+// The aggregation layer once keyed every map by Number(id), which is NaN for
+// a UUID — and because Maps match NaN via SameValueZero, EVERY operator /
+// chat / message collapsed onto one "last row wins" bucket. The visible
+// symptom was the department report showing performance for ONLY THE LAST
+// OPERATOR of the department. These tests pin the real production shapes:
+// UUID string ids for users/chats/messages/tickets.chat_id/operator_id and
+// INTEGER ids for departments.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("aggregateSupportReport — UUID id shapes (migration 036 production reality)", () => {
+  // Integer department ids (departments table was never UUID-converted).
+  const UUID_DEPTS = [
+    { id: 1, name: "Billing", color: "#10b981", active: 1 },
+  ];
+
+  const UUIDS = {
+    bob: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    carol: "3f2504e0-4f89-11d3-9a0c-0305e82c3302",
+    dan: "3f2504e0-4f89-11d3-9a0c-0305e82c3303",
+    cust1: "9f8a1b2c-3d4e-4f5a-86b7-c8d9e0f1a2b3",
+    cust2: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    chat1: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    chat2: "6ba7b811-9dad-11d1-80b4-00c04fd430c9",
+    chat3: "6ba7b812-9dad-11d1-80b4-00c04fd430ca",
+  };
+
+  // Three operators on ONE department roster — the old NaN-keyed code
+  // collapsed them into a single "last operator wins" entry.
+  const UUID_OPERATORS = [
+    { id: UUIDS.bob, username: "bob", nickname: "Bob", color: "#f59e0b", role: "operator", department_id: 1, banned: 0 },
+    { id: UUIDS.carol, username: "carol", nickname: "Carol", color: "#8b5cf6", role: "operator", department_id: 1, banned: 0 },
+    { id: UUIDS.dan, username: "dan", nickname: "Dan", color: "#14b8a6", role: "operator", department_id: 1, banned: 0 },
+  ];
+
+  const UUID_USERS = [
+    { id: UUIDS.bob, role: "operator" },
+    { id: UUIDS.carol, role: "operator" },
+    { id: UUIDS.dan, role: "operator" },
+    { id: UUIDS.cust1, role: "user" },
+    { id: UUIDS.cust2, role: "user" },
+  ];
+
+  function uuidInput(overrides = {}) {
+    return {
+      departments: UUID_DEPTS,
+      operators: UUID_OPERATORS,
+      chats: [],
+      messages: [],
+      users: UUID_USERS,
+      tickets: [],
+      from: null,
+      to: null,
+      ...overrides,
+    };
+  }
+
+  it("lists ALL operators of the department, not just the last one", () => {
+    const report = aggregateSupportReport(uuidInput());
+    const billing = report.departments.find((d) => d.id === 1);
+    expect(billing.operatorCount).toBe(3);
+    expect(billing.operators.map((o) => o.username)).toEqual(["bob", "carol", "dan"]);
+  });
+
+  it("attributes each conversation to ITS OWN operator via the ticket row", () => {
+    const report = aggregateSupportReport(
+      uuidInput({
+        chats: [
+          { id: UUIDS.chat1, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
+          { id: UUIDS.chat2, department_id: 1, created_at: "2025-06-11T09:00:00Z" },
+          { id: UUIDS.chat3, department_id: 1, created_at: "2025-06-12T09:00:00Z" },
+        ],
+        messages: [
+          { chat_id: UUIDS.chat1, user_id: UUIDS.cust1, created_at: "2025-06-10T09:01:00Z" },
+          { chat_id: UUIDS.chat1, user_id: UUIDS.bob, created_at: "2025-06-10T09:02:00Z" },
+          { chat_id: UUIDS.chat2, user_id: UUIDS.cust2, created_at: "2025-06-11T09:01:00Z" },
+          { chat_id: UUIDS.chat2, user_id: UUIDS.carol, created_at: "2025-06-11T09:02:00Z" },
+          { chat_id: UUIDS.chat3, user_id: UUIDS.cust1, created_at: "2025-06-12T09:01:00Z" },
+          { chat_id: UUIDS.chat3, user_id: UUIDS.dan, created_at: "2025-06-12T09:02:00Z" },
+        ],
+        tickets: [
+          { chat_id: UUIDS.chat1, department_id: 1, customer_id: UUIDS.cust1, operator_id: UUIDS.bob, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
+          { chat_id: UUIDS.chat2, department_id: 1, customer_id: UUIDS.cust2, operator_id: UUIDS.carol, status: "open", created_at: "2025-06-11T09:00:00Z", closed_at: null },
+          { chat_id: UUIDS.chat3, department_id: 1, customer_id: UUIDS.cust1, operator_id: UUIDS.dan, status: "open", created_at: "2025-06-12T09:00:00Z", closed_at: null },
+        ],
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    // Every operator gets exactly their own conversation — not the last
+    // operator receiving all three.
+    expect(billing.operators.find((o) => o.id === UUIDS.bob).assigned).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.carol).assigned).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.dan).assigned).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.bob).answered).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.carol).answered).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.dan).answered).toBe(1);
+    // Staff/customer split must classify by the AUTHOR's own role (UUID user
+    // ids) — the old NaN-keyed role map classified everyone as the last user.
+    expect(billing.operators.find((o) => o.id === UUIDS.bob).messagesSent).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.carol).messagesSent).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.dan).messagesSent).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.bob).customerMessages).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.carol).customerMessages).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.dan).customerMessages).toBe(1);
+    expect(billing.totals.staffMessages).toBe(3);
+    expect(billing.totals.customerMessages).toBe(3);
+    // First-response attribution also lands on the right operator.
+    expect(billing.operators.find((o) => o.id === UUIDS.bob).firstResponses).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.carol).firstResponses).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.dan).firstResponses).toBe(1);
+  });
+
+  it("keeps per-chat message histories separate under UUID chat ids", () => {
+    const report = aggregateSupportReport(
+      uuidInput({
+        chats: [
+          // chat1: staff last → answered; chat2: customer last → unanswered
+          { id: UUIDS.chat1, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
+          { id: UUIDS.chat2, department_id: 1, created_at: "2025-06-11T09:00:00Z" },
+        ],
+        messages: [
+          { chat_id: UUIDS.chat1, user_id: UUIDS.cust1, created_at: "2025-06-10T09:01:00Z" },
+          { chat_id: UUIDS.chat1, user_id: UUIDS.bob, created_at: "2025-06-10T09:02:00Z" },
+          { chat_id: UUIDS.chat2, user_id: UUIDS.cust2, created_at: "2025-06-11T09:01:00Z" },
+        ],
+        tickets: [
+          { chat_id: UUIDS.chat1, department_id: 1, customer_id: UUIDS.cust1, operator_id: UUIDS.bob, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
+          { chat_id: UUIDS.chat2, department_id: 1, customer_id: UUIDS.cust2, operator_id: UUIDS.carol, status: "open", created_at: "2025-06-11T09:00:00Z", closed_at: null },
+        ],
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    // The old NaN-keyed messagesByChat merged BOTH chats' messages into one
+    // bucket, making every conversation look answered (global last message
+    // was staff) — answered/unanswered must be judged PER CHAT.
+    expect(billing.totals.answered).toBe(1);
+    expect(billing.totals.unanswered).toBe(1);
+    const carol = billing.operators.find((o) => o.id === UUIDS.carol);
+    expect(carol.unanswered).toBe(1);
+    expect(carol.messagesInConversations).toBe(1);
+    const bob = billing.operators.find((o) => o.id === UUIDS.bob);
+    expect(bob.messagesInConversations).toBe(2);
+    // Ticket metrics stay per-operator under UUID operator ids.
+    expect(bob.openTickets).toBe(1);
+    expect(carol.openTickets).toBe(1);
+  });
+});

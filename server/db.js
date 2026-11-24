@@ -5583,11 +5583,13 @@ export async function getSupportOverview() {
       // Ticket lifecycle (migration 045) is the source of truth for "open";
       // chats without a ticket row (legacy/edge) fall back to the last-sender
       // heuristic so nothing silently disappears from the workload counts.
+      // user ids are TEXT UUIDs since migration 036 — compare as strings;
+      // Number(uuid) is NaN and NaN === NaN is always false.
       const ticketOpen = row.ticket_status
         ? String(row.ticket_status).toLowerCase() !== "closed"
         : row.customer_user_id
           ? row.last_message_user_id &&
-            Number(row.last_message_user_id) === Number(row.customer_user_id)
+            String(row.last_message_user_id) === String(row.customer_user_id)
           : Boolean(row.last_message_user_id);
       if (ticketOpen) entry.open += 1;
     }
@@ -5609,7 +5611,7 @@ export async function getSupportOverview() {
       lastMessageAt: row.last_message_at || null,
       lastMessageByCustomer:
         row.customer_user_id && row.last_message_user_id
-          ? Number(row.last_message_user_id) === Number(row.customer_user_id)
+          ? String(row.last_message_user_id) === String(row.customer_user_id)
           : Boolean(row.last_message_user_id),
       createdAt: row.created_at,
       messageCount: Number(row.message_count || 0),
@@ -5659,7 +5661,9 @@ export async function getSupportReport({ departmentId = null, from = null, to = 
   const chatRows = await getAll(chatQb);
 
   // Full message history of the involved chats (aggregator applies ranges).
-  const chatIds = (chatRows || []).map((r) => Number(r.id));
+  // Chat ids are TEXT UUIDs since migration 036 — keep them raw; Number()
+  // would turn every id into NaN and the IN clause would match no rows.
+  const chatIds = (chatRows || []).map((r) => r.id);
   const messageRows = chatIds.length
     ? await getAll(
         dbKnex("chat_messages")

@@ -2,6 +2,16 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.5
+
+### Fixed
+
+- 🐛 **The department report shows EVERY operator again — the "only the last operator has performance" bug is fixed.** Since migration 036 the `users`, `chats` and `chat_messages` primary keys are TEXT UUIDs, but the support-report aggregation keyed every internal map by `Number(id)` — and `Number("uuid")` is `NaN`. Because JavaScript Maps match `NaN` via SameValueZero, ALL operators, chats, messages and tickets collapsed onto a single "last row wins" bucket: the department page rendered exactly one operator card (the last one on the roster) holding everyone's numbers, per-chat histories merged into one, and staff/customer classification judged by the last user's role. Every key is now `String(id)` (departments keep their INTEGER ids and stay numeric), the message-history query no longer converts chat UUIDs through `Number()` (which silently emptied the `WHERE chat_id IN (...)` clause), and the same NaN pattern in the support overview's legacy fallback (`lastMessageByCustomer` / ticket-open heuristic) now compares ids as strings too. The gap that hid all of this is closed at both layers: three new aggregation tests feed the report real production shapes (UUID user/chat/message ids, integer department ids) and would fail on the old code, plus a brand-new real-database integration suite that builds a department with three operators, real support chats, tickets and messages through the public `db.js` API and asserts the full db → aggregation path end-to-end (it was previously only ever tested through mocks). Suite: 135 files / 1294 server tests, 427 client unit tests green.
+
+### Changed
+
+- ✂️ **Operator report cards slimmed to the eight metrics that describe the person.** Each operator card on the department page drops the last two cards — "Staff replies" and "Customer messages" — keeping conversations (assigned), answered, unanswered, messages, tickets opened / closed / still open and average first response (2×4 grid). The department summary still shows the staff/customer message split; the server keeps computing every metric for both levels.
+
 ## 1.4.0-dev.4
 
 ### Changed

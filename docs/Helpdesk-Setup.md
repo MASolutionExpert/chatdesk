@@ -90,14 +90,13 @@ so SQLite and PostgreSQL installations report identical figures. Metrics:
 
 A conversation is attributed to its ticket's operator; legacy chats without a
 ticket row fall back to the author of the first staff reply. Each operator
-card on the report page shows the same ten metrics as the department summary,
-scoped to that operator: assigned conversations, answered / unanswered,
-every in-range message inside their attributed conversations
-(`messagesInConversations`), customer messages in those conversations, their
-own staff replies (`messagesSent`), tickets opened / closed / still open, and
-their average first response.
+card on the report page shows eight per-person metrics: assigned
+conversations, answered / unanswered, every in-range message inside their
+attributed conversations (`messagesInConversations`), tickets opened / closed
+/ still open, and their average first response. The staff/customer message
+split stays on the department summary.
 
-> گزارش عملکرد دپارتمان — با کلیک روی نام هر دپارتمان در خلاصهٔ میز خدمت، صفحهٔ اختصاصی آن دپارتمان باز می‌شود: فهرست اپراتورها، خلاصهٔ وضعیت و عملکرد آن‌ها، و یک پنل گزارش‌گیری استاندارد با فیلتر زمانی دقیق (از/تا + میان‌برهای امروز، ۷ روز، ۳۰ روز و همهٔ زمان‌ها). تعداد گفتگوها و تیکت‌ها، پاسخ‌های داده‌شده و بدون پاسخ و میانگین زمان اولین پاسخ در همان بازهٔ انتخابی، همه سمت سرور محاسبه می‌شود.
+> گزارش عملکرد دپارتمان — با کلیک روی نام هر دپارتمان در خلاصهٔ میز خدمت، صفحهٔ اختصاصی آن دپارتمان باز می‌شود: فهرست اپراتورها، خلاصهٔ وضعیت و عملکرد آن‌ها، و یک پنل گزارش‌گیری استاندارد با فیلتر زمانی دقیق (از/تا + میان‌برهای امروز، ۷ روز، ۳۰ روز و همهٔ زمان‌ها). تعداد گفتگوها و تیکت‌ها، پاسخ‌های داده‌شده و بدون پاسخ و میانگین زمان اولین پاسخ در همان بازهٔ انتخابی، همه سمت سرور محاسبه می‌شود. کارت هر اپراتور هشت شاخص فردی را نشان می‌دهد؛ تفکیک پیام‌های پشتیبانی/مشتری فقط در خلاصهٔ دپارتمان نمایش داده می‌شود.
 
 ## Database
 

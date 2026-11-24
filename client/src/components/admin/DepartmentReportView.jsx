@@ -274,7 +274,7 @@ const DepartmentReportView = function DepartmentReportView({ departmentId, onBac
                         {op.role}
                       </span>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                       <TotalCard icon={<MessageCircleMore size={14} />} label={t("admin.helpdesk.metricChats")} value={op.assigned} />
                       <TotalCard icon={<CircleCheck size={14} />} label={t("admin.helpdesk.report.metricAnswered")} value={op.answered} tone="emerald" />
                       <TotalCard icon={<TriangleAlert size={14} />} label={t("admin.helpdesk.report.metricUnanswered")} value={op.unanswered} tone={op.unanswered > 0 ? "amber" : "slate"} />
@@ -286,16 +286,6 @@ const DepartmentReportView = function DepartmentReportView({ departmentId, onBac
                         icon={<Gauge size={14} />}
                         label={t("admin.helpdesk.report.metricAvgResponse")}
                         value={op.avgFirstResponseSeconds === null ? "—" : t("admin.helpdesk.report.seconds", { n: op.avgFirstResponseSeconds })}
-                      />
-                      <TotalCard
-                        icon={<Headset size={14} />}
-                        label={t("admin.helpdesk.report.metricStaffMsgs")}
-                        value={op.messagesSent}
-                      />
-                      <TotalCard
-                        icon={<Users size={14} />}
-                        label={t("admin.helpdesk.report.metricCustomerMsgs")}
-                        value={op.customerMessages}
                       />
                     </div>
                   </div>
