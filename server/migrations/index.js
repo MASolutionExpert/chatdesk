@@ -43,6 +43,7 @@ import { migration042Departments } from "./042-departments.js";
 import { migration043UserLanguage } from "./043-user-language.js";
 import { migration044ChatChannel } from "./044-chat-channel.js";
 import { migration045Tickets } from "./045-tickets.js";
+import { migration046SessionsImpersonatedBy } from "./046-sessions-impersonated-by.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -90,4 +91,5 @@ export const migrations = [
   migration043UserLanguage,
   migration044ChatChannel,
   migration045Tickets,
+  migration046SessionsImpersonatedBy,
 ];

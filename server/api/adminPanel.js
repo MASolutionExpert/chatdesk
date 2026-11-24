@@ -73,6 +73,13 @@ function getCachedUploadsSizeBytes(fs, nodePath, uploadsRoot) {
 function registerAdminPanelRoutes(app, deps) {
   const {
     getSessionFromRequest,
+    // impersonation (owner-only "login as user")
+    parseCookies,
+    setSessionCookie,
+    setSideCookie,
+    getSession,
+    createSession,
+    deleteSession,
     findUserById,
     findUserByUsername,
     findChatById,
@@ -346,7 +353,11 @@ function registerAdminPanelRoutes(app, deps) {
   // ─── Auth middleware ─────────────────────────────────────────────────────────
 
   app.use("/api/admin", async (req, res, next) => {
-    if (req.path === "/db-tools" || req.path === "/claim") return next();
+    // `/impersonate/return` is its own gate: the working session is the
+    // IMPERSONATED user's (not an admin), so the normal admin check would
+    // bounce the owner's way back. The route validates the parked
+    // `admin_sid` cookie itself instead.
+    if (req.path === "/db-tools" || req.path === "/claim" || req.path === "/impersonate/return") return next();
     try {
       const rawSession = getSessionFromRequest(req);
       const session = rawSession && typeof rawSession.then === "function"
@@ -1063,6 +1074,155 @@ function registerAdminPanelRoutes(app, deps) {
     adminSave();
     log(session, "user.role", { targetType: "user", targetLabel: `@${user.username}`, details: `role=${role}` });
     res.json({ ok: true, role });
+  });
+
+  // ─── Users — impersonate (owner only) ────────────────────────────────────
+
+  // The owner "logs in as" a user for monitoring: a fresh session is minted
+  // for the target user, the owner's own session is parked in the HttpOnly
+  // `admin_sid` cookie, and the working `sid` cookie becomes the target's.
+  // No password is read, exposed or changed anywhere in the flow.
+  app.post("/api/admin/users/:id/impersonate", validateUuidParams("id"), async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    // Owner only — the hard gate lives here on the server; the client merely
+    // hides the button for non-owners.
+    if (!(await actorIsOwner(session))) {
+      return res.status(403).json({
+        error: "Only the owner can log in as another user.",
+        code: "owner_only",
+      });
+    }
+
+    const user = await resolveMaybePromise(findUserById(req.params.id));
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (String(user.id) === String(session.id)) {
+      return res.status(400).json({ error: "You are already logged in as yourself." });
+    }
+    // The owner account is untouchable — impersonating it would hand the
+    // owner identity to a session minted by code.
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner account cannot be impersonated.",
+        code: "owner_protected",
+      });
+    }
+    if (Number(user.banned)) {
+      return res.status(403).json({ error: "Banned users cannot be impersonated." });
+    }
+
+    const ownerToken = parseCookies(req).sid;
+    if (!ownerToken) return res.status(401).json({ error: "Not authenticated" });
+
+    const targetToken = crypto.randomBytes(24).toString("hex");
+    // Stamp the minted session with the acting owner's id (migration 046)
+    // so the return endpoint can verify — server-side — that it is about to
+    // revoke a real impersonation session, never an innocent fresh login.
+    await resolveMaybePromise(createSession(user.id, targetToken, { impersonatedBy: session.id }));
+
+    setSessionCookie(req, res, targetToken);
+    setSideCookie(req, res, "admin_sid", ownerToken);
+    adminSave();
+    log(session, "user.impersonate", {
+      targetType: "user",
+      targetLabel: `@${user.username}`,
+      details: `userId=${user.id}`,
+    });
+    res.json({
+      id: user.id,
+      username: user.username,
+      nickname: user.nickname || null,
+      avatarUrl: user.avatar_url || null,
+      color: user.color || null,
+      status: user.status || "online",
+      role: user.role || "user",
+      impersonated: true,
+    });
+  });
+
+  // ─── Impersonation — return to the owner's session ─────────────────────
+
+  // Restores the parked owner session, revokes the minted impersonation
+  // session, and clears the side cookie. Registered outside the normal
+  // admin session gate (see the middleware skip above) because the working
+  // session belongs to the impersonated user.
+  app.post("/api/admin/impersonate/return", async (req, res) => {
+    const cookies = parseCookies(req);
+    const ownerToken = cookies.admin_sid;
+    const impersonationToken = cookies.sid;
+
+    const clearParkedCookie = () => {
+      setSideCookie(req, res, "admin_sid", "", { clear: true });
+    };
+
+    if (!ownerToken || !impersonationToken || ownerToken === impersonationToken) {
+      clearParkedCookie();
+      return res.status(400).json({
+        error: "No impersonation session in progress.",
+        code: "not_impersonating",
+      });
+    }
+
+    // The parked cookie must resolve to a LIVE session of an admin/owner.
+    // The session stores differ in shape (full user row vs { userId, token }),
+    // so resolve the user through findUserById either way.
+    const ownerRaw = await resolveMaybePromise(getSession(ownerToken));
+    const ownerId = ownerRaw?.id ?? ownerRaw?.userId ?? null;
+    if (!ownerId) {
+      clearParkedCookie();
+      return res.status(401).json({
+        error: "Your admin session has expired. Please log in again.",
+        code: "admin_session_expired",
+      });
+    }
+    const ownerUser = await resolveMaybePromise(findUserById(ownerId));
+    const isOwnerAdmin = ownerUser
+      ? await resolveMaybePromise(isUserAdmin(ownerUser.id))
+      : false;
+    if (!ownerUser || !isOwnerAdmin) {
+      clearParkedCookie();
+      return res.status(403).json({ error: "Admin access required", code: "admin_required" });
+    }
+
+    // The working session must be an impersonation session stamped with
+    // THIS owner's id — a fresh login must never be revoked by a stale
+    // parked cookie.
+    const impersonatedRaw = await resolveMaybePromise(getSession(impersonationToken));
+    const impersonatedId = impersonatedRaw?.id ?? impersonatedRaw?.userId ?? null;
+    if (
+      !impersonatedId ||
+      String(impersonatedRaw?.impersonated_by ?? "") !== String(ownerUser.id)
+    ) {
+      clearParkedCookie();
+      return res.status(400).json({
+        error: "No impersonation session in progress.",
+        code: "not_impersonating",
+      });
+    }
+
+    // Identify the impersonated user for the audit trail BEFORE deleting.
+    const impersonatedUser = impersonatedRaw?.username
+      ? impersonatedRaw
+      : await resolveMaybePromise(findUserById(impersonatedId));
+
+    await resolveMaybePromise(deleteSession(impersonationToken));
+    setSessionCookie(req, res, ownerToken);
+    clearParkedCookie();
+    adminSave();
+    log(ownerUser, "user.impersonate_return", {
+      targetType: "user",
+      targetLabel: impersonatedUser ? `@${impersonatedUser.username}` : null,
+    });
+    res.json({
+      id: ownerUser.id,
+      username: ownerUser.username,
+      nickname: ownerUser.nickname || null,
+      avatarUrl: ownerUser.avatar_url || null,
+      color: ownerUser.color || null,
+      status: ownerUser.status || "online",
+      role: ownerUser.role || "user",
+    });
   });
 
   // ─── Users — reset password ──────────────────────────────────────────────────

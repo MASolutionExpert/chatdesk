@@ -4302,13 +4302,17 @@ export function listMutedUserIdsForChat(chatId) {
     .filter(Boolean);
 }
 
-export function createSession(userId, token) {
+export function createSession(userId, token, options = {}) {
   if (!userId || !token) {
     const err = new Error(`Invalid session parameters: userId=${userId}, token=${token}`);
     return isPostgresMode() ? Promise.reject(err) : (() => { throw err; })();
   }
+  // Optional owner-impersonation stamp (migration 046): NULL for normal
+  // logins, the impersonating owner's user id for sessions minted through
+  // POST /api/admin/users/:id/impersonate.
+  const impersonatedBy = options?.impersonatedBy ?? null;
   return run(
-    dbKnex("sessions").insert({ user_id: userId, token }),
+    dbKnex("sessions").insert({ user_id: userId, token, impersonated_by: impersonatedBy }),
   );
 }
 
@@ -4317,10 +4321,12 @@ export function getSession(token) {
   return getRow(
     dbKnex("sessions")
       .select(
-        "sessions.id as session_id", "sessions.token", "users.id", "users.username", "users.nickname",
+        "sessions.id as session_id", "sessions.token", "sessions.impersonated_by", "users.id", "users.username", "users.nickname",
         "users.avatar_url", "users.color", "users.status", "users.banned", "users.role", "users.verified",
+        "impUsers.username as impersonated_by_username",
       )
       .join("users", "users.id", "sessions.user_id")
+      .leftJoin("users as impUsers", "impUsers.id", "sessions.impersonated_by")
       .where("sessions.token", token)
       .andWhere(dbKnex.raw("COALESCE(users.banned, 0) = 0"))
       .first(),

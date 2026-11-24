@@ -108,6 +108,11 @@ Manage all users in your ChatDesk instance:
   - Reset password inline
   - Change user role (admin/user)
   - Ban/unban users
+- **Log in as user (owner only)**: The system owner can click the login button on any user row and enter the app as that user, without their password — for supervision and monitoring. Security details:
+  - Enforced server-side: any non-owner session is rejected (`owner_only`).
+  - The owner account itself, banned users and self-impersonation are refused.
+  - The owner's real session is parked in an HttpOnly cookie; an amber banner appears in the app with a **Return to admin panel** button that restores it.
+  - Every impersonation and return is recorded in the admin audit log (`user.impersonate`, `user.impersonate_return`).
 - **Delete Users**: Permanently remove user accounts
 - **Search & Filter**: Searching and filtering across the entire users dataset
 

@@ -7,6 +7,7 @@ import { setNameLimits } from './utils/nameLimits.js'
 import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
+import ImpersonationBanner from './components/common/ImpersonationBanner.jsx'
 // App renders <LanguageProvider> itself, so it sits above the provider and
 // cannot use the useI18n() hook. translateKey() reads the active language
 // (mirrored to localStorage by the provider) at call time instead.
@@ -1029,6 +1030,9 @@ export default function App() {
               </div>
             </header>
           ) : null}
+
+          {/* Owner impersonation ("login as user") monitoring banner. */}
+          <ImpersonationBanner user={user} />
 
           <main className={isAuthRoute ? 'flex flex-1 items-center justify-center px-1 py-6 sm:mt-0 sm:px-0 sm:py-8' : 'flex min-h-0 flex-1'}>
             <Suspense

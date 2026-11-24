@@ -180,6 +180,17 @@ function registerAuthRoutes(app, deps) {
       status: session.status || "online",
       role: session.role || "user",
       verified: Boolean(session.verified),
+      // Owner-impersonation stamp (migration 046): present only when this
+      // session was minted through the admin panel's "login as user". Lets
+      // the client render the monitoring banner + "return to admin" action.
+      ...(session.impersonated_by
+        ? {
+            impersonatedBy: {
+              id: session.impersonated_by,
+              username: session.impersonated_by_username || null,
+            },
+          }
+        : {}),
     });
   });
 

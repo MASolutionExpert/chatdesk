@@ -2,6 +2,16 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.7
+
+### Added
+
+- 👤 **Owner impersonation — "Log in as user" lands in the admin panel's Users tab.** The owner can now click the new login button on any user row and drop straight into that user's own app view — no password, no username, one click — for supervision and monitoring. Security is enforced server-first, not by hiding buttons: `POST /api/admin/users/:id/impersonate` hard-gates on the owner role (`owner_only` for anyone else), refuses the owner account itself (`owner_protected`), banned users, self-impersonation and unknown ids; it mints a fresh random session for the target user, parks the owner's real session in a dedicated HttpOnly `SameSite=Lax` `admin_sid` cookie, and never reads, exposes or touches any password. Every minted session is stamped with the acting owner's id (new additive, nullable `sessions.impersonated_by` column — migration 046, guarded ALTER, compatibility sweep per AGENTS.md rule 13), `/api/me` surfaces that stamp as `impersonatedBy`, and the client shows a persistent amber monitoring banner with a "Return to admin panel" button. The return endpoint (`POST /api/admin/impersonate/return`) lives outside the normal admin gate (the working session belongs to the impersonated user) and re-verifies everything itself: the parked cookie must resolve to a live admin/owner session, and the working session must be an impersonation session stamped by THAT owner — a fresh login can never be revoked by a stale parked cookie. On return the owner's session is restored, the minted session is revoked, the side cookie cleared, and both directions are written to the admin audit log (`user.impersonate`, `user.impersonate_return`). Suite: 138 files / 1317 server tests (13 new: full API security matrix + real-SQLite integration for the stamp), 427 client unit tests, 35 worker tests green.
+
+### Changed
+
+- ✂️ **The promote/demote shield buttons are gone from the Users tab.** The inline admin shield toggle (promote to admin / demote from admin) is removed entirely from every row branch — mobile and desktop — because role changes already live in the edit modal, and the duplicate shield was cluttering the list. Role management is unchanged in behavior (`POST /api/admin/users/:id/role` and the edit modal still work exactly as before); the list row is now edit, owner-only "Log in as user", ban, delete. The now-orphaned i18n keys (`promote`, `promoteMsg`, `demote`, `demoteMsg`, `errSelfRole`, `errRoleOwner`, `errRoleAdmins`, `errRoleBanned`, `errDemoteOwner`) were removed from both the English and Persian dictionaries, and `admin.users.loginAs` ("Log in as user" / «ورود به عنوان کاربر») plus the monitoring-banner strings were added bilingually.
+
 ## 1.4.0-dev.6
 
 ### Fixed

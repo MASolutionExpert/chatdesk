@@ -38,6 +38,11 @@ export const common = {
     },
     channelBadgeSupport: "Support ticket",
     channelBadgeMessenger: "Messenger chat",
+    impersonation: {
+      banner: "Owner monitoring: you are browsing as @{username} (session started by @{owner})",
+      ownerFallback: "the owner",
+      return: "Return to admin panel",
+    },
     ticketStatusOpen: "Open",
     ticketStatusClosed: "Closed",
     ticketClose: "Close ticket",
@@ -78,6 +83,11 @@ export const common = {
     },
     channelBadgeSupport: "تیکت پشتیبانی",
     channelBadgeMessenger: "چت پیام‌رسان",
+    impersonation: {
+      banner: "نظارت مالک: شما به‌عنوان @{username} وارد شده‌اید (نشست آغازشده توسط @{owner})",
+      ownerFallback: "مالک",
+      return: "بازگشت به پنل مدیریت",
+    },
     ticketStatusOpen: "باز",
     ticketStatusClosed: "بسته",
     ticketClose: "بستن تیکت",

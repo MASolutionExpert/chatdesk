@@ -742,6 +742,7 @@ const sessionHelpers = createSessionHelpers({
 const {
   parseCookies,
   setSessionCookie,
+  setSideCookie,
   clearSessionCookie,
   getSessionFromRequest,
   requireSession,
@@ -1025,6 +1026,7 @@ const apiDeps = {
   setRemoteChannelProviderState,
   listMutedUserIdsForChat,
   setSessionCookie,
+  setSideCookie,
   recordPendingPresignedUpload,
   removePendingPresignedUploads,
   listPendingPresignedUploads,

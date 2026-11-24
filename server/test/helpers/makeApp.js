@@ -21,8 +21,15 @@ export function makeSessionStore() {
   const sessions = new Map();
   return {
     sessions,
-    createSession: (userId, token) => {
-      sessions.set(token, { userId, token });
+    createSession: (userId, token, options = {}) => {
+      // Mirrors db.js: sessions may carry an owner-impersonation stamp
+      // (migration 046). getSession shapes match the real store closely
+      // enough for the impersonation routes (id/userId + impersonated_by).
+      sessions.set(token, {
+        userId,
+        token,
+        impersonated_by: options?.impersonatedBy ?? null,
+      });
     },
     deleteSession: (token) => {
       sessions.delete(token);
@@ -142,6 +149,7 @@ export function makeApp(overrides = {}) {
     touchSession: sessionStore.touchSession,
     parseCookies: sessionHelpers.parseCookies,
     setSessionCookie: sessionHelpers.setSessionCookie,
+    setSideCookie: sessionHelpers.setSideCookie,
     clearSessionCookie: sessionHelpers.clearSessionCookie,
     getSessionFromRequest,
     requireSession: (req, res) => {

@@ -21,6 +21,11 @@ export function normalizeSessionUser(data) {
     status: data.status || "online",
     role: data.role || "user",
     verified: Boolean(data.verified),
+    // Owner-impersonation stamp: present only while the owner is monitoring
+    // through this session ("login as user" from the admin panel).
+    impersonatedBy: data.impersonatedBy
+      ? { id: data.impersonatedBy.id || null, username: data.impersonatedBy.username || null }
+      : null,
   };
 }
 
