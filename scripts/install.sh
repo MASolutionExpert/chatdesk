@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.5.0-dev.3
+# chatdesk-deploy-version: 1.5.0-dev.4
 
 set -uo pipefail
 
@@ -1870,6 +1870,19 @@ finalize_chatdesk_source_change() {
   return 0
 }
 
+# npm installs on the deployment box rewrite the tracked package-lock.json
+# files (the server's npm version differs from the one that produced the
+# committed lockfiles), so the working tree is dirty by the time the next
+# update runs and `git pull --ff-only` aborts with "Your local changes to the
+# following files would be overwritten by merge". The deployment tree must
+# mirror the remote branch, so stash tracked + untracked local modifications
+# away before every pull — the stash keeps a recoverable copy on the box
+# (`git stash list` inside /opt/chatdesk) instead of destroying anything;
+# a clean tree simply produces "No local changes to save" and moves on.
+discard_repo_local_changes() {
+  run_in_install_dir "git stash push --include-untracked -m 'chatdesk-updater auto-stash before pull'" >/dev/null 2>&1 || true
+}
+
 clone_repo() {
   run_silent run_as_root mkdir -p "$INSTALL_DIR" || return 1
 
@@ -1877,6 +1890,7 @@ clone_repo() {
     log "Repository exists at ${INSTALL_DIR}. Updating source..."
     run_in_install_dir "git fetch --all --prune" || return 1
     run_in_install_dir "git checkout ${REPO_BRANCH}" || return 1
+    discard_repo_local_changes
     run_in_install_dir "git pull --ff-only origin ${REPO_BRANCH}" || return 1
     write_install_config || true
     return 0
@@ -4096,6 +4110,7 @@ update_chatdesk_run() {
       return 1
     fi
 
+    discard_repo_local_changes
     if ! run_in_install_dir "git pull --ff-only origin ${active_branch}"; then
       warn "Failed to pull updates. Repository may have non-fast-forward changes."
       press_enter_to_continue
@@ -4176,6 +4191,7 @@ switch_release_channel() {
     press_enter_to_continue
     return 1
   fi
+  discard_repo_local_changes
   if ! run_in_install_dir "git pull --ff-only origin ${target_branch}"; then
     warn "Failed to pull ${target_branch}. Repository may have non-fast-forward changes."
     restore_chatdesk_service_after_update

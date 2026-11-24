@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.4
+
+### Fixed
+
+- 🔧 **Updates no longer abort with "Your local changes would be overwritten by merge".** `npm install` on the deployment box rewrites the tracked `client/package-lock.json` / `server/package-lock.json` files, so the next `git pull --ff-only` refused to merge and every update failed until the tree was cleaned by hand. The updater now **auto-stashes** local source modifications (tracked + untracked) before every fast-forward pull — in the update flow, the channel switch flow, and the installer's own repo-sync step. The stash keeps a recoverable copy on the box (`git stash list` inside `/opt/chatdesk`); a clean tree simply moves on. Docs: `docs/Deployment-Script.md` update section updated.
+
 ## 1.5.0-dev.3
 
 ### Fixed

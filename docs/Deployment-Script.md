@@ -136,7 +136,7 @@ Choose **Update ChatDesk** (Option 2) from the menu to update or downgrade your 
 
 1. **Database backup**: The script offers to create a timestamped backup before touching application files.
 2. **GitHub mode**:
-   - **Update**: If updates are available on `origin/main`, the script automatically pulls them (`git pull --ff-only`), installs dependencies, runs database migrations, and restarts services.
+   - **Update**: If updates are available on `origin/main`, the script automatically pulls them (`git pull --ff-only`), installs dependencies, runs database migrations, and restarts services. Local source modifications that would block the fast-forward (typically the tracked `package-lock.json` files rewritten by `npm install` on the server) are **auto-stashed** before every pull — recoverable via `git stash list` inside the install directory — so updates never abort with "local changes would be overwritten".
    - **Downgrade**: If the repository is already up to date, it prompts `Do you want to downgrade? [y/N]`. If confirmed, you can specify any valid version (semver tag like `v0.11.4`, custom tag, branch, or commit SHA). The script checks out that reference, runs migrations, and rebuilds.
 3. **Offline mode**:
    - **Update**: If the `VERSION` file in the provided zip archive is newer than the installed version, it updates files and rebuilds.
