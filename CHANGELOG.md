@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.6
+
+### Fixed
+
+- 🔎 **Full compatibility audit of migration 036 (UUID primary keys) — two more silent Number()-on-UUID bugs found and fixed.** Following the department-report "only the last operator" incident, the ENTIRE codebase was swept for every consumer of the UUID-converted columns (`users.id`, `chats.id`, `chat_messages.id` and all ~25 referencing FKs across `chat_members`, `sessions`, `push_subscriptions`, `tickets`, `admin_audit_logs`, …): every Map/Set key, equality check and SQL binding that coerced a UUID through `Number()`. Two additional real bugs surfaced and are fixed. **(1) The diagnostics chat snapshot (`lib/inspect.js`) reported 0 members for every chat** — it converted chat ids with `Number()`, the member `whereIn` matched nothing, and the per-chat member grouping collapsed onto NaN; it now keys by the raw string UUIDs (verified by new tests that feed real UUID shapes and assert both the grouping and the SQL bindings stay raw). **(2) The startup message-body encryption backfill (`index.js`) silently never encrypted legacy plaintext** — its `UPDATE chat_messages … WHERE id = Number(row.id)` produced `WHERE id = NaN`, matching no row on every boot; the decision logic is now extracted into the pure, testable `lib/storageEncryptionBackfill.js` (`planMessageBodyEncryption`) whose contract pins that the update addresses the RAW id. Everything else audited clean: department ids are legitimately numeric, `remote_channel_*` / `chat_message_files` ids are INTEGER by design, the Postgres INT8 parser only touches bigint flags/counts, and the client (React) uses no numeric coercions on user/chat/message ids. The audit checklist is now a permanent agent law — **AGENTS.md rule 13: "Schema/migration compatibility sweep"** — every future fundamental data-structure change must enumerate affected columns, grep every consumer in `server/` AND `client/`, fix each, and pin the change with tests using real production-shaped fixtures (numeric test ids are what hid this whole bug class in the first place). Suite: 136 files / 1301 server tests, 427 client unit tests green.
+
 ## 1.4.0-dev.5
 
 ### Fixed

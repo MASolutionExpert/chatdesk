@@ -27,6 +27,7 @@ import { createInspector } from "./lib/inspect.js";
 import { createSessionHelpers } from "./lib/sessions.js";
 import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
+import { planMessageBodyEncryption } from "./lib/storageEncryptionBackfill.js";
 import { createStorageProvider } from "./lib/storage/index.js";
 import { migrateLegacyStorageLayout } from "./lib/storageLayoutMigration.js";
 import { createMediaQueueManager } from "./lib/mediaQueue.js";
@@ -769,22 +770,15 @@ async function backfillStorageEncryption() {
 
     let encryptedInBatch = 0;
     batch.forEach((row) => {
-      const body = String(row?.body || "");
-      if (!body || storageEncryption.isSystemMessageBody(body)) return;
-
-      // Valid ciphertext must remain untouched, while legacy plaintext that
-      // merely imitates the ciphertext prefix is encrypted on startup.
-      const isValidCiphertext =
-        storageEncryption.isEncryptedText(body) &&
-        storageEncryption.decryptText(body) !== body;
-      if (isValidCiphertext) return;
-
-      const nextBody = storageEncryption.encryptText(body);
-      if (nextBody === body) return;
+      const plan = planMessageBodyEncryption(row, storageEncryption);
+      if (!plan) return;
+      // plan.id is the RAW message id (TEXT UUID since migration 036).
+      // Number(plan.id) is NaN — that once matched no rows and legacy
+      // plaintext bodies silently stayed unencrypted on every boot.
       adminRun(
         dbKnex("chat_messages")
-          .where({ id: Number(row.id) })
-          .update({ body: nextBody }),
+          .where({ id: plan.id })
+          .update({ body: plan.body }),
       );
       encryptedInBatch += 1;
     });
