@@ -4693,6 +4693,8 @@ export function adminListChats({
   autoAddFilter = null,
   remoteFilter = null,
   channelFilter = null,
+  createdFrom = null,
+  createdTo = null,
 }) {
   const safeLimit  = Math.max(1, Math.min(500, Number(limit) || 200));
   const safeOffset = Math.max(0, Number(offset) || 0);
@@ -4733,7 +4735,11 @@ export function adminListChats({
         .orWhereRaw("EXISTS (SELECT 1 FROM chat_members scm JOIN users su ON su.id = scm.user_id WHERE scm.chat_id = c.id AND (su.username LIKE ? ESCAPE '\\' OR su.nickname LIKE ? ESCAPE '\\'))", [like, like]);
     });
   }
-  if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
+  if (typeFilter === "support") {
+    // "Support messages" in the type filter = support tickets: DM chats on
+    // the support channel (the ticket threads the helpdesk serves).
+    qb = qb.where("c.type", "dm").where("c.channel", "support");
+  } else if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
   }
   if (channelFilter === "support" || channelFilter === "direct") {
@@ -4760,6 +4766,24 @@ export function adminListChats({
     qb = qb.where("rcs.enabled", 0);
   } else if (remoteFilter === "none") {
     qb = qb.whereNull("rcs.id");
+  }
+
+  // Created-at range ("YYYY-MM-DD", pre-validated by the route). Bounds are
+  // built so plain string comparison stays correct across BOTH stored
+  // formats — SQLite's "YYYY-MM-DD HH:MM:SS" and ISO "YYYY-MM-DDTHH:MM:SSZ"
+  // (both sort after the bare date prefix, so `>= from` is inclusive), and
+  // the `to` bound is the EXCLUSIVE next-day start, so a late-night ISO
+  // timestamp on the last day ("...T23:59:59Z" < next day "YYYY-MM-DD")
+  // is still included. UTC day boundaries, matching the support report.
+  if (createdFrom) {
+    qb = qb.where("c.created_at", ">=", createdFrom);
+  }
+  if (createdTo) {
+    const toMs = Date.parse(`${createdTo}T00:00:00Z`);
+    if (!Number.isNaN(toMs)) {
+      const nextDay = new Date(toMs + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      qb = qb.where("c.created_at", "<", nextDay);
+    }
   }
 
   const countCols = ["member_count", "message_count"];

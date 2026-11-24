@@ -2,6 +2,22 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.9
+
+### Added
+
+- ⏳ **Time filter for the admin Chats tab — the same precise range filter as the helpdesk.** From/to date inputs plus **Today / Last 7 days / Last 30 days / All time** presets now filter the chat list by creation date. Backend-first: `GET /api/admin/chats` accepts `createdFrom` / `createdTo` (strict `YYYY-MM-DD`, anything else → 400) and `adminListChats` applies the window in SQL with bounds engineered for the column's MIXED timestamp formats — SQLite's `"YYYY-MM-DD HH:MM:SS"` and ISO `"YYYY-MM-DDTHH:MM:SSZ"` both sort after the bare date prefix (inclusive `>= from`), and the `to` bound is the exclusive next-day start so a late-night ISO timestamp on the last day is still included. UTC day boundaries, matching the support report.
+
+### Changed
+
+- 🎫 **"Support messages" added to the Chat Type filter, right under "Direct messages"** — selecting it surfaces the helpdesk ticket threads (support-channel DMs). Backend: `type=support` maps to `type='dm' AND channel='support'` server-side (the redundant standalone channel filter section was removed from the UI since the type filter now covers it; the `channel` API parameter still works).
+
+### Fixed
+
+- 👥 **The group/channel edit modal now shows the EXISTING members.** Previously, editing a group that visibly had members in the chat list opened an edit page with an empty member selection — the admin could never see the current membership. The modal now loads `GET /api/admin/chats/:id/members` on mount and renders every existing member as a selected chip (the owner stays in the OwnerPicker). The chips are now a real membership editor: kept chips are no-ops on save, removed chips delete the member (`DELETE /api/admin/chats/:id/members/:userId`), new chips add them — with guards so ownership transfer (which rides the PATCH) is never clobbered.
+
+**Tests:** 140 files / 1335 server tests (6 new: real-SQLite integration for the support-type filter and the mixed-format date window incl. spanning/out-of-range/intersect cases, plus API param-passthrough and 400-on-bad-date), 427 client unit tests green.
+
 ## 1.4.0-dev.8
 
 ### Fixed

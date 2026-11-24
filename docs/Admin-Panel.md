@@ -129,12 +129,13 @@ Manage DMs, groups, and channels:
 ### Features
 
 - **View All Chats**: Paginated list with type, member count, message count, and creation date
+- **Time Filter**: From/to date inputs with **Today / Last 7 days / Last 30 days / All time** presets (the same filter as the helpdesk report) — filters the list by chat creation date
 - **Create Chats**: Create a new group or channel
 - **Edit Chats**: Update chat metadata and its ownership
 - **Delete Chats**: Permanently remove chats and all associated messages
-- **Search & Filter**: Searching and filtering across all groups and channels
+- **Search & Filter**: Filtering across all chats — the **Chat Type** filter offers Direct messages, **Support messages** (the helpdesk ticket threads), Groups and Channels, plus privacy, verification, auto-add and remote-channel filters
 - **Sorting**: Sort by Name, Type, Visibility, Created Date, Member Count, or Message Count
-- **Member Management**: View and modify chat membership
+- **Member Management**: Editing a group or channel loads its **existing members** as selected chips — the admin sees the current membership at a glance; removing a chip removes that member on save, adding a chip adds them
 - **Auto-Add New Users**: Automatically add newly registered user accounts to public chats
 
 ## Services Tab

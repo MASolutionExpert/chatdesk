@@ -185,6 +185,10 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [members, setMembers] = useState([]);
+  // Ids of the members the chat ALREADY had when the edit modal opened.
+  // Selected chips that stay in the list are no-ops on save; chips removed
+  // from the selection are deleted from the chat; new chips are added.
+  const [existingMemberIds, setExistingMemberIds] = useState(() => new Set());
   const [addAllEligibleMembers, setAddAllEligibleMembers] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -273,6 +277,39 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     }
   }, [form.visibility]);
 
+  // Edit mode: load the chat's EXISTING members so they render as selected
+  // chips (previously the edit modal showed an empty member list even for a
+  // group with many members — the admin could never see or adjust the
+  // current membership). The owner is shown by the OwnerPicker, not as a
+  // chip, so owner-role rows are excluded here.
+  useEffect(() => {
+    if (!editing || !chat?.id) return undefined;
+    let cancelled = false;
+    api.get(`/api/admin/chats/${chat.id}/members`).then((data) => {
+      if (cancelled) return;
+      const rows = (data?.members || []).filter(
+        (m) => m && m.id && m.role !== "owner" && String(m.id) !== String(chat.owner_id || ""),
+      );
+      const loaded = rows.map((m) => ({
+        id: m.id,
+        username: m.username,
+        nickname: m.nickname,
+        avatar_url: m.avatar_url,
+        color: m.color,
+      }));
+      setMembers((prev) => {
+        const byId = new Map(loaded.map((m) => [String(m.id), m]));
+        for (const m of prev) byId.set(String(m.id), m);
+        return [...byId.values()];
+      });
+      setExistingMemberIds(new Set(rows.map((m) => String(m.id))));
+    }).catch(() => {
+      // Server refused or is unreachable — keep the previous behavior
+      // (empty selection = additions only) rather than blocking the edit.
+    });
+    return () => { cancelled = true; };
+  }, [editing, chat?.id, chat?.owner_id]);
+
   // Avatar state. In edit mode we upload immediately to the existing chat; in
   // create mode we hold the picked file and upload after the chat is created.
   const fileUploadEnabled = CHAT_PAGE_CONFIG.fileUploadEnabled;
@@ -330,7 +367,8 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
   }, []);
 
   // Member search mirrors useNewGroupModal and excludes the selected owner.
-  // During edits, selected members represent additions to the existing chat.
+  // During edits the selection mirrors the chat's FULL membership (existing
+  // members are loaded on mount): removing a chip removes the member on save.
   useEffect(() => {
     if (!search.trim()) { setResults([]); return undefined; }
     const handle = setTimeout(async () => {
@@ -417,7 +455,16 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
           const rr = await api.put(`/api/admin/chats/${chat.id}/remote-channel`, remotePayload);
           if (!rr.ok) { const d = await rr.json().catch(() => ({})); setError(d.error || t("admin.groups.errRemoteSave")); setBusy(false); return; }
         }
+        // Member changes. `existingMemberIds` are the members the chat
+        // already had: chips kept in the selection are no-ops, chips removed
+        // from the selection are deleted from the chat, and only genuinely
+        // new chips are added. The (possibly new) owner is never touched
+        // here — ownership transfers ride the PATCH above.
+        const currentMemberIds = new Set(members.map((m) => String(m.id)).filter(Boolean));
+        const ownerIdStr = owner?.id ? String(owner.id) : null;
         for (const member of members) {
+          if (existingMemberIds.has(String(member.id))) continue;
+          if (ownerIdStr && String(member.id) === ownerIdStr) continue;
           const memberResponse = await api.post(`/api/admin/chats/${chat.id}/members`, {
             userId: member.id,
           });
@@ -426,6 +473,19 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
             setError(data.error || t("admin.groups.errMemberAdd"));
             setBusy(false);
             return;
+          }
+        }
+        if (existingMemberIds.size > 0) {
+          for (const existingId of existingMemberIds) {
+            if (currentMemberIds.has(existingId)) continue;
+            if (ownerIdStr && existingId === ownerIdStr) continue;
+            const removalResponse = await api.delete(`/api/admin/chats/${chat.id}/members/${existingId}`);
+            if (!removalResponse.ok) {
+              const data = await removalResponse.json().catch(() => ({}));
+              setError(data.error || t("admin.groups.errMemberRemove"));
+              setBusy(false);
+              return;
+            }
           }
         }
         if (addAllEligibleMembers) {
@@ -469,7 +529,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
     } catch {
       setError(t("admin.groups.errRequest")); setBusy(false);
     }
-  }, [editing, form, owner, type, isChannel, members, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified, autoAddNewUsers, remoteFlags.enabled, remoteFlags.mediaStreamEnabled, t]);
+  }, [editing, form, owner, type, isChannel, members, existingMemberIds, addAllEligibleMembers, chat, onSaved, onClose, fileUploadEnabled, pendingAvatarFile, avatarRemoved, uploadAvatarTo, initialOwnerId, verified, autoAddNewUsers, remoteFlags.enabled, remoteFlags.mediaStreamEnabled, t]);
 
   const extraFields = (
     <div className="space-y-3">

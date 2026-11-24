@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { ChevronDown, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Phone, Plus, Trash, User, Users } from "../../icons/lucide.js";
-import { api, cardCls, btnPrimary, iconBtn, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
+import { ChevronDown, Filter, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Phone, Plus, Trash, User, Users } from "../../icons/lucide.js";
+import { api, cardCls, btnPrimary, iconBtn, inputSmCls, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterPopover, SortTh, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import CallsHistory from "./CallsHistory.jsx";
 import AdminGroupModal from "./AdminGroupModal.jsx";
@@ -27,7 +27,16 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const [verifiedFilter, setVerifiedFilter]     = useState("");
   const [autoAddFilter, setAutoAddFilter]       = useState("");
   const [remoteFilter, setRemoteFilter]         = useState("");
-  const [channelFilter, setChannelFilter]       = useState("");
+  // Created-at time window (like the helpdesk report's filter): the date
+  // inputs feed `rangeDraft`, the presets/Apply commit it to `rangeApplied`
+  // which drives the fetch. Empty strings mean "no bound" (all time).
+  const rangeDayStr = (offsetDays = 0) => {
+    const d = new Date(Date.now() + offsetDays * 24 * 60 * 60 * 1000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const [rangeFrom, setRangeFrom]     = useState("");
+  const [rangeTo, setRangeTo]         = useState("");
+  const [rangeApplied, setRangeApplied] = useState({ from: "", to: "" });
   const [sortBy, setSortBy]           = useState("id");
   const [sortDir, setSortDir]         = useState("ASC");
   const [editChat, setEditChat]       = useState(null);
@@ -73,7 +82,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     if (verifiedFilter) params.set("verified", verifiedFilter);
     if (autoAddFilter) params.set("auto_add", autoAddFilter);
     if (remoteFilter) params.set("remote", remoteFilter);
-    if (channelFilter) params.set("channel", channelFilter);
+    if (rangeApplied.from) params.set("createdFrom", rangeApplied.from);
+    if (rangeApplied.to) params.set("createdTo", rangeApplied.to);
     try {
       const data = await api.get(`/api/admin/chats?${params.toString()}`);
       if (requestId !== requestIdRef.current) return;
@@ -86,7 +96,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [trimmedSearch, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, channelFilter, sortBy, sortDir, pageSize]);
+  }, [trimmedSearch, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, rangeApplied, sortBy, sortDir, pageSize]);
 
   // Refetch (debounced) whenever the query or page changes while the tab is visible.
   useEffect(() => {
@@ -108,8 +118,19 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
   const changeVerifiedFilter = (value) => { setVerifiedFilter(value); setPage(1); };
   const changeAutoAddFilter = (value) => { setAutoAddFilter(value); setPage(1); };
   const changeRemoteFilter = (value) => { setRemoteFilter(value); setPage(1); };
-  const changeChannelFilter = (value) => { setChannelFilter(value); setPage(1); };
   const changePageSize = (value) => { setPageSize(value); setPage(1); };
+  const applyRange = (e) => {
+    e?.preventDefault();
+    setRangeApplied({ from: rangeFrom.trim(), to: rangeTo.trim() });
+    setPage(1);
+  };
+  const applyRangePreset = (days) => {
+    const next = days === null ? { from: "", to: "" } : { from: rangeDayStr(-(days - 1)), to: rangeDayStr(0) };
+    setRangeFrom(next.from);
+    setRangeTo(next.to);
+    setRangeApplied(next);
+    setPage(1);
+  };
   const toggleSort = (field) => {
     setPage(1);
     setSortBy((prev) => {
@@ -129,7 +150,15 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
       label: t("admin.chats.filters.type"),
       value: typeFilter,
       onChange: changeTypeFilter,
-      options: [["", t("admin.chats.filters.allTypes")], ["dm", t("admin.chats.filters.typeDm")], ["group", t("admin.chats.filters.typeGroup")], ["channel", t("admin.chats.filters.typeChannel")]],
+      options: [
+        ["", t("admin.chats.filters.allTypes")],
+        ["dm", t("admin.chats.filters.typeDm")],
+        // Support tickets live on DM chats riding the support channel —
+        // selecting this surfaces the helpdesk threads (tickets).
+        ["support", t("admin.chats.filters.typeSupport")],
+        ["group", t("admin.chats.filters.typeGroup")],
+        ["channel", t("admin.chats.filters.typeChannel")],
+      ],
     },
     {
       id: "visibility",
@@ -165,17 +194,6 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
         ["none", t("admin.chats.filters.remoteNone")],
       ],
     },
-    {
-      id: "channel",
-      label: t("admin.chats.filters.channel"),
-      value: channelFilter,
-      onChange: changeChannelFilter,
-      options: [
-        ["", t("admin.chats.filters.channelAll")],
-        ["direct", t("admin.chats.filters.channelDirect")],
-        ["support", t("admin.chats.filters.channelSupport")],
-      ],
-    },
   ];
 
   const resetChatFilters = () => {
@@ -184,7 +202,9 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
     setVerifiedFilter("");
     setAutoAddFilter("");
     setRemoteFilter("");
-    setChannelFilter("");
+    setRangeFrom("");
+    setRangeTo("");
+    setRangeApplied({ from: "", to: "" });
     setPage(1);
   };
 
@@ -233,6 +253,67 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
           ) : null}
         </div>
       </TabToolbar>
+
+      {/* Time filter — mirrors the helpdesk report's range filter (from/to
+          date inputs + Today / 7d / 30d / All-time presets). Filters the list
+          by chat creation date server-side. */}
+      <div className={cardCls + " p-4"}>
+        <form onSubmit={applyRange} className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[130px] flex-1 sm:max-w-[180px]">
+            <label className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300" htmlFor="chats-from">
+              {t("admin.helpdesk.report.rangeFrom")}
+            </label>
+            <input
+              id="chats-from"
+              type="date"
+              value={rangeFrom}
+              max={rangeTo || undefined}
+              onChange={(e) => setRangeFrom(e.target.value)}
+              className={inputSmCls}
+            />
+          </div>
+          <div className="min-w-[130px] flex-1 sm:max-w-[180px]">
+            <label className="mb-1 block text-[11px] font-semibold text-slate-600 dark:text-slate-300" htmlFor="chats-to">
+              {t("admin.helpdesk.report.rangeTo")}
+            </label>
+            <input
+              id="chats-to"
+              type="date"
+              value={rangeTo}
+              min={rangeFrom || undefined}
+              onChange={(e) => setRangeTo(e.target.value)}
+              className={inputSmCls}
+            />
+          </div>
+          <button type="submit" className={btnPrimary}>
+            <Filter size={13} className="icon-anim-pop" />
+            {t("admin.helpdesk.report.apply")}
+          </button>
+        </form>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {[
+            { label: t("admin.helpdesk.report.presetToday"), days: 1 },
+            { label: t("admin.helpdesk.report.preset7d"), days: 7 },
+            { label: t("admin.helpdesk.report.preset30d"), days: 30 },
+            { label: t("admin.helpdesk.report.presetAll"), days: null },
+          ].map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => applyRangePreset(preset.days)}
+              className={
+                "rounded-full px-3 py-1 text-[11px] font-semibold transition " +
+                (rangeApplied.from === (preset.days === null ? "" : rangeDayStr(-(preset.days - 1))) &&
+                 rangeApplied.to === (preset.days === null ? "" : rangeDayStr(0))
+                  ? "bg-emerald-500 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")
+              }
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {!initialized ? <LoadingRows /> : chats.length === 0 ? <EmptyState message={t("admin.chats.empty")} /> : (
         <>
