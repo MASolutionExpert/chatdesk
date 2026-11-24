@@ -2,6 +2,19 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.2
+
+### Changed
+
+- 📊 **The department-report response metric now follows the classic helpdesk definition, end to end.** After operator feedback on 1.5.0-dev.1 (which measured a per-reply latency that blurred the picture), the metric is back to **first response per ticket**, exactly as admins expect it:
+  - **Per operator** — mean of (first staff reply − ticket creation) over the operator's **own tickets created in the selected range** (the time-filter / Today / 7-day / 30-day presets all apply). One sample per ticket; tickets with no reply yet stay out of the average.
+  - **Department total** — the same average over **ALL answered tickets of the range**, i.e. the combined performance of all its operators (ticket-weighted, not a simple mean of operator means).
+  - A first reply written after the window end still belongs to its in-range ticket ("the average of all tickets of the range").
+  - ➕ **New "First responses" tile on each operator card** — the number of their in-range tickets that received a reply, i.e. the sample size behind the average, so the figure is verifiable at a glance.
+  - `docs/Helpdesk-Setup.md` metric table rewritten (EN + FA); API contract returns `firstResponses` / `avgFirstResponseSeconds` per operator again.
+
+**Tests:** 140 files / 1338 server tests (aggregation contract re-pinned: per-ticket attribution incl. "someone else replied first", multi-ticket operator average, post-window first reply inclusion), 427 client unit tests — all green.
+
 ## 1.5.0-dev.1
 
 ### Fixed

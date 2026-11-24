@@ -12,6 +12,7 @@ import {
   Refresh,
   TriangleAlert,
   Users,
+  Zap,
 } from "../../icons/lucide.js";
 import { apiFetch } from "../../api/chatApi.js";
 import {
@@ -283,9 +284,14 @@ const DepartmentReportView = function DepartmentReportView({ departmentId, onBac
                       <TotalCard icon={<CircleCheck size={14} />} label={t("admin.helpdesk.report.metricTicketsClosed")} value={op.ticketsClosed} />
                       <TotalCard icon={<Clock12 size={14} />} label={t("admin.helpdesk.report.metricOpenTickets")} value={op.openTickets} tone={op.openTickets > 0 ? "amber" : "slate"} />
                       <TotalCard
+                        icon={<Zap size={14} />}
+                        label={t("admin.helpdesk.report.metricFirstResponses")}
+                        value={op.firstResponses}
+                      />
+                      <TotalCard
                         icon={<Gauge size={14} />}
-                        label={t("admin.helpdesk.report.metricAvgOperatorResponse")}
-                        value={op.avgResponseSeconds === null ? "—" : t("admin.helpdesk.report.seconds", { n: op.avgResponseSeconds })}
+                        label={t("admin.helpdesk.report.metricAvgResponse")}
+                        value={op.avgFirstResponseSeconds === null ? "—" : t("admin.helpdesk.report.seconds", { n: op.avgFirstResponseSeconds })}
                       />
                     </div>
                   </div>

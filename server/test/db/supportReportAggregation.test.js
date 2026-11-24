@@ -123,7 +123,7 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     expect(billing.totals.unanswered).toBe(2);
   });
 
-  it("computes department avg first response and author-attributed per-reply response times", () => {
+  it("computes department avg first response over ALL range tickets and per-operator first responses", () => {
     const report = aggregateSupportReport(
       baseInput({
         chats: [
@@ -133,31 +133,33 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
         ],
         messages: [
           { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:00:20Z" },
-          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:01:00Z" }, // bob: 40s after the customer
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:01:00Z" }, // bob's first reply at +60s
           { chat_id: 101, user_id: 31, created_at: "2025-06-10T09:01:30Z" },
-          { chat_id: 101, user_id: 11, created_at: "2025-06-10T09:02:00Z" }, // carol: 30s after the customer
+          { chat_id: 101, user_id: 11, created_at: "2025-06-10T09:02:00Z" }, // carol's first reply at +120s
         ],
         from: null,
         to: null,
       })
     );
     const billing = report.departments.find((d) => d.id === 1);
+    // Department total = the average over ALL tickets of the range that got
+    // a first reply ((60 + 120) / 2 = 90). Unanswered chat 102 stays out.
     expect(billing.totals.avgFirstResponseSeconds).toBe(90);
-    // Per-operator responses are attributed to the AUTHOR of each reply and
-    // measured against the customer message each reply actually answers.
+    // Each operator is scored on THEIR OWN tickets (no ticket rows → the
+    // first-reply fallback attributes chat 100 to bob, chat 101 to carol).
     const bob = billing.operators.find((o) => o.id === 10);
     const carol = billing.operators.find((o) => o.id === 11);
-    expect(bob.responses).toBe(1);
-    expect(bob.avgResponseSeconds).toBe(40);
-    expect(carol.responses).toBe(1);
-    expect(carol.avgResponseSeconds).toBe(30);
+    expect(bob.firstResponses).toBe(1);
+    expect(bob.avgFirstResponseSeconds).toBe(60);
+    expect(carol.firstResponses).toBe(1);
+    expect(carol.avgFirstResponseSeconds).toBe(120);
     // Chat 102 (no ticket, no reply) counts as unanswered in the department
     // totals but cannot be attributed to any operator.
     expect(billing.totals.unanswered).toBe(1);
     expect(bob.unanswered + carol.unanswered).toBe(0);
   });
 
-  it("attributes the response time to the reply's AUTHOR, never to the ticket assignee", () => {
+  it("scores each ticket on its OWN operator — even when someone else replied first", () => {
     const report = aggregateSupportReport(
       baseInput({
         chats: [
@@ -166,9 +168,9 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
         ],
         messages: [
           { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:01:00Z" },
-          { chat_id: 100, user_id: 11, created_at: "2025-06-10T09:02:00Z" }, // carol +60s
+          { chat_id: 100, user_id: 11, created_at: "2025-06-10T09:02:00Z" }, // carol's first reply +120s
           { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:03:00Z" },
-          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:04:00Z" }, // bob +60s
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:04:00Z" },
         ],
         tickets: [
           { chat_id: 100, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
@@ -180,33 +182,39 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     const billing = report.departments.find((d) => d.id === 1);
     const bob = billing.operators.find((o) => o.id === 10);
     const carol = billing.operators.find((o) => o.id === 11);
-    // Conversation ownership still follows the ticket (bob).
+    // The ticket belongs to bob, so the first-response sample rides bob's
+    // card; carol (not the ticket's operator) gets no sample.
     expect(bob.assigned).toBe(1);
     expect(bob.answered).toBe(1);
-    expect(carol.assigned).toBe(0);
-    // But EACH author is scored on their OWN reply latency.
-    expect(carol.responses).toBe(1);
-    expect(carol.avgResponseSeconds).toBe(60);
-    expect(bob.responses).toBe(1);
-    expect(bob.avgResponseSeconds).toBe(60);
+    expect(bob.firstResponses).toBe(1);
+    expect(bob.avgFirstResponseSeconds).toBe(120);
+    expect(carol.firstResponses).toBe(0);
+    expect(carol.avgFirstResponseSeconds).toBeNull();
   });
 
-  it("counts every in-range reply, measuring latency from the latest preceding customer message", () => {
+  it("operator average is the mean over ALL of their in-range tickets, one sample each", () => {
     const report = aggregateSupportReport(
       baseInput({
         chats: [
-          { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
+          { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" }, // first reply +300s
+          { id: 101, department_id: 1, created_at: "2025-06-10T10:00:00Z" }, // first reply +60s
+          { id: 102, department_id: 1, created_at: "2025-06-10T11:00:00Z" }, // bob's, never answered
+          { id: 103, department_id: 1, created_at: "2025-06-10T12:00:00Z" }, // carol's, answered
         ],
         messages: [
           { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:00:00Z" },
-          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:05:00Z" }, // bob +300s
-          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:10:00Z" },
-          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:12:00Z" }, // bob +120s
-          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:15:00Z" },
-          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:16:00Z" }, // bob +60s
-          // Carol chimes in WITHOUT a new customer question before her reply
-          // — not a response, so it must not enter anyone's average.
-          { chat_id: 100, user_id: 11, created_at: "2025-06-10T09:17:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:05:00Z" }, // +300s
+          { chat_id: 101, user_id: 31, created_at: "2025-06-10T10:00:00Z" },
+          { chat_id: 101, user_id: 10, created_at: "2025-06-10T10:01:00Z" }, // +60s
+          { chat_id: 102, user_id: 30, created_at: "2025-06-10T11:00:00Z" },
+          { chat_id: 103, user_id: 31, created_at: "2025-06-10T12:00:00Z" },
+          { chat_id: 103, user_id: 11, created_at: "2025-06-10T12:00:45Z" }, // +45s
+        ],
+        tickets: [
+          { chat_id: 100, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
+          { chat_id: 101, department_id: 1, customer_id: 31, operator_id: 10, status: "open", created_at: "2025-06-10T10:00:00Z", closed_at: null },
+          { chat_id: 102, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-10T11:00:00Z", closed_at: null },
+          { chat_id: 103, department_id: 1, customer_id: 31, operator_id: 11, status: "open", created_at: "2025-06-10T12:00:00Z", closed_at: null },
         ],
         from: "2025-06-01",
         to: "2025-06-30",
@@ -215,34 +223,16 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     const billing = report.departments.find((d) => d.id === 1);
     const bob = billing.operators.find((o) => o.id === 10);
     const carol = billing.operators.find((o) => o.id === 11);
-    expect(bob.responses).toBe(3);
-    expect(bob.avgResponseSeconds).toBe(160); // (300 + 120 + 60) / 3
-    expect(carol.responses).toBe(0);
-    expect(carol.avgResponseSeconds).toBeNull();
+    // Bob: three in-range tickets, two answered → two samples, (300+60)/2.
+    expect(bob.firstResponses).toBe(2);
+    expect(bob.avgFirstResponseSeconds).toBe(180);
+    expect(carol.firstResponses).toBe(1);
+    expect(carol.avgFirstResponseSeconds).toBe(45);
+    // Department total = average over ALL answered tickets of the range.
+    expect(billing.totals.avgFirstResponseSeconds).toBe(135); // (300+60+45)/3
   });
 
-  it("scores replies on any chat age (activity-based) even when the request was pending before the range", () => {
-    const report = aggregateSupportReport(
-      baseInput({
-        chats: [
-          // Old chat, customer asked in May, operator answered in June.
-          { id: 100, department_id: 1, created_at: "2025-01-02T09:00:00Z" },
-        ],
-        messages: [
-          { chat_id: 100, user_id: 30, created_at: "2025-05-01T09:00:00Z" },
-          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:00:00Z" }, // +40 days
-        ],
-        from: "2025-06-01",
-        to: "2025-06-30",
-      })
-    );
-    const billing = report.departments.find((d) => d.id === 1);
-    const bob = billing.operators.find((o) => o.id === 10);
-    expect(bob.responses).toBe(1);
-    expect(bob.avgResponseSeconds).toBe(40 * 24 * 3600);
-  });
-
-  it("excludes first staff replies written after the window end from the department average", () => {
+  it("includes first replies written after the window end — the average covers ALL tickets of the range", () => {
     const report = aggregateSupportReport(
       baseInput({
         chats: [
@@ -258,14 +248,14 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
       })
     );
     const billing = report.departments.find((d) => d.id === 1);
-    // The conversation still exists in the June cohort and (retrospectively)
-    // counts as answered, but its response time was never visible in June.
+    // The ticket was created in June, so its (now knowable) first response
+    // belongs to the June average regardless of when the reply was written.
     expect(billing.totals.conversations).toBe(1);
     expect(billing.totals.answered).toBe(1);
-    expect(billing.totals.avgFirstResponseSeconds).toBeNull();
+    expect(billing.totals.avgFirstResponseSeconds).toBe(2 * 24 * 3600); // 48h
     const bob = billing.operators.find((o) => o.id === 10);
-    expect(bob.responses).toBe(0);
-    expect(bob.avgResponseSeconds).toBeNull();
+    expect(bob.firstResponses).toBe(1);
+    expect(bob.avgFirstResponseSeconds).toBe(2 * 24 * 3600);
   });
 
   it("attributes a conversation to the ticket operator, falling back to the first staff reply author", () => {
@@ -579,10 +569,10 @@ describe("aggregateSupportReport — UUID id shapes (migration 036 production re
     expect(billing.totals.staffMessages).toBe(3);
     expect(billing.totals.customerMessages).toBe(3);
     // First-response attribution also lands on the right operator (each
-    // operator authored the only reply of their own chat).
-    expect(billing.operators.find((o) => o.id === UUIDS.bob).responses).toBe(1);
-    expect(billing.operators.find((o) => o.id === UUIDS.carol).responses).toBe(1);
-    expect(billing.operators.find((o) => o.id === UUIDS.dan).responses).toBe(1);
+    // operator owns their chat via its ticket row).
+    expect(billing.operators.find((o) => o.id === UUIDS.bob).firstResponses).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.carol).firstResponses).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.dan).firstResponses).toBe(1);
   });
 
   it("keeps per-chat message histories separate under UUID chat ids", () => {
