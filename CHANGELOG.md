@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.4.0-dev.8
+
+### Fixed
+
+- 🔐 **Security hardening round 2 — the "/admin Emergency Claim" leak, the parked-owner-session logout gap, and two brute-force surfaces, all closed.** **(1) The Emergency Claim token form is no longer shown to everyone.** Any logged-in non-admin who opened `/admin` — including a monitoring session created through the owner's "Log in as user" (which is exactly what appeared when pressing the browser Back button after entering a user's panel) — was greeted by the "Emergency Claim / Admin API Token" prompt. The server was never at risk (the claim endpoint still requires the real token), but the UI leaked the mechanism's existence to every user and offered a probing surface. The client now renders the form ONLY when the server reports a genuine lockout: a new `adminClaimAvailable` field on `GET /api/app/info` (true **only** when `ADMIN_API_TOKEN` is configured AND no admin/owner exists, failing closed on any error) gates the form; every other case renders a bilingual "Access denied" card with a back button, and monitoring sessions are additionally hard-redirected from `/admin` back to the chat — no admin UI at all renders for an impersonation session. **(2) Logging out while monitoring no longer leaves the owner session alive.** `POST /api/logout` now also destroys the owner session parked in the HttpOnly `admin_sid` cookie and clears that cookie (previously the parked session survived up to 14 days in the browser and the session store — an unnecessary risk window). **(3) Brute-force hardening:** the emergency claim endpoint gets its own strict bucket (**10 attempts / 15 min per IP**, previously it rode the 3000/15min admin budget — enough for a human, useless for token guessing), and `/api/login` + `/api/register` get a dedicated **50 / 15 min** bucket so credential stuffing cannot ride the shared chat budget. **(4) Back/forward-cache stale identity:** a bfcache restore (browser Back/Forward) can resurrect a page whose rendered identity no longer matches the session cookie; the app now reloads on `pageshow` with `persisted=true` so `/api/me` re-syncs the identity with the server. Suite: 139 files / 1326 server tests (9 new: claim-gate matrix incl. fail-closed + parked-session logout + defensive same-token edge), 427 client unit tests, 35 worker tests green.
+
 ## 1.4.0-dev.7
 
 ### Added

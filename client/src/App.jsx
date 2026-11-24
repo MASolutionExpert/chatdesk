@@ -350,6 +350,30 @@ export default function App() {
     }
   }, [route, adminPanelEnabled])
 
+  // A monitoring session minted through the owner's "login as user" must
+  // never linger on /admin — the server already rejects its admin API calls
+  // (403), so bounce straight back to the chat. This closes the "browser
+  // Back lands on the admin claim page" hole: no admin UI at all renders
+  // for an impersonation session.
+  useEffect(() => {
+    if (route === 'admin' && user?.impersonatedBy) {
+      navigate('/chat', true)
+    }
+  }, [route, user])
+
+  // Back/forward cache (bfcache) restores can resurrect a page whose
+  // rendered identity no longer matches the session cookie (e.g. the
+  // owner's panel shown from cache while `sid` now belongs to someone
+  // else). A bfcache restore fires `pageshow` with persisted=true — reload
+  // so /api/me re-syncs the identity with the server.
+  useEffect(() => {
+    const onPageShow = (event) => {
+      if (event?.persisted) window.location.reload()
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
+
   useEffect(() => {
     const refreshTheme = () => applyTheme(isDark, route)
     let resizeTimer = null

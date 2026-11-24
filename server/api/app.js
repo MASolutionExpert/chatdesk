@@ -9,9 +9,35 @@ function registerAppRoutes(app, deps) {
     projectRootDir,
     getSessionFromRequest,
     isUserOwner,
+    hasAnyAdminUser,
   } = deps;
 
-  app.get("/api/app/info", (_req, res) => {
+  const resolveMaybePromise = async (value) =>
+    value && typeof value.then === "function" ? await value : value;
+
+  // Emergency-claim UI gate (GET /api/app/info → adminClaimAvailable).
+  //
+  // The client must only render the ADMIN_API_TOKEN "claim privileges" form
+  // when a genuine lockout is possible: the token is configured AND no
+  // admin/owner exists on the server. Every other case — any non-admin
+  // typing /admin into the URL bar, a monitoring (impersonation) session,
+  // a healthy installation — must see "access denied" instead of a token
+  // prompt. The server never reveals whether the token is set beyond this
+  // boolean, and the claim endpoint itself re-validates everything.
+  const adminClaimAvailable = async () => {
+    const tokenConfigured = Boolean(String(process.env.ADMIN_API_TOKEN || "").trim());
+    if (!tokenConfigured) return false;
+    if (typeof hasAnyAdminUser !== "function") return false;
+    try {
+      const anyAdmin = await resolveMaybePromise(hasAnyAdminUser());
+      return !anyAdmin;
+    } catch {
+      // Fail closed: if the check cannot run, never advertise the form.
+      return false;
+    }
+  };
+
+  app.get("/api/app/info", async (_req, res) => {
     const appMeta = readAppMeta({ fs, path, projectRootDir });
     res.json({
       version: appMeta.version,
@@ -29,6 +55,9 @@ function registerAppRoutes(app, deps) {
       adminPanelEnabled: !["0", "false", "no", "n", "off"].includes(
         String(process.env.ADMIN_PANEL ?? "true").trim().toLowerCase(),
       ),
+      // Emergency-claim gate — see adminClaimAvailable() above. True only
+      // when ADMIN_API_TOKEN is configured AND no admin/owner exists.
+      adminClaimAvailable: await adminClaimAvailable(),
       messageMaxChars: Number(getSetting("MESSAGE_MAX_CHARS")) || 4000,
       usernameMaxChars: Number(getSetting("USERNAME_MAX_CHARS")) || 16,
       nicknameMaxChars: Number(getSetting("NICKNAME_MAX_CHARS")) || 24,

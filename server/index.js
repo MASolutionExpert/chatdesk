@@ -369,6 +369,21 @@ const adminApiLimiter = rateLimit({
   max: 3000,
 });
 
+// Brute-force hardening. The emergency claim endpoint validates
+// ADMIN_API_TOKEN — ten tries per window is plenty for a human who owns the
+// token and useless for a guessing attack (previously it rode the 3000/15min
+// admin bucket). Login/registration get their own bucket so credential
+// stuffing cannot ride the shared 1000/15min chat budget either.
+const adminClaimLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+});
+
 const staticLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
@@ -1076,6 +1091,15 @@ const apiDeps = {
   isUserOwner,
   getOwnerUser,
   hasAnyUser,
+  // Emergency-claim gate: true when at least one admin/owner exists on the
+  // server. /api/app/info exposes adminClaimAvailable = token configured
+  // AND no admin — so the client only shows the claim form on real lockout.
+  hasAnyAdminUser: async () => {
+    const row = await adminGetRow(
+      "SELECT id FROM users WHERE role IN ('admin', 'owner') LIMIT 1",
+    );
+    return Boolean(row);
+  },
   writeAdminAuditLog,
   readAdminAuditLogs,
   clearAdminAuditLogs,
@@ -1259,6 +1283,11 @@ mirrorManagerRef.current = remoteChannelManager;
 if (isProduction) {
   app.use("/api", apiLimiter);
   app.use("/api/admin", adminApiLimiter);
+  // Stricter buckets on top of the general ones — must be mounted before
+  // registerApiRoutes() so they win over the wider /api/admin ceiling.
+  app.use("/api/admin/claim", adminClaimLimiter);
+  app.use("/api/login", authLimiter);
+  app.use("/api/register", authLimiter);
 }
 
 registerApiRoutes(app, apiDeps);

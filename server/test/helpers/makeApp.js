@@ -138,6 +138,10 @@ export function makeApp(overrides = {}) {
     findUserByUsername: userStore.findUserByUsername,
     findUserById: userStore.findUserById,
     hasAnyUser: () => userStore.users.size > 0,
+    // Emergency-claim gate: default = a healthy install (an admin exists) so
+    // unrelated tests never see the claim form advertised. Lockout tests
+    // override this with () => false.
+    hasAnyAdminUser: overrides.deps?.hasAnyAdminUser || (() => true),
     updateLastSeen: userStore.updateLastSeen,
     ensureAvatarExists: (_id, url) => url || null,
     findChatByGroupUsername: () => null,

@@ -16,6 +16,7 @@ function registerAuthRoutes(app, deps) {
     findUserByUsername,
     parseCookies,
     setSessionCookie,
+    setSideCookie,
     setUserColor,
     updateLastSeen,
     getSessionFromRequest,
@@ -201,7 +202,21 @@ function registerAuthRoutes(app, deps) {
       await deleteSession(cookies.sid);
     }
 
+    // Owner-impersonation flow: while the owner monitors a user, their real
+    // session is parked in the HttpOnly `admin_sid` cookie and stays LIVE in
+    // the session store (that is what the "return to admin panel" banner
+    // restores). A plain logout must not leave that parked owner session
+    // alive in the browser — destroy it and clear the side cookie too.
+    if (cookies.admin_sid && cookies.admin_sid !== cookies.sid) {
+      await deleteSession(cookies.admin_sid);
+    }
+
+    // Order matters: clearSessionCookie() overwrites the Set-Cookie header,
+    // setSideCookie() appends — clear `sid` first, then append `admin_sid`.
     clearSessionCookie(req, res);
+    if (typeof setSideCookie === "function") {
+      setSideCookie(req, res, "admin_sid", "", { clear: true });
+    }
 
     res.json({ ok: true });
   });

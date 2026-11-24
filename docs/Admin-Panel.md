@@ -74,6 +74,10 @@ For deployments on PaaS providers (such as Render, Railway, or Fly.io) or contai
 4. Enter the `ADMIN_API_TOKEN` in the Emergency Admin Access prompt.
 5. Click **Claim Privileges**.
 
+:::info When the claim form is visible
+The Emergency Claim form is strictly gated — the client only renders it when the server reports a genuine lockout (`GET /api/app/info` → `adminClaimAvailable: true`, meaning **`ADMIN_API_TOKEN` is configured AND no admin/owner exists**). In every other state — a healthy installation, a regular user browsing to `/admin`, or a monitoring session minted through "Log in as user" — the page shows **Access denied** with no token prompt at all. The claim endpoint additionally enforces a strict rate limit of **10 attempts per 15 minutes per IP**, so the token cannot be brute-forced.
+:::
+
 :::info Privilege Promotion Rules
 - **First Claim (Owner)**: If no user currently holds the **owner** role, the claiming user is promoted to **owner**.
 - **Subsequent Claims (Admin)**: If an owner already exists, claiming privileges promotes the user to **admin**.
@@ -112,6 +116,8 @@ Manage all users in your ChatDesk instance:
   - Enforced server-side: any non-owner session is rejected (`owner_only`).
   - The owner account itself, banned users and self-impersonation are refused.
   - The owner's real session is parked in an HttpOnly cookie; an amber banner appears in the app with a **Return to admin panel** button that restores it.
+  - Monitoring sessions cannot open `/admin` — the app redirects them back to the chat, so pressing the browser **Back** button after entering a user's panel can never land on admin pages or the emergency claim form.
+  - Logging out while monitoring destroys **both** sessions — the impersonation session and the parked owner session — and clears both cookies.
   - Every impersonation and return is recorded in the admin audit log (`user.impersonate`, `user.impersonate_return`).
 - **Delete Users**: Permanently remove user accounts
 - **Search & Filter**: Searching and filtering across the entire users dataset
