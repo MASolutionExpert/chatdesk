@@ -2102,20 +2102,19 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    // Moderation policy: regular users can never delete messages — not
-    // even their own. Only owner/admin/operator roles may delete, and every
-    // moderator deletion is recorded in the admin audit log (گزارش‌ها).
-    const moderatorDelete = isModeratorRole(user.role);
-    if (!moderatorDelete) {
+    // Deletion policy: ChatDesk is an organizational messenger and ticketing
+    // system — message deletion is destructive and must stay centralized.
+    // ONLY the instance owner may delete messages (neither scope, neither
+    // role). Regular users, admins, and operators are all rejected, and every
+    // owner deletion is recorded in the admin audit log (گزارش‌ها).
+    const ownerDelete = String(user.role || "").toLowerCase() === "owner";
+    if (!ownerDelete) {
       return res.status(403).json({
-        error: "Only admins and operators can delete messages.",
+        error: "Only the owner can delete messages.",
       });
     }
-    const rawIsMem = isMember(chatId, user.id);
-    const memberCheck = rawIsMem && typeof rawIsMem.then === "function" ? await rawIsMem : rawIsMem;
-    if (!memberCheck) {
-      return res.status(403).json({ error: "Not a member of this chat." });
-    }
+    // The owner may delete messages in any chat — membership is not required
+    // for the system owner (they are not a member of most support tickets).
     const rawMessage = findMessageById(messageId);
     const message = rawMessage && typeof rawMessage.then === "function" ? await rawMessage : rawMessage;
     if (!message || message.chat_id !== chatId) {
@@ -2132,18 +2131,8 @@ function registerMessageRoutes(app, deps) {
       if (!chat) {
         return res.status(404).json({ error: "Chat not found." });
       }
-      const rawRole = getChatMemberRole(chatId, user.id);
-      const role = String(rawRole && typeof rawRole.then === "function" ? await rawRole : rawRole).toLowerCase();
-      const rawCanPost = canUserPostInChat(chatId, user.id, chat);
-      const canPost = rawCanPost && typeof rawCanPost.then === "function" ? await rawCanPost : rawCanPost;
-      const canDeleteForEveryone =
-        canPost &&
-        (message.user_id === user.id || moderatorDelete || role === "owner");
-      if (!canDeleteForEveryone) {
-        return res.status(403).json({
-          error: "You cannot delete this message for everyone.",
-        });
-      }
+      // Owner-only: no other actor (group owner, admin, operator, author)
+      // may delete a message for everyone.
       const h = hideMessageForEveryone(message.id);
       if (h && typeof h.then === "function") await h;
       emitChatEvent(chatId, {

@@ -23,6 +23,7 @@ The owner account is **permanently protected**:
 - No admin (and no other user, and not even the owner through the admin panel) can **edit, ban, delete, re-role, or password-reset** the owner account. Every such attempt through the app is refused with `403 owner_protected`.
 - A second owner can never be promoted while an owner exists.
 - The **"What's new" feature** (the per-version changelog popup shown on each new release and the "What's new" entry in Settings) is a privilege of the owner alone — no other account ever sees it.
+- **Deletion is owner-only**: ChatDesk is an organizational messenger and ticketing system, so message deletion, DM/ticket thread deletion, and admin-panel chat deletion are reserved for the owner alone. Admins and operators never see delete actions and every server endpoint rejects them with `403` (see [Deletion Policy](#deletion-policy-owner-only)).
 
 Changes to the owner account (username, role transfer, password, ban state, …) are only possible from the **server's interactive menu** (`chatdesk-deploy` → Manage Database → Edit user), which runs directly on the server outside the web surface:
 
@@ -132,7 +133,7 @@ Manage DMs, groups, and channels:
 - **Time Filter**: From/to date inputs with **Today / Last 7 days / Last 30 days / All time** presets (the same filter as the helpdesk report) — filters the list by chat creation date
 - **Create Chats**: Create a new group or channel
 - **Edit Chats**: Update chat metadata and its ownership
-- **Delete Chats**: Permanently remove chats and all associated messages
+- **Delete Chats**: Permanently remove chats and all associated messages — **owner only**; admins and operators see no delete button (server returns `403 Owner access required`)
 - **Search & Filter**: Filtering across all chats — the **Chat Type** filter offers Direct messages, **Support messages** (the helpdesk ticket threads), Groups and Channels, plus privacy, verification, auto-add and remote-channel filters. Ticket threads are labeled **Ticket** (headset icon) in the Type column — never "Direct messages" — and the Channel column shows their department next to the SUPPORT badge instead of a duplicate ticket label (the list payload carries an explicit `isTicket` classification since 1.5.0-dev.3)
 - **Sorting**: Sort by Name, Type, Visibility, Created Date, Member Count, or Message Count
 - **Member Management**: Editing a group or channel loads its **existing members** as selected chips — the admin sees the current membership at a glance; removing a chip removes that member on save, adding a chip adds them
@@ -304,7 +305,7 @@ Service control (restart/stop) requires the right setup depending on deployment:
 
 ### Danger Zone
 
-**Clear All Messages**
+**Clear All Messages** (owner only — the action is hidden for admins/operators)
 - Delete all messages from all chats
 - Preserves chat structure and membership
 - Preserves user accounts
@@ -319,6 +320,19 @@ Service control (restart/stop) requires the right setup depending on deployment:
 Danger Zone actions cannot be undone. Always create a backup before proceeding.
 
 :::
+
+## Deletion Policy (owner-only)
+
+ChatDesk treats deletion as a destructive, centralized capability of the organizational owner. Only the instance owner (`role: owner`) may delete:
+
+| What | Where | Enforced by |
+| --- | --- | --- |
+| Messages (for everyone / for self) | Chat context menu → Delete | `POST /api/messages/delete` — every other role gets `403 "Only the owner can delete messages."` |
+| DM threads & support tickets | Chat list → Delete thread | `POST /api/chats/hide` — DM-type chats are owner-only; group/channel hide stays available to members as leave-and-cleanup |
+| Any chat/ticket (admin panel) | Chats tab → Delete | `DELETE /api/admin/chats/:id` — `403 Owner access required` for admins |
+| All message history (admin panel) | Actions tab → Danger zone → Clear all messages | `POST /api/admin/maintenance/clear-messages` — owner only |
+
+Not covered (unchanged): group/channel deletion by their chat owner (password-confirmed, `POST /api/chats/group/:chatId/delete`), user account deletion in the admin panel, and server-side retention/maintenance tooling. Every owner deletion is recorded in the audit log (`message.delete.*`, `thread.delete`, `chat.delete`, `db.clear_messages`).
 
 ## Disabling the Admin Panel
 

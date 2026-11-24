@@ -337,18 +337,20 @@ const buildInviteLinkForChat = (chat) => {
 };
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
-  // Moderators (owner/admin/operator) may delete messages and threads;
-  // regular users must never see or reach the delete actions.
+  // Moderators (owner/admin/operator) may edit and moderate messages.
   const canModerateContent = ["owner", "admin", "operator"].includes(
     String(user?.role || "").toLowerCase(),
   );
-  // Regular users cannot delete DM-type chats (support tickets included);
-  // group/channel cleanup keeps working via leave + hide.
+  // Deletion policy: ChatDesk is an organizational messenger and ticketing
+  // system — ONLY the instance owner may delete messages and DM threads
+  // (support tickets included). Regular users, admins, and operators never
+  // see or reach the delete actions. Group/channel cleanup keeps working
+  // via leave + hide.
+  const isOwner = String(user?.role || "").toLowerCase() === "owner";
   const canDeleteThread = useCallback(
     (chat) =>
-      canModerateContent ||
-      String(chat?.type || "").toLowerCase() !== "dm",
-    [canModerateContent],
+      isOwner || String(chat?.type || "").toLowerCase() !== "dm",
+    [isOwner],
   );
   /* eslint-disable react-hooks/exhaustive-deps */
   const { t, lang } = useI18n();
@@ -3192,10 +3194,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const requestDeleteChats = (ids) => {
     const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
     if (!list.length) return;
-    // Regular users must not be able to delete threads: filter DM-type
-    // chats (support tickets included) out of every deletion request.
-    // The server enforces the same rule; this keeps the UI consistent.
-    const allowedIds = canModerateContent
+    // Only the owner may delete DM-type threads (support tickets included);
+    // filter them out of every deletion request for everyone else. The
+    // server enforces the same rule; this keeps the UI consistent.
+    const allowedIds = isOwner
       ? list
       : list.filter((id) => {
           const chat = chats.find((candidate) => candidate?.id === id);
@@ -3210,16 +3212,16 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     (message) => {
       if (String(activeChat?.type || "").toLowerCase() === "saved") return false;
       if (isActiveChannelChat && !canCurrentUserEditGroup) return false;
-      // Moderators (owner/admin/operator) may delete anyone's message for
-      // everyone in chats they can post in — the server allows the same.
-      if (canModerateContent) return true;
+      // Deletion policy: ONLY the instance owner may delete a message for
+      // everyone — the server allows the same.
+      if (isOwner) return true;
       const messageAuthor = String(message?.username || "").toLowerCase();
       const currentUsername = String(user?.username || "").toLowerCase();
       if (!messageAuthor) return false;
       if (messageAuthor === currentUsername) return true;
       return canCurrentUserEditGroup;
     },
-    [activeChat?.type, canCurrentUserEditGroup, canModerateContent, isActiveChannelChat, user?.username],
+    [activeChat?.type, canCurrentUserEditGroup, isOwner, isActiveChannelChat, user?.username],
   );
 
   // Only moderators (owner/admin/operator) may edit messages at all —
@@ -6762,7 +6764,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     canReplyToMessage: canSendInActiveChat,
     canEditMessage: canEditMessageFromContext,
     canDeleteMessageForEveryone,
-    canDeleteMessages: canModerateContent,
+    canDeleteMessages: isOwner,
     canDeleteChatThread: canDeleteThread,
     onReplyToMessage: handleStartReply,
     onEditMessage: handleStartEdit,

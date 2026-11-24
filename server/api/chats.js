@@ -77,8 +77,9 @@ function registerChatRoutes(app, deps) {
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
 
-  const isModeratorRole = (role) =>
-    ["owner", "admin", "operator"].includes(String(role || "").toLowerCase());
+  // Deletion policy note: thread/message deletion is owner-only (see the
+  // /api/chats/hide handler). The former isModeratorRole helper was removed
+  // because no chats.js surface grants admin/operator deletion rights anymore.
 
   // Best-effort moderation audit logging (must never break the request).
   const logModerationAudit = (entry) => {
@@ -1717,15 +1718,21 @@ function registerChatRoutes(app, deps) {
     }
 
     const idsToHide = chatIds.filter(Boolean);
-    const moderatorHide = isModeratorRole(user.role);
-    if (!moderatorHide) {
-      // Regular users cannot delete threads (support tickets are DM-type
+    // Deletion policy: this endpoint doubles as "delete thread" in the UI —
+    // and ChatDesk is an organizational messenger and ticketing system, so
+    // ONLY the instance owner may delete DM threads (support tickets
+    // included). Admins and operators are treated like regular users here:
+    // they get 403 for DM-type chats, while group/channel cleanup still
+    // works via leave + hide (list hygiene, not thread deletion).
+    const ownerHide = String(user.role || "").toLowerCase() === "owner";
+    if (!ownerHide) {
+      // Only the owner can delete threads (support tickets are DM-type
       // chats). Group/channel cleanup still works via leave + hide.
       for (const id of idsToHide) {
         const chat = await resolveMaybePromise(findChatById(id));
         if (chat && String(chat.type || "").toLowerCase() === "dm") {
           return res.status(403).json({
-            error: "Regular users cannot delete threads.",
+            error: "Only the owner can delete threads.",
           });
         }
       }
@@ -1733,7 +1740,7 @@ function registerChatRoutes(app, deps) {
 
     await resolveMaybePromise(hideChatsForUser(user.id, idsToHide));
 
-    if (moderatorHide) {
+    if (ownerHide) {
       logModerationAudit({
         actorUserId: user.id,
         actorUsername: user.username,

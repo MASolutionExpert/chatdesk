@@ -13,7 +13,10 @@ import { hasPersian } from "../../utils/fontUtils.js";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 import { useI18n } from "../../i18n/index.js";
 
-const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange }, ref) {
+const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStatsChange, currentUser = null }, ref) {
+  // Deletion policy: only the instance owner may delete chats/tickets —
+  // admins and operators see no delete entry (the server enforces this too).
+  const canDeleteChats = String(currentUser?.role || "").toLowerCase() === "owner";
   const { t } = useI18n();
   const [chats, setChats]             = useState([]);
   const [total, setTotal]             = useState(0);
@@ -349,7 +352,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {!isDm && <Tooltip label={t("admin.common.edit")}><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} /></button></Tooltip>}
-                        <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>
+                        {canDeleteChats && <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} /></button></Tooltip>}
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
@@ -480,7 +483,7 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                           {!isDm && (
                             <Tooltip label={t("admin.common.edit")}><button type="button" onClick={() => setEditChat(c)} className={iconBtn("slate")}><Pencil size={16} className="icon-anim-sway" /></button></Tooltip>
                           )}
-                          <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>
+                          {canDeleteChats && <Tooltip label={t("admin.common.delete")}><button type="button" onClick={() => setPendingDelete(c)} className={iconBtn("rose")}><Trash size={16} className="icon-anim-slide" /></button></Tooltip>}
                         </div>
                       </td>
                     </tr>

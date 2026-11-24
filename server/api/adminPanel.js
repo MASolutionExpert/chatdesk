@@ -1957,6 +1957,13 @@ function registerAdminPanelRoutes(app, deps) {
   app.delete("/api/admin/chats/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
+    // Deletion policy: ChatDesk is an organizational messenger and ticketing
+    // system — full chat/ticket deletion is destructive and must stay
+    // centralized. Only the instance owner may delete chats here; admins and
+    // operators can manage everything else in the panel but never delete.
+    if (!(await actorIsOwner(session))) {
+      return res.status(403).json({ error: "Owner access required" });
+    }
     const chatId = req.params.id;
     const chat = await resolveMaybePromise(findChatById(chatId));
     const deletion = await resolveMaybePromise(adminDeleteChat(chatId));
@@ -2061,6 +2068,11 @@ function registerAdminPanelRoutes(app, deps) {
   app.post("/api/admin/maintenance/clear-messages", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
+    // Deleting messages (even in bulk) is owner-only under the ChatDesk
+    // deletion policy — admins and operators never wipe message history.
+    if (!(await actorIsOwner(session))) {
+      return res.status(403).json({ error: "Owner access required" });
+    }
     if (req.body?.confirm !== "clear messages") {
       return res.status(400).json({ error: "Confirmation phrase required." });
     }

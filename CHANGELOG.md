@@ -2,6 +2,19 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.6
+
+### Changed
+
+- 🔒 **Deletion is now owner-only — messages, tickets, and threads.** ChatDesk is an organizational messenger and a ticketing system, so destructive deletion is reserved for the instance owner alone; admins and operators previously held far-reaching delete powers inherited from the old "moderator" model. Audited surfaces, all now owner-only (everything else keeps working):
+  - **Messages** (`POST /api/messages/delete`): only `role: owner` may delete — for everyone or for self. Admins and operators get `403 "Only the owner can delete messages."` (previously they could delete anyone's message for everyone). The owner may delete in any chat without being a member — they are not a member of most tickets. The old group-owner/author/can-post branches are gone.
+  - **DM threads & support tickets** (`POST /api/chats/hide`): the "delete thread" action on DM-type chats (every support ticket) is owner-only — admins and operators are rejected like regular users. Group/channel hide stays available to members as leave-and-list-cleanup.
+  - **Admin panel chat delete** (`DELETE /api/admin/chats/:id`): full chat/ticket deletion required only `requireAdmin` — any admin could wipe any ticket for everyone. Now `403 Owner access required` unless the actor is the owner.
+  - **Admin panel Danger Zone** (`POST /api/admin/maintenance/clear-messages`): wiping the entire message history is owner-only; the "Clear all messages" action is hidden for admins/operators.
+  - **Client parity**: the messenger delete menus (`canDeleteMessages`, DM-thread delete, bulk selection filter, delete-for-everyone) and the panel's Chats-tab delete buttons follow the same rule, so non-owners never see an action the server would refuse.
+
+**Tests:** 140 files / 1345 server tests (message-delete contract re-pinned to owner-only incl. non-member owner deletion; hide policy re-pinned: operator/admin 403 on DM threads, owner audited), 427 client unit tests — all green. Docs: `docs/Admin-Panel.md` (+ FA) — owner-privilege bullet, Chats/Delete + Danger Zone notes, and a new "Deletion Policy (owner-only)" table.
+
 ## 1.5.0-dev.5
 
 ### Added

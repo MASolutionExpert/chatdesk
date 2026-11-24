@@ -367,6 +367,7 @@ export default function AdminPanel({ user, onBack }) {
             <Activity mode={tab === "chats" ? "visible" : "hidden"}>
               <ChatsTab
                 ref={(r) => { tabRefs.current.chats = r; }}
+                currentUser={user}
                 active={tab === "chats"}
                 onMutated={invalidateStats}
                 onStatsChange={invalidateStats}
@@ -386,6 +387,7 @@ export default function AdminPanel({ user, onBack }) {
               <ActionsTab
                 ref={(r) => { tabRefs.current.actions = r; }}
                 serviceStatus={cache.actions?.data ?? null}
+                currentUser={user}
               />
             </Activity>
             <Activity mode={tab === "logs" ? "visible" : "hidden"}>
