@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.5.0-dev.4
+# chatdesk-deploy-version: 1.5.0-dev.5
 
 set -uo pipefail
 
@@ -472,6 +472,11 @@ show_deployment_success_frame() {
       title="ChatDesk Update Complete"
       lines+=("ChatDesk has been updated successfully.")
       lines+=("Service restarted and nginx reloaded.")
+      ;;
+    rebuild)
+      title="ChatDesk Rebuild Complete"
+      lines+=("Dependencies installed, client built and services restarted.")
+      lines+=("The running services now match the current source tree.")
       ;;
     *)
       title="ChatDesk Success"
@@ -1867,6 +1872,32 @@ finalize_chatdesk_source_change() {
   verify_chatdesk_service_health || true
 
   write_install_config || true
+  return 0
+}
+
+# ♻️ Rebuild & Restart — re-run the full source finalization pipeline
+# (dependencies, client build, migrations, service restart) WITHOUT pulling
+# new code and WITHOUT the update flow's "already up to date → downgrade?"
+# prompt. The update option only rebuilds when the remote has newer commits,
+# so source pulled by hand (or an aborted update) leaves the running
+# services out of sync with the tree — this option re-syncs them on demand.
+rebuild_and_restart_chatdesk() {
+  if [[ ! -d "$INSTALL_DIR" || ! -f "$INSTALL_DIR/.env" ]]; then
+    warn "ChatDesk does not appear to be installed at ${INSTALL_DIR}. Run Install first."
+    press_enter_to_continue
+    return 1
+  fi
+
+  log "Rebuilding ChatDesk from the current source tree..."
+  finalize_chatdesk_source_change || {
+    warn "Rebuild failed. Review the logs before retrying; the previous services may have been stopped."
+    restore_chatdesk_service_after_update
+    press_enter_to_continue
+    return 1
+  }
+
+  show_deployment_success_frame "rebuild"
+  press_enter_to_continue
   return 0
 }
 
@@ -4820,6 +4851,7 @@ show_menu() {
   printf $'1) 📥  Install ChatDesk\n'
   printf $'2) 🔄️  Update ChatDesk (stays on current channel)\n'
   printf $'3) ♻️  Restart ChatDesk\n'
+  printf $'r) 🛠️  Rebuild & Restart (deps + client build + services)\n'
   printf $'4) 🔀  Switch Test (dev) / Stable (main) channel\n'
   printf $'5) ⚙️  Edit Settings (.env)\n'
   printf $'6) 🗃️  Manage Database\n'
@@ -5841,11 +5873,12 @@ main() {
   local choice=""
   while true; do
     show_menu
-    prompt_read "Choose an option [0-9, l]: " choice
+    prompt_read "Choose an option [0-9, r, l]: " choice
     case "$choice" in
       1) run_menu_action install_chatdesk ;;
       2) run_menu_action update_chatdesk ;;
       3) run_menu_action restart_chatdesk ;;
+      r|R) run_menu_action rebuild_and_restart_chatdesk ;;
       4) run_menu_action switch_release_channel ;;
       5) run_menu_action edit_settings ;;
       6) run_menu_action show_db_menu ;;
@@ -5854,7 +5887,7 @@ main() {
       9) run_menu_action configure_mirrors_menu ;;
       l|L) run_menu_action show_logs_menu ;;
       0) break ;;
-      *) printf "Invalid choice. Select a number from 0 to 9, or l.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 9, r, or l.\n" ;;
     esac
   done
 }

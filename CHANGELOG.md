@@ -2,6 +2,12 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.5
+
+### Added
+
+- 🛠️ **New "Rebuild & Restart" deploy-menu option (`r`).** The Update option only rebuilds when the remote has newer commits — source pulled by hand (or an aborted update) left the running services out of sync with the source tree with no menu path to fix it. The new option re-runs the full source finalization pipeline **without pulling new code and without the "already up to date → downgrade?" prompt**: server/worker/client dependencies, client build, database schema sync, systemd unit refresh, service restarts and nginx reload — with the same failure recovery as the update flow. Docs: `docs/Deployment-Script.md` menu table updated.
+
 ## 1.5.0-dev.4
 
 ### Fixed

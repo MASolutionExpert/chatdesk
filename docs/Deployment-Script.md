@@ -29,6 +29,7 @@ chatdesk-deploy
 | 1 | 📥 Install ChatDesk | Full guided install: dependencies, build, Nginx, SSL, and `.env`. |
 | 2 | 🔄 Update ChatDesk | Update inside the current channel, or downgrade to a specific version, rebuild, and restart (optional pre-update backup). |
 | 3 | ♻️ Restart ChatDesk | Restart the `chatdesk.service`. |
+| r | 🛠️ Rebuild & Restart | Re-run the full source finalization pipeline **without pulling new code**: install server/worker/client dependencies, rebuild the client, synchronize the database schema, refresh systemd units, restart services and reload nginx. Use after pulling source by hand, after an aborted update, or whenever the running services may be out of sync with the source tree (the Update option only rebuilds when the remote has newer commits). |
 | 4 | 🔀 Switch Test / Stable channel | Move the installation between the Test (dev) and Stable (main) channels through the full update pipeline. |
 | 5 | ⚙️ Edit Settings (.env) | Change ports, uploads, retention, sign-up, and other env values, then rebuild/apply. |
 | 6 | 🗃️ Manage Database | Open the database submenu (see below). |
