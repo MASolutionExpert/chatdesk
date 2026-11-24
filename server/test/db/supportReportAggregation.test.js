@@ -123,7 +123,7 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     expect(billing.totals.unanswered).toBe(2);
   });
 
-  it("computes average first response time over conversations that got a staff reply", () => {
+  it("computes department avg first response and author-attributed per-reply response times", () => {
     const report = aggregateSupportReport(
       baseInput({
         chats: [
@@ -132,8 +132,10 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
           { id: 102, department_id: 1, created_at: "2025-06-10T09:00:00Z" }, // never answered
         ],
         messages: [
-          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:01:00Z" },
-          { chat_id: 101, user_id: 11, created_at: "2025-06-10T09:02:00Z" },
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:00:20Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:01:00Z" }, // bob: 40s after the customer
+          { chat_id: 101, user_id: 31, created_at: "2025-06-10T09:01:30Z" },
+          { chat_id: 101, user_id: 11, created_at: "2025-06-10T09:02:00Z" }, // carol: 30s after the customer
         ],
         from: null,
         to: null,
@@ -141,17 +143,129 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     );
     const billing = report.departments.find((d) => d.id === 1);
     expect(billing.totals.avgFirstResponseSeconds).toBe(90);
-    // Operator attribution of first responses.
+    // Per-operator responses are attributed to the AUTHOR of each reply and
+    // measured against the customer message each reply actually answers.
     const bob = billing.operators.find((o) => o.id === 10);
     const carol = billing.operators.find((o) => o.id === 11);
-    expect(bob.firstResponses).toBe(1);
-    expect(bob.avgFirstResponseSeconds).toBe(60);
-    expect(carol.firstResponses).toBe(1);
-    expect(carol.avgFirstResponseSeconds).toBe(120);
+    expect(bob.responses).toBe(1);
+    expect(bob.avgResponseSeconds).toBe(40);
+    expect(carol.responses).toBe(1);
+    expect(carol.avgResponseSeconds).toBe(30);
     // Chat 102 (no ticket, no reply) counts as unanswered in the department
     // totals but cannot be attributed to any operator.
     expect(billing.totals.unanswered).toBe(1);
     expect(bob.unanswered + carol.unanswered).toBe(0);
+  });
+
+  it("attributes the response time to the reply's AUTHOR, never to the ticket assignee", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          // Ticket assigned to bob, but CAROL wrote the first (fast) reply.
+          { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
+        ],
+        messages: [
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:01:00Z" },
+          { chat_id: 100, user_id: 11, created_at: "2025-06-10T09:02:00Z" }, // carol +60s
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:03:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:04:00Z" }, // bob +60s
+        ],
+        tickets: [
+          { chat_id: 100, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
+        ],
+        from: null,
+        to: null,
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    const bob = billing.operators.find((o) => o.id === 10);
+    const carol = billing.operators.find((o) => o.id === 11);
+    // Conversation ownership still follows the ticket (bob).
+    expect(bob.assigned).toBe(1);
+    expect(bob.answered).toBe(1);
+    expect(carol.assigned).toBe(0);
+    // But EACH author is scored on their OWN reply latency.
+    expect(carol.responses).toBe(1);
+    expect(carol.avgResponseSeconds).toBe(60);
+    expect(bob.responses).toBe(1);
+    expect(bob.avgResponseSeconds).toBe(60);
+  });
+
+  it("counts every in-range reply, measuring latency from the latest preceding customer message", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
+        ],
+        messages: [
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:00:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:05:00Z" }, // bob +300s
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:10:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:12:00Z" }, // bob +120s
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:15:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:16:00Z" }, // bob +60s
+          // Carol chimes in WITHOUT a new customer question before her reply
+          // — not a response, so it must not enter anyone's average.
+          { chat_id: 100, user_id: 11, created_at: "2025-06-10T09:17:00Z" },
+        ],
+        from: "2025-06-01",
+        to: "2025-06-30",
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    const bob = billing.operators.find((o) => o.id === 10);
+    const carol = billing.operators.find((o) => o.id === 11);
+    expect(bob.responses).toBe(3);
+    expect(bob.avgResponseSeconds).toBe(160); // (300 + 120 + 60) / 3
+    expect(carol.responses).toBe(0);
+    expect(carol.avgResponseSeconds).toBeNull();
+  });
+
+  it("scores replies on any chat age (activity-based) even when the request was pending before the range", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          // Old chat, customer asked in May, operator answered in June.
+          { id: 100, department_id: 1, created_at: "2025-01-02T09:00:00Z" },
+        ],
+        messages: [
+          { chat_id: 100, user_id: 30, created_at: "2025-05-01T09:00:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:00:00Z" }, // +40 days
+        ],
+        from: "2025-06-01",
+        to: "2025-06-30",
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    const bob = billing.operators.find((o) => o.id === 10);
+    expect(bob.responses).toBe(1);
+    expect(bob.avgResponseSeconds).toBe(40 * 24 * 3600);
+  });
+
+  it("excludes first staff replies written after the window end from the department average", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          // Created at the very end of June, answered on July 2.
+          { id: 100, department_id: 1, created_at: "2025-06-30T09:00:00Z" },
+        ],
+        messages: [
+          { chat_id: 100, user_id: 30, created_at: "2025-06-30T09:01:00Z" },
+          { chat_id: 100, user_id: 10, created_at: "2025-07-02T09:00:00Z" },
+        ],
+        from: "2025-06-01",
+        to: "2025-06-30",
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    // The conversation still exists in the June cohort and (retrospectively)
+    // counts as answered, but its response time was never visible in June.
+    expect(billing.totals.conversations).toBe(1);
+    expect(billing.totals.answered).toBe(1);
+    expect(billing.totals.avgFirstResponseSeconds).toBeNull();
+    const bob = billing.operators.find((o) => o.id === 10);
+    expect(bob.responses).toBe(0);
+    expect(bob.avgResponseSeconds).toBeNull();
   });
 
   it("attributes a conversation to the ticket operator, falling back to the first staff reply author", () => {
@@ -464,10 +578,11 @@ describe("aggregateSupportReport — UUID id shapes (migration 036 production re
     expect(billing.operators.find((o) => o.id === UUIDS.dan).customerMessages).toBe(1);
     expect(billing.totals.staffMessages).toBe(3);
     expect(billing.totals.customerMessages).toBe(3);
-    // First-response attribution also lands on the right operator.
-    expect(billing.operators.find((o) => o.id === UUIDS.bob).firstResponses).toBe(1);
-    expect(billing.operators.find((o) => o.id === UUIDS.carol).firstResponses).toBe(1);
-    expect(billing.operators.find((o) => o.id === UUIDS.dan).firstResponses).toBe(1);
+    // First-response attribution also lands on the right operator (each
+    // operator authored the only reply of their own chat).
+    expect(billing.operators.find((o) => o.id === UUIDS.bob).responses).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.carol).responses).toBe(1);
+    expect(billing.operators.find((o) => o.id === UUIDS.dan).responses).toBe(1);
   });
 
   it("keeps per-chat message histories separate under UUID chat ids", () => {

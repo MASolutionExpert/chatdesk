@@ -141,14 +141,14 @@ describe("getSupportReport — real database integration", () => {
     expect(carol.messagesInConversations).toBe(1);
     expect(dan.messagesInConversations).toBe(0);
 
-    // First response only for bob.
-    expect(bob.firstResponses).toBe(1);
-    expect(carol.firstResponses).toBe(0);
-    expect(dan.firstResponses).toBe(0);
-    // Computed (fixture messages land within the same second → 0s is valid),
-    // and attributed: bob's own average mirrors the department total.
+    // Response sample only for bob (he authored the only staff reply, and it
+    // answers the customer's request). Computed (fixture messages land within
+    // the same second → 0s is valid) and author-attributed.
+    expect(bob.responses).toBe(1);
+    expect(carol.responses).toBe(0);
+    expect(dan.responses).toBe(0);
+    expect(bob.avgResponseSeconds).not.toBeNull();
     expect(billing.totals.avgFirstResponseSeconds).not.toBeNull();
-    expect(bob.avgFirstResponseSeconds).toBe(billing.totals.avgFirstResponseSeconds);
 
     // Ticket registry metrics per operator.
     expect(bob.ticketsOpened).toBe(1);

@@ -284,8 +284,8 @@ const DepartmentReportView = function DepartmentReportView({ departmentId, onBac
                       <TotalCard icon={<Clock12 size={14} />} label={t("admin.helpdesk.report.metricOpenTickets")} value={op.openTickets} tone={op.openTickets > 0 ? "amber" : "slate"} />
                       <TotalCard
                         icon={<Gauge size={14} />}
-                        label={t("admin.helpdesk.report.metricAvgResponse")}
-                        value={op.avgFirstResponseSeconds === null ? "—" : t("admin.helpdesk.report.seconds", { n: op.avgFirstResponseSeconds })}
+                        label={t("admin.helpdesk.report.metricAvgOperatorResponse")}
+                        value={op.avgResponseSeconds === null ? "—" : t("admin.helpdesk.report.seconds", { n: op.avgResponseSeconds })}
                       />
                     </div>
                   </div>

@@ -2,6 +2,17 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.1
+
+### Fixed
+
+- 📊 **The operator "Avg response time" in the department report now really measures the operator's own performance** (dev series carry: `1.4.0-dev.9` → `1.5.0-dev.1`). Three root causes fixed in `server/lib/supportReport.js`:
+  1. **Misattribution** — response-time samples were credited to the ticket's *assignee*, not to whoever actually wrote the reply: an operator who never replied inherited someone else's latency, while the operator who did reply showed "—". Response times are now attributed to the reply's **author** (if on the department roster); conversation ownership (assigned / answered / unanswered) still follows the ticket.
+  2. **Wrong latency basis** — the metric measured (first staff reply − chat creation), one sample per conversation, ignoring every later reply. The operator metric is now **per-reply**: every staff reply authored in the range that answers a *pending* customer message counts, latency = reply − the latest pending customer message, and any staff message resolves the pending request (consecutive staff replies without a new customer question score only the first one). Pending requests may span the range boundary (asked in May, answered in June — the June reply still counts, any chat age).
+  3. **Out-of-window samples** — the department's "Avg first response" also counted first replies written *after* the window ended (a chat created June 30, answered July 2 inflated the June average). The department total now only counts first staff replies written inside the range. The operator card label became "Avg response time" / «میانگین زمان پاسخ»; the department total keeps "Avg first response" / «میانگین اولین پاسخ».
+
+**Tests:** 140 files / 1339 server tests (4 new: author-not-assignee attribution, per-reply latency incl. consecutive-reply and window-boundary cases, and out-of-window first-reply exclusion; contract updated to `responses` / `avgResponseSeconds`), 427 client unit tests. Docs: `docs/Helpdesk-Setup.md` metric table rewritten (EN + FA).
+
 ## 1.4.0-dev.9
 
 ### Added

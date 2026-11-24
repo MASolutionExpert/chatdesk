@@ -86,17 +86,20 @@ so SQLite and PostgreSQL installations report identical figures. Metrics:
 | Staff replies / Customer messages | the author-role split of those messages |
 | Tickets opened / closed / still open | ticket lifecycle rows created / closed in the range; "still open" = opened in-range and not yet closed |
 | Answered / Unanswered | conversations created in the range whose last message is staff-authored vs customer-authored (or never written) |
-| Avg first response | mean of (first staff reply − conversation creation), per operator and per department |
+| Avg first response (department) | mean of (first staff reply − conversation creation) over conversations created in the range whose first staff reply was also written inside the range |
+| Avg response time (operator) | mean latency of every in-range staff reply the operator authored − the customer message it answers, attributed to the reply's AUTHOR (never the ticket assignee). Any staff message resolves a pending request, so consecutive staff replies without a new customer question score only the first one |
 
 A conversation is attributed to its ticket's operator; legacy chats without a
-ticket row fall back to the author of the first staff reply. Each operator
-card on the report page shows eight per-person metrics: assigned
-conversations, answered / unanswered, every in-range message inside their
-attributed conversations (`messagesInConversations`), tickets opened / closed
-/ still open, and their average first response. The staff/customer message
-split stays on the department summary.
+ticket row fall back to the author of the first staff reply. Response times,
+however, are always attributed to whoever actually WROTE the reply — an
+operator who never replies shows "—" instead of inheriting someone else's
+latency. Each operator card on the report page shows eight per-person
+metrics: assigned conversations, answered / unanswered, every in-range
+message inside their attributed conversations (`messagesInConversations`),
+tickets opened / closed / still open, and their average response time. The
+staff/customer message split stays on the department summary.
 
-> گزارش عملکرد دپارتمان — با کلیک روی نام هر دپارتمان در خلاصهٔ میز خدمت، صفحهٔ اختصاصی آن دپارتمان باز می‌شود: فهرست اپراتورها، خلاصهٔ وضعیت و عملکرد آن‌ها، و یک پنل گزارش‌گیری استاندارد با فیلتر زمانی دقیق (از/تا + میان‌برهای امروز، ۷ روز، ۳۰ روز و همهٔ زمان‌ها). تعداد گفتگوها و تیکت‌ها، پاسخ‌های داده‌شده و بدون پاسخ و میانگین زمان اولین پاسخ در همان بازهٔ انتخابی، همه سمت سرور محاسبه می‌شود. کارت هر اپراتور هشت شاخص فردی را نشان می‌دهد؛ تفکیک پیام‌های پشتیبانی/مشتری فقط در خلاصهٔ دپارتمان نمایش داده می‌شود.
+> گزارش عملکرد دپارتمان — با کلیک روی نام هر دپارتمان در خلاصهٔ میز خدمت، صفحهٔ اختصاصی آن دپارتمان باز می‌شود: فهرست اپراتورها، خلاصهٔ وضعیت و عملکرد آن‌ها، و یک پنل گزارش‌گیری استاندارد با فیلتر زمانی دقیق (از/تا + میان‌برهای امروز، ۷ روز، ۳۰ روز و همهٔ زمان‌ها). تعداد گفتگوها و تیکت‌ها، پاسخ‌های داده‌شده و بدون پاسخ و میانگین زمان اولین پاسخ دپارتمان در همان بازهٔ انتخابی، همه سمت سرور محاسبه می‌شود. «میانگین زمان پاسخ» هر اپراتور به‌درستی بر اساس عملکرد خودش محاسبه می‌شود: هر پاسخی که اپراتور در بازهٔ انتخابی به یک پیام مشتری داده به نام نویسندهٔ آن پاسخ ثبت می‌شود (نه اپراتورِ تیکت) و فاصلهٔ آن تا پیام مشتریِ در انتظار اندازه‌گیری می‌شود؛ بنابراین اپراتوری که پاسخ نداده خط تیره («—») نشان می‌دهد نه میانگین دیگری را. کارت هر اپراتور هشت شاخص فردی را نشان می‌دهد؛ تفکیک پیام‌های پشتیبانی/مشتری فقط در خلاصهٔ دپارتمان نمایش داده می‌شود.
 
 ## Database
 

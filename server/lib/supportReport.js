@@ -19,8 +19,9 @@
 //                        was authored by staff
 //   unanswered           conversations created in range NOT answered — the
 //                        last message is the customer's, or nobody wrote yet
-//   avgFirstResponseSeconds  mean of (first staff reply − chat creation) over
-//                        conversations created in range that got a staff reply
+//   avgFirstResponseSeconds  DEPARTMENT TOTAL — mean of (first staff reply −
+//                        chat creation) over conversations created in range
+//                        whose first staff reply was also written in range
 //
 // Operator attribution: a conversation is assigned to the operator recorded
 // on its ticket row; legacy chats without a ticket row fall back to the
@@ -29,6 +30,16 @@
 // `messagesInConversations` / `customerMessages` count all in-range messages
 // inside the conversations attributed to the operator, and `openTickets`
 // counts their in-range tickets that are still open.
+//
+// OPERATOR RESPONSE TIME (per-operator `responses` / `avgResponseSeconds`):
+// every staff reply AUTHORED IN RANGE inside the department's chats that
+// answers a preceding customer message counts as one response by ITS AUTHOR
+// (if on the department roster) — never by the ticket assignee. Latency =
+// reply − the latest customer message before it, so each reply measures the
+// operator's actual responsiveness. The old model credited the ticket
+// assignee with the conversation's first staff reply regardless of who
+// wrote it, which showed numbers for operators who never replied and "—"
+// for the ones who did.
 //
 // ID KEYING (regression guard): since migration 036 the users / chats /
 // chat_messages primary keys are TEXT UUIDs (departments keep INTEGER ids).
@@ -108,9 +119,9 @@ function newOperatorEntry(op) {
     messagesInConversations: 0,
     customerMessages: 0,
     messagesSent: 0,
-    firstResponses: 0,
+    responses: 0,
     responseTimeTotalMs: 0,
-    avgFirstResponseSeconds: null,
+    avgResponseSeconds: null,
     ticketsOpened: 0,
     ticketsClosed: 0,
     openTickets: 0,
@@ -264,8 +275,9 @@ export function aggregateSupportReport({
         totals.unanswered += 1;
       }
 
-      // First staff reply → response time + operator attribution.
-      const firstStaffReply = chatMessages.find((m) => isStaffAuthor(m.user_id));
+      // Conversation attribution (assigned / answered / unanswered) follows
+      // the ticket operator. The response-TIME samples are attributed
+      // separately below — to the AUTHOR of each reply, not the assignee.
       const assignedOperatorId = chatOperator.get(String(chat.id)) ?? null;
       const opEntry = assignedOperatorId !== null ? entryFor(assignedOperatorId) : null;
       if (opEntry) opEntry.assigned += 1;
@@ -275,16 +287,21 @@ export function aggregateSupportReport({
         else opEntry.unanswered += 1;
       }
 
+      // Department first-response sample: (first staff reply − chat creation).
+      // Only first replies written INSIDE the window count — a conversation
+      // created at the end of the window but answered after it must not
+      // inflate this window's average with data the window never saw.
+      const firstStaffReply = chatMessages.find((m) => isStaffAuthor(m.user_id));
       if (firstStaffReply) {
         const firstReplyAt = parseTime(firstStaffReply.created_at);
-        if (firstReplyAt !== null && createdAt !== null && firstReplyAt >= createdAt) {
-          const delta = firstReplyAt - createdAt;
-          responseTimeTotalMs += delta;
+        if (
+          firstReplyAt !== null &&
+          createdAt !== null &&
+          firstReplyAt >= createdAt &&
+          inRange(firstReplyAt, range)
+        ) {
+          responseTimeTotalMs += firstReplyAt - createdAt;
           responseChatCount += 1;
-          if (opEntry) {
-            opEntry.firstResponses += 1;
-            opEntry.responseTimeTotalMs += delta;
-          }
         }
       }
     }
@@ -314,6 +331,39 @@ export function aggregateSupportReport({
         if (ownerEntry) {
           ownerEntry.messagesInConversations += 1;
           if (!authorIsStaff) ownerEntry.customerMessages += 1;
+        }
+      }
+    }
+
+    // ── Operator responses (per-reply, author-attributed) ──────────────────
+    // Every staff reply authored IN RANGE inside the department's chats that
+    // answers a pending customer message is one response by its AUTHOR (if
+    // on the roster); latency = reply − the latest customer message before
+    // it. The pending window may span the range boundary (customer asked in
+    // May, operator answered in June) — the reply still counts. Any staff
+    // message resolves the pending request, so consecutive staff replies
+    // without a new customer question score only the first one.
+    for (const [chatId, chatMessages] of messagesByChat) {
+      if (!deptChatIdSet.has(chatId)) continue;
+      let pendingCustomerAtMs = null;
+      for (const msg of chatMessages) {
+        const atMs = parseTime(msg.created_at);
+        if (atMs === null) continue;
+        if (isStaffAuthor(msg.user_id)) {
+          if (
+            pendingCustomerAtMs !== null &&
+            atMs >= pendingCustomerAtMs &&
+            inRange(atMs, range)
+          ) {
+            const replyEntry = entryFor(msg.user_id);
+            if (replyEntry) {
+              replyEntry.responses += 1;
+              replyEntry.responseTimeTotalMs += atMs - pendingCustomerAtMs;
+            }
+          }
+          pendingCustomerAtMs = null; // the request was answered (by someone)
+        } else {
+          pendingCustomerAtMs = atMs;
         }
       }
     }
@@ -352,8 +402,8 @@ export function aggregateSupportReport({
 
     const operatorList = Array.from(operatorEntries.values()).map((entry) => {
       const { responseTimeTotalMs, ...rest } = entry;
-      rest.avgFirstResponseSeconds = entry.firstResponses
-        ? Math.round(responseTimeTotalMs / entry.firstResponses / 1000)
+      rest.avgResponseSeconds = entry.responses
+        ? Math.round(responseTimeTotalMs / entry.responses / 1000)
         : null;
       return rest;
     });
