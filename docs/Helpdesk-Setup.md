@@ -86,13 +86,15 @@ so SQLite and PostgreSQL installations report identical figures. Metrics:
 | Staff replies / Customer messages | the author-role split of those messages |
 | Tickets opened / closed / still open | ticket lifecycle rows created / closed in the range; "still open" = opened in-range and not yet closed |
 | Answered / Unanswered | conversations created in the range whose last message is staff-authored vs customer-authored (or never written) |
-| First responses (operator) | how many of the operator's in-range tickets received a staff reply — the sample size behind their average |
-| Avg first response (department + operator) | mean of (first staff reply − ticket creation) over tickets created in the range: the department total averages ALL answered tickets of the range, each operator averages THEIR OWN answered tickets. Unanswered tickets stay out of the average; a first reply written after the window end still belongs to its in-range ticket |
+| First responses (operator) | how many in-range tickets the operator answered FIRST — the sample size behind their average |
+| Avg first response (department + operator) | mean of (first staff reply − ticket creation) over tickets created in the range: the department total averages ALL answered tickets of the range; each operator averages the tickets THEY answered first. Unanswered tickets stay out of the average; a first reply written after the window end still belongs to its in-range ticket |
 
 A conversation is attributed to its ticket's operator; legacy chats without a
-ticket row fall back to the author of the first staff reply. In this
-codebase the assigned operator is the only staff member of the support chat,
-so the ticket's operator IS the person whose responsiveness is measured.
+ticket row fall back to the author of the first staff reply. The first-response
+sample however always belongs to the operator who ACTUALLY wrote the first
+staff reply — whoever fair routing assigned the ticket to at creation time.
+Only when that author is not on the department roster (a passing admin, a
+departed operator) does the sample fall back to the ticket's recorded operator.
 Each operator card on the report page shows nine per-person metrics:
 assigned conversations, answered / unanswered, every in-range message inside
 their attributed conversations (`messagesInConversations`), tickets opened /
@@ -100,7 +102,7 @@ closed / still open, their first-response count (the average's sample size)
 and their average first response. The staff/customer message split stays on
 the department summary.
 
-> گزارش عملکرد دپارتمان — با کلیک روی نام هر دپارتمان در خلاصهٔ میز خدمت، صفحهٔ اختصاصی آن دپارتمان باز می‌شود: فهرست اپراتورها، خلاصهٔ وضعیت و عملکرد آن‌ها، و یک پنل گزارش‌گیری استاندارد با فیلتر زمانی دقیق (از/تا + میان‌برهای امروز، ۷ روز، ۳۰ روز و همهٔ زمان‌ها). «میانگین اولین پاسخ» در همان بازهٔ انتخابی سمت سرور محاسبه می‌شود: برای هر اپراتور، میانگین فاصلهٔ «اولین پاسخ منهای زمان ایجاد تیکت» روی تیکت‌های خودِ او در بازه؛ و در خلاصهٔ دپارتمان، میانگین روی تمام تیکت‌های پاسخ‌داده‌شدهٔ بازه (میانگین عملکرد همهٔ اپراتورها). تیکت‌های بدون پاسخ در میانگین نمی‌آیند و تعداد «اولین پاسخ‌ها» روی کارت هر اپراتور نشان می‌دهد میانگین بر اساس چند تیکت است. کارت هر اپراتور نُه شاخص فردی را نشان می‌دهد؛ تفکیک پیام‌های پشتیبانی/مشتری فقط در خلاصهٔ دپارتمان نمایش داده می‌شود.
+> گزارش عملکرد دپارتمان — با کلیک روی نام هر دپارتمان در خلاصهٔ میز خدمت، صفحهٔ اختصاصی آن دپارتمان باز می‌شود: فهرست اپراتورها، خلاصهٔ وضعیت و عملکرد آن‌ها، و یک پنل گزارش‌گیری استاندارد با فیلتر زمانی دقیق (از/تا + میان‌برهای امروز، ۷ روز، ۳۰ روز و همهٔ زمان‌ها). «میانگین اولین پاسخ» در همان بازهٔ انتخابی سمت سرور محاسبه می‌شود: برای هر اپراتور، میانگین فاصلهٔ «اولین پاسخ منهای زمان ایجاد تیکت» روی تیکت‌هایی که خودش اولین پاسخ را نوشته است (نمونه به اپراتوری تعلق می‌گیرد که واقعاً اولین پاسخ را داده، نه اپراتوری که تیکت هنگام ایجاد به او تخصیص یافته؛ اگر نویسندهٔ اولین پاسخ در فهرست اپراتورهای دپارتمان نباشد، نمونه به اپراتور ثبت‌شدهٔ روی تیکت برمی‌گردد)؛ و در خلاصهٔ دپارتمان، میانگین روی تمام تیکت‌های پاسخ‌داده‌شدهٔ بازه (میانگین عملکرد همهٔ اپراتورها). تیکت‌های بدون پاسخ در میانگین نمی‌آیند و تعداد «اولین پاسخ‌ها» روی کارت هر اپراتور نشان می‌دهد میانگین بر اساس چند تیکت است. کارت هر اپراتور نُه شاخص فردی را نشان می‌دهد؛ تفکیک پیام‌های پشتیبانی/مشتری فقط در خلاصهٔ دپارتمان نمایش داده می‌شود.
 
 ## Database
 

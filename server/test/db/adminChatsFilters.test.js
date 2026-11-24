@@ -58,6 +58,33 @@ describe("adminListChats — type=support filter", () => {
     expect(channels.has("support")).toBe(true);
     expect(channels.has("direct")).toBe(true);
   });
+
+  test("every chat row carries an explicit isTicket classification", async () => {
+    // Regression (1.5.0-dev.3): the admin panel showed ticket threads as
+    // "Direct message" with a second "Ticket" badge, because the stored
+    // type stays "dm" and only the channel distinguished tickets. The list
+    // must now classify explicitly: support-channel DMs → isTicket: true,
+    // messenger DMs / groups / channels → isTicket: false.
+    const user = { id: await createUser(`adm_chats_isticket_u_${STAMP}`, "password123") };
+
+    const supportChatId = await createChat("dm", "dm", { channel: "support" });
+    await addChatMember(supportChatId, user.id, "member");
+    const directChatId = await createChat("dm", "dm", { channel: "direct" });
+    await addChatMember(directChatId, user.id, "member");
+    const groupId = await createChat(`Plain Group ${STAMP}b`, "group", {});
+
+    const res = await adminListChats({ limit: 500 });
+    const chats = res.chats || [];
+    const byId = (id) => chats.find((c) => String(c.id) === String(id));
+
+    const ticket = byId(supportChatId);
+    expect(ticket.isTicket).toBe(true);
+    expect(ticket.type).toBe("dm"); // stored type unchanged
+    expect(ticket.channel).toBe("support");
+
+    expect(byId(directChatId).isTicket).toBe(false);
+    expect(byId(groupId).isTicket).toBe(false);
+  });
 });
 
 describe("adminListChats — createdFrom / createdTo window", () => {

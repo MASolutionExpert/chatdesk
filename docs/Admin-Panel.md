@@ -133,7 +133,7 @@ Manage DMs, groups, and channels:
 - **Create Chats**: Create a new group or channel
 - **Edit Chats**: Update chat metadata and its ownership
 - **Delete Chats**: Permanently remove chats and all associated messages
-- **Search & Filter**: Filtering across all chats — the **Chat Type** filter offers Direct messages, **Support messages** (the helpdesk ticket threads), Groups and Channels, plus privacy, verification, auto-add and remote-channel filters
+- **Search & Filter**: Filtering across all chats — the **Chat Type** filter offers Direct messages, **Support messages** (the helpdesk ticket threads), Groups and Channels, plus privacy, verification, auto-add and remote-channel filters. Ticket threads are labeled **Ticket** (headset icon) in the Type column — never "Direct messages" — and the Channel column shows their department next to the SUPPORT badge instead of a duplicate ticket label (the list payload carries an explicit `isTicket` classification since 1.5.0-dev.3)
 - **Sorting**: Sort by Name, Type, Visibility, Created Date, Member Count, or Message Count
 - **Member Management**: Editing a group or channel loads its **existing members** as selected chips — the admin sees the current membership at a glance; removing a chip removes that member on save, adding a chip adds them
 - **Auto-Add New Users**: Automatically add newly registered user accounts to public chats

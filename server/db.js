@@ -4803,7 +4803,15 @@ export function adminListChats({
   const processChatRows = (rows) => {
     const list = rows || [];
     const total = list.length > 0 ? Number(list[0]._total || 0) : 0;
-    const chats = list.map(({ _total, ...chat }) => chat);
+    const chats = list.map(({ _total, ...chat }) => ({
+      ...chat,
+      // Support tickets ride DM chats on the support channel — the raw
+      // `type` column stays "dm", so the ticket classification is derived
+      // here. The admin panel labels such rows "Ticket" (never "Direct
+      // message" + a duplicate ticket badge); messenger DMs keep
+      // isTicket = false.
+      isTicket: chat.type === "dm" && chat.channel === "support",
+    }));
     return { chats, total };
   };
   if (rawRows && typeof rawRows.then === "function") {

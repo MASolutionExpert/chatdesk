@@ -39,11 +39,12 @@
 // OPERATOR RESPONSE TIME (`firstResponses` / `avgFirstResponseSeconds`):
 // the classic helpdesk "first response time per ticket". A ticket (support
 // conversation) created in the range contributes ONE sample — (first staff
-// reply − ticket creation) — to the operator the ticket belongs to (the
-// ticket row's operator; legacy chats without a ticket row fall back to the
-// author of the first staff reply). In this codebase the assigned operator is
-// the only staff member of the support chat, so the ticket's operator IS the
-// person whose responsiveness is being measured.
+// reply − ticket creation) — attributed to the operator who ACTUALLY wrote
+// the first staff reply (their responsiveness is what the number measures).
+// When the first reply's author is not on the department roster (a passing
+// admin, a departed operator), the sample falls back to the ticket row's
+// operator; legacy chats without a ticket row have no fallback and simply
+// attribute to their first responder.
 //
 // ID KEYING (regression guard): since migration 036 the users / chats /
 // chat_messages primary keys are TEXT UUIDs (departments keep INTEGER ids).
@@ -304,9 +305,15 @@ export function aggregateSupportReport({
           const delta = firstReplyAt - createdAt;
           responseTimeTotalMs += delta;
           responseChatCount += 1;
-          if (opEntry) {
-            opEntry.firstResponses += 1;
-            opEntry.responseTimeTotalMs += delta;
+          // The first-response sample measures the responsiveness of the
+          // operator who ACTUALLY answered first — whoever fair routing
+          // assigned the ticket to. Only when that author is not on the
+          // department roster does the sample fall back to the ticket's
+          // recorded operator (opEntry above).
+          const sampleEntry = entryFor(firstStaffReply.user_id) || opEntry;
+          if (sampleEntry) {
+            sampleEntry.firstResponses += 1;
+            sampleEntry.responseTimeTotalMs += delta;
           }
         }
       }

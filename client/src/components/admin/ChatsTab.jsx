@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { ChevronDown, Filter, Globe, Lock, Megaphone, MessageCircleMore, Pencil, Phone, Plus, Trash, User, Users } from "../../icons/lucide.js";
+import { ChevronDown, Filter, Globe, Headset, Lock, Megaphone, MessageCircleMore, Pencil, Phone, Plus, Trash, User, Users } from "../../icons/lucide.js";
 import { api, cardCls, btnPrimary, iconBtn, inputSmCls, fmtDate, DEFAULT_PAGE_SIZE } from "./adminShared.js";
 import { LoadingRows, EmptyState, FilterPopover, SortTh, Pagination, TabToolbar, TabSearchInput } from "./AdminCommon.jsx";
 import CallsHistory from "./CallsHistory.jsx";
@@ -321,6 +321,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
           <div className="space-y-2 sm:hidden">
             {chats.map((c) => {
               const isDm = c.type === "dm";
+              // Backend classification (1.5.0-dev.3): support-channel DMs are
+              // tickets, never "direct messages" — with a client-side
+              // fallback for cached payloads from an older server.
+              const isTicket = c.isTicket === true || (isDm && c.channel === "support");
               const chatName = isDm
                 ? (c.participants || t("admin.chats.fallbackName", { id: c.id }))
                 : (c.name || t("admin.chats.fallbackName", { id: c.id }));
@@ -350,8 +354,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                       <span className="flex items-center gap-1 capitalize">
-                        {c.type === "channel" ? <Megaphone size={12} className="text-emerald-500" /> : isDm ? <User size={12} className="text-emerald-500" /> : <Users size={12} className="text-emerald-500" />}
-                        {isDm ? t("admin.chats.filters.typeDm") : c.type}
+                        {c.type === "channel" ? <Megaphone size={12} className="text-emerald-500" /> : isTicket ? <Headset size={12} className="text-rose-500" /> : isDm ? <User size={12} className="text-emerald-500" /> : <Users size={12} className="text-emerald-500" />}
+                        {isTicket ? t("admin.chats.filters.typeTicket") : isDm ? t("admin.chats.filters.typeDm") : c.type}
                       </span>
                       {!isDm && (
                         <span className="flex items-center gap-1 capitalize">
@@ -365,8 +369,11 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                             channel={c.channel === "support" ? "support" : "direct"}
                             departmentName={c.department_name}
                           />
-                          {c.channel === "support"
-                            ? t("admin.chats.filters.channelSupport")
+                          {/* Tickets already say "Ticket" in the type slot —
+                              here they show their DEPARTMENT instead of a
+                              duplicate ticket label. */}
+                          {isTicket
+                            ? (c.department_name || t("admin.chats.filters.channelSupport"))
                             : t("admin.chats.filters.channelDirect")}
                         </span>
                       )}
@@ -400,6 +407,10 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                 <tbody className="divide-y divide-slate-50 dark:divide-white/4">
                   {chats.map((c) => {
                     const isDm = c.type === "dm";
+                    // Backend classification (1.5.0-dev.3): support-channel
+                    // DMs are tickets, never "direct messages" — with a
+                    // client-side fallback for cached older-server payloads.
+                    const isTicket = c.isTicket === true || (isDm && c.channel === "support");
                     const chatName = isDm
                       ? (c.participants || t("admin.chats.fallbackName", { id: c.id }))
                       : (c.name || t("admin.chats.fallbackName", { id: c.id }));
@@ -425,8 +436,8 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                       </td>
                       <td className="px-4 py-2.5 text-xs capitalize text-slate-600 dark:text-slate-300">
                         <span className="flex items-center gap-1.5">
-                          {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : isDm ? <User size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
-                          {isDm ? t("admin.chats.filters.typeDm") : c.type === "group" ? t("admin.chats.typeGroupSing") : c.type === "channel" ? t("admin.chats.typeChannelSing") : c.type}
+                          {c.type === "channel" ? <Megaphone size={13} className="text-emerald-500" /> : isTicket ? <Headset size={13} className="text-rose-500" /> : isDm ? <User size={13} className="text-emerald-500" /> : <Users size={13} className="text-emerald-500" />}
+                          {isTicket ? t("admin.chats.filters.typeTicket") : isDm ? t("admin.chats.filters.typeDm") : c.type === "group" ? t("admin.chats.typeGroupSing") : c.type === "channel" ? t("admin.chats.typeChannelSing") : c.type}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
@@ -436,8 +447,11 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                               channel={c.channel === "support" ? "support" : "direct"}
                               departmentName={c.department_name}
                             />
-                            {c.channel === "support"
-                              ? t("admin.chats.filters.channelSupport")
+                            {/* Tickets already say "Ticket" in the type
+                                column — here they show their DEPARTMENT
+                                instead of a duplicate ticket label. */}
+                            {isTicket
+                              ? (c.department_name || t("admin.chats.filters.channelSupport"))
                               : t("admin.chats.filters.channelDirect")}
                           </span>
                         ) : (

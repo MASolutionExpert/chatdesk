@@ -2,6 +2,15 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.3
+
+### Fixed
+
+- 🎫 **Admin chats: ticket threads are now labeled "Ticket", not "Direct messages".** The admin panel's Chats (Messages) tab stamped every support ticket with BOTH labels — the stored chat type is `dm`, so the Type column said "Direct messages" while a second badge said "Ticket". `adminListChats` now derives an explicit **`isTicket`** classification (support-channel DM) on every row; the panel shows a rose headset icon with "Ticket" / «تیکت» in the Type column and the ticket's **department** next to the SUPPORT badge (instead of a duplicate ticket label). Messenger DMs, groups and channels are untouched.
+- 📊 **The operator first-response metric is credited to the operator who ACTUALLY answered, not to whoever the ticket was routed to.** In 1.5.0-dev.2 the per-ticket first-response sample rode the ticket row's `operator_id` — the operator fair routing picked **at creation time**. When a different operator answered the ticket (the reported case: a new ticket, answered, and the answering operator's card still showed "—"), the sample landed on the assigned operator and the responder got nothing. The sample now always belongs to the **author of the first staff reply**; only when that author is not on the department roster (a passing admin, a departed operator) does it fall back to the ticket's recorded operator. Conversation-level metrics (assigned / answered / unanswered) still follow the ticket row.
+
+**Tests:** 140 files / 1340 server tests (new: off-roster first-reply fallback, explicit `isTicket` list classification; the "someone else replied first" contract re-pinned to author attribution), 427 client unit tests — all green. Docs: `docs/Helpdesk-Setup.md` metric attribution rewritten (EN + FA), `docs/Admin-Panel.md` Chats tab updated.
+
 ## 1.5.0-dev.2
 
 ### Changed

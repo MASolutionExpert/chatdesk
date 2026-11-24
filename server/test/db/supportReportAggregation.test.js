@@ -159,11 +159,11 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     expect(bob.unanswered + carol.unanswered).toBe(0);
   });
 
-  it("scores each ticket on its OWN operator — even when someone else replied first", () => {
+  it("scores the first-response sample on the operator who ACTUALLY replied first", () => {
     const report = aggregateSupportReport(
       baseInput({
         chats: [
-          // Ticket assigned to bob, but CAROL wrote the first (fast) reply.
+          // Ticket fair-routed to bob, but CAROL wrote the first reply.
           { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
         ],
         messages: [
@@ -182,14 +182,46 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
     const billing = report.departments.find((d) => d.id === 1);
     const bob = billing.operators.find((o) => o.id === 10);
     const carol = billing.operators.find((o) => o.id === 11);
-    // The ticket belongs to bob, so the first-response sample rides bob's
-    // card; carol (not the ticket's operator) gets no sample.
+    // The ticket row still owns conversation-level metrics (assigned /
+    // answered ride bob's card — he is the ticket's operator). But the
+    // first-response sample measures CAROL's responsiveness: she is the one
+    // who actually answered the ticket first.
     expect(bob.assigned).toBe(1);
     expect(bob.answered).toBe(1);
+    expect(bob.firstResponses).toBe(0);
+    expect(bob.avgFirstResponseSeconds).toBeNull();
+    expect(carol.firstResponses).toBe(1);
+    expect(carol.avgFirstResponseSeconds).toBe(120);
+  });
+
+  it("falls back to the ticket operator when the first reply author is off-roster", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          { id: 100, department_id: 1, created_at: "2025-06-10T09:00:00Z" },
+        ],
+        messages: [
+          { chat_id: 100, user_id: 30, created_at: "2025-06-10T09:01:00Z" },
+          // First reply by a staff user who is NOT on any department roster
+          // (an owner passing through, a departed operator...).
+          { chat_id: 100, user_id: 99, created_at: "2025-06-10T09:02:00Z" }, // +120s
+          { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:03:00Z" },
+        ],
+        users: [...USERS, { id: 99, role: "admin" }],
+        tickets: [
+          { chat_id: 100, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
+        ],
+        from: null,
+        to: null,
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    const bob = billing.operators.find((o) => o.id === 10);
+    // The off-roster author cannot carry the sample, so it falls back to the
+    // ticket's own operator — the number must never vanish.
+    expect(billing.totals.avgFirstResponseSeconds).toBe(120);
     expect(bob.firstResponses).toBe(1);
     expect(bob.avgFirstResponseSeconds).toBe(120);
-    expect(carol.firstResponses).toBe(0);
-    expect(carol.avgFirstResponseSeconds).toBeNull();
   });
 
   it("operator average is the mean over ALL of their in-range tickets, one sample each", () => {
