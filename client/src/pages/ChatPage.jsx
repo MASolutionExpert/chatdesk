@@ -3196,13 +3196,22 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
     if (!list.length) return;
     // Only the owner may delete DM-type threads (support tickets included);
-    // filter them out of every deletion request for everyone else. The
-    // server enforces the same rule; this keeps the UI consistent.
+    // referred tickets — support GROUP chats — fall under the same rule and
+    // are filtered out too. The server enforces the same rule; this keeps
+    // the UI consistent.
     const allowedIds = isOwner
       ? list
       : list.filter((id) => {
           const chat = chats.find((candidate) => candidate?.id === id);
-          return String(chat?.type || "").toLowerCase() !== "dm";
+          const type = String(chat?.type || "").toLowerCase();
+          if (type === "dm") return false;
+          if (
+            String(chat?.channel || "") === "support" &&
+            chat?.department_id
+          ) {
+            return false;
+          }
+          return true;
         });
     if (!allowedIds.length) return;
     setPendingDeleteIds(allowedIds);

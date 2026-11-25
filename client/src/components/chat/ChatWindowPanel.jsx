@@ -22,7 +22,7 @@ import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import ChannelBadge from "../common/ChannelBadge.jsx";
-import { setTicketStatus } from "../../api/chatApi.js";
+import { setTicketStatus, fetchReferCandidates, referTicket } from "../../api/chatApi.js";
 import Tooltip from "../common/Tooltip.jsx";
 import {
   FocusedMediaModal,
@@ -1027,10 +1027,15 @@ export default function ChatWindowPanel({
 
   // Channel kind of the active conversation: "support" threads are helpdesk
   // tickets opened through the department picker; everything else (default)
-  // is a messenger-style direct chat. Only DM conversations carry a channel.
+  // is a messenger-style direct chat. Referred tickets are GROUP chats that
+  // keep their support identity — the ticket UI follows the channel, not the
+  // chat type.
   const isSupportChat = activeChat?.channel === "support";
-  const activeChatChannel =
-    activeChat?.type === "dm" ? (isSupportChat ? "support" : "direct") : null;
+  const activeChatChannel = isSupportChat
+    ? "support"
+    : activeChat?.type === "dm"
+      ? "direct"
+      : null;
   const supportDepartmentName = activeChat?.department_name || null;
   // Ticket lifecycle (migration 045): support chats carry an open/closed
   // status owned by the `tickets` table. Messenger chats never have one.
@@ -1062,6 +1067,77 @@ export default function ChatWindowPanel({
       }
     } finally {
       setTicketActionBusy(false);
+    }
+  };
+
+  // ─── Ticket referral (dev.8) ──────────────────────────────────────────────
+  // Staff-only: hand the ticket to another operator. The server converts the
+  // DM-shaped thread into a private support group; every member then sees
+  // the messages and can answer. The picker lists staff from recent contact
+  // first and supports lookup by username / nickname / id.
+  const isStaffMember = ["owner", "operator"].includes(
+    String(user?.role || "").toLowerCase(),
+  );
+  const [referOpen, setReferOpen] = useState(false);
+  const [referCandidates, setReferCandidates] = useState([]);
+  const [referLoading, setReferLoading] = useState(false);
+  const [referQuery, setReferQuery] = useState("");
+  const [referSelected, setReferSelected] = useState(null);
+  const [referBusy, setReferBusy] = useState(false);
+  const [referError, setReferError] = useState("");
+
+  const openReferModal = async () => {
+    if (!activeChatId || referBusy) return;
+    setReferOpen(true);
+    setReferQuery("");
+    setReferSelected(null);
+    setReferError("");
+    setReferCandidates([]);
+    setReferLoading(true);
+    try {
+      const result = await fetchReferCandidates({
+        chatId: activeChatId,
+        creator: user?.username,
+      });
+      setReferCandidates(Array.isArray(result?.candidates) ? result.candidates : []);
+    } catch (err) {
+      setReferError(err?.message || t("common.ticketReferError"));
+    } finally {
+      setReferLoading(false);
+    }
+  };
+
+  const referQueryTrimmed = referQuery.trim().toLowerCase();
+  const filteredReferCandidates = referQueryTrimmed
+    ? referCandidates.filter(
+        (candidate) =>
+          String(candidate?.username || "").toLowerCase().includes(referQueryTrimmed) ||
+          String(candidate?.nickname || "").toLowerCase().includes(referQueryTrimmed) ||
+          String(candidate?.id || "").toLowerCase().includes(referQueryTrimmed),
+      )
+    : referCandidates;
+
+  const handleConfirmRefer = async () => {
+    if (!activeChatId || !referSelected || referBusy) return;
+    setReferBusy(true);
+    setReferError("");
+    try {
+      await referTicket({
+        chatId: activeChatId,
+        creator: user?.username,
+        operatorUsername: referSelected.username,
+      });
+      setReferOpen(false);
+      setReferSelected(null);
+      // The server fans out chat_list_changed to every member, which reloads
+      // the (now group-shaped) thread for everyone — including this client.
+      if (typeof onTicketStatusChanged === "function") {
+        onTicketStatusChanged(activeChatId, null);
+      }
+    } catch (err) {
+      setReferError(err?.message || t("common.ticketReferError"));
+    } finally {
+      setReferBusy(false);
     }
   };
 
@@ -1633,16 +1709,157 @@ export default function ChatWindowPanel({
                 />
                 {t("common.ticketStatusOpen")}
               </span>
-              <button
-                type="button"
-                onClick={() => handleTicketAction("close")}
-                disabled={ticketActionBusy}
-                className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300 dark:hover:bg-slate-500/20"
-              >
-                {t("common.ticketClose")}
-              </button>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {/* Staff-only: hand the ticket to another operator (dev.8).
+                    The server turns the thread into a shared support group. */}
+                {isStaffMember ? (
+                  <button
+                    type="button"
+                    onClick={openReferModal}
+                    disabled={ticketActionBusy}
+                    data-testid="ticket-refer-button"
+                    className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                  >
+                    {t("common.ticketRefer")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => handleTicketAction("close")}
+                  disabled={ticketActionBusy}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300 dark:hover:bg-slate-500/20"
+                >
+                  {t("common.ticketClose")}
+                </button>
+              </span>
             </>
           )}
+        </div>
+      ) : null}
+
+      {/* Ticket referral picker (dev.8): staff-only operator chooser. Lists
+          staff from recent contacts first and supports lookup by username /
+          nickname / id. Confirming converts the thread into a shared support
+          group and re-points the ticket to the chosen operator. */}
+      {referOpen ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("common.ticketReferTitle")}
+          onClick={() => {
+            if (!referBusy) setReferOpen(false);
+          }}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900"
+            dir="auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-white/5">
+              <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                {t("common.ticketReferTitle")}
+              </h2>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {t("common.ticketReferHint")}
+              </p>
+            </div>
+            <div className="px-4 pt-3">
+              <input
+                type="text"
+                value={referQuery}
+                onChange={(e) => setReferQuery(e.target.value)}
+                placeholder={t("common.ticketReferSearch")}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+              {referLoading ? (
+                <div className="flex items-center justify-center py-8 text-xs text-slate-500 dark:text-slate-400">
+                  {t("common.ticketReferLoading")}
+                </div>
+              ) : filteredReferCandidates.length ? (
+                <ul className="flex flex-col gap-1">
+                  {filteredReferCandidates.map((candidate) => {
+                    const selected =
+                      referSelected?.id === candidate.id;
+                    return (
+                      <li key={candidate.id}>
+                        <button
+                          type="button"
+                          onClick={() => setReferSelected(candidate)}
+                          className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${
+                            selected
+                              ? "bg-emerald-50 dark:bg-emerald-500/10"
+                              : "hover:bg-slate-50 dark:hover:bg-white/5"
+                          }`}
+                        >
+                          <Avatar
+                            name={candidate.nickname || candidate.username}
+                            color={candidate.color || undefined}
+                            src={candidate.avatarUrl || undefined}
+                            className="h-8 w-8 shrink-0"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+                              {candidate.nickname || candidate.username}
+                            </span>
+                            <span className="block truncate text-xs text-slate-400 dark:text-slate-500">
+                              @{candidate.username}
+                              {candidate.departmentName
+                                ? ` · ${candidate.departmentName}`
+                                : ""}
+                            </span>
+                          </span>
+                          {candidate.lastInteraction ? (
+                            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
+                              {t("common.ticketReferRecent")}
+                            </span>
+                          ) : null}
+                          {selected ? (
+                            <span
+                              className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                              aria-hidden="true"
+                            >
+                              ✓
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                  {t("common.ticketReferEmpty")}
+                </div>
+              )}
+            </div>
+            {referError ? (
+              <p className="px-4 pb-1 text-xs font-medium text-rose-600 dark:text-rose-400">
+                {referError}
+              </p>
+            ) : null}
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={() => setReferOpen(false)}
+                disabled={referBusy}
+                className="rounded-full border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRefer}
+                disabled={!referSelected || referBusy}
+                data-testid="ticket-refer-confirm"
+                className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {referBusy ? t("common.ticketReferBusy") : t("common.ticketReferConfirm")}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

@@ -327,7 +327,11 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
               // Backend classification (1.5.0-dev.3): support-channel DMs are
               // tickets, never "direct messages" — with a client-side
               // fallback for cached payloads from an older server.
-              const isTicket = c.isTicket === true || (isDm && c.channel === "support");
+              const isTicket =
+                c.isTicket === true ||
+                (isDm && c.channel === "support") ||
+                // Referred tickets (dev.8): support-identity GROUP chats.
+                (c.type === "group" && c.channel === "support" && c.department_id);
               const chatName = isDm
                 ? (c.participants || t("admin.chats.fallbackName", { id: c.id }))
                 : (c.name || t("admin.chats.fallbackName", { id: c.id }));
@@ -413,7 +417,11 @@ const ChatsTab = forwardRef(function ChatsTab({ active = true, onMutated, onStat
                     // Backend classification (1.5.0-dev.3): support-channel
                     // DMs are tickets, never "direct messages" — with a
                     // client-side fallback for cached older-server payloads.
-                    const isTicket = c.isTicket === true || (isDm && c.channel === "support");
+                    const isTicket =
+                      c.isTicket === true ||
+                      (isDm && c.channel === "support") ||
+                      // Referred tickets (dev.8): support-identity GROUP chats.
+                      (c.type === "group" && c.channel === "support" && c.department_id);
                     const chatName = isDm
                       ? (c.participants || t("admin.chats.fallbackName", { id: c.id }))
                       : (c.name || t("admin.chats.fallbackName", { id: c.id }));

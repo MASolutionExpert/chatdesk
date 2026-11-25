@@ -183,6 +183,32 @@ export const setTicketStatus = ({ chatId, action, creator }) =>
     },
   );
 
+// Staff-only: candidate operators for the referral picker (dev.8) — unbanned
+// staff members excluding the actor and everyone already in the thread,
+// sorted by last interaction with the actor (recent contacts first).
+export const fetchReferCandidates = ({ chatId, creator }) =>
+  apiFetch(
+    `${API_BASE}/api/support/tickets/${encodeURIComponent(chatId)}/refer-candidates?creator=${encodeURIComponent(creator || "")}`,
+  );
+
+// Refers a ticket to another operator (dev.8): the support thread becomes a
+// shared private support group, the target joins it as the group owner, and
+// the ticket's primary operator moves to them. Resolves to
+// { chatId, ticketId, converted, referredTo, ticket }.
+export const referTicket = ({ chatId, creator, operatorUsername, operatorId }) =>
+  apiFetch(
+    `${API_BASE}/api/support/tickets/${encodeURIComponent(chatId)}/refer`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        operatorUsername
+          ? { creator, operatorUsername }
+          : { creator, operatorId },
+      ),
+    },
+  );
+
 export const createGroupChat = (payload) =>
   apiFetch(`${API_BASE}/api/chats/group`, {
     method: "POST",

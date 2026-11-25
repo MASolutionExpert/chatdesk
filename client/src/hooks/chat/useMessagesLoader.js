@@ -299,7 +299,7 @@ export function useMessagesLoader({
             : msg?.replyTo || null;
         const bodyText = normalizedBody;
         const systemMatch = bodyText.match(
-          /^\[\[system:(join|joined|left|removed):(.+)\]\]$/i,
+          /^\[\[system:(join|joined|left|removed|referred):(.+)\]\]$/i,
         );
         const rawTargetName = systemMatch?.[2]
           ? String(systemMatch[2]).trim()
@@ -313,18 +313,24 @@ export function useMessagesLoader({
         const normalizedSystemType = String(
           systemMatch?.[1] || "",
         ).toLowerCase();
+        // "referred" (dev.8) marks a ticket-referral handoff — the direction
+        // differs from join/left, so the name goes second.
         const systemSuffix =
-          normalizedSystemType === "left"
-            ? "left the group"
-            : normalizedSystemType === "removed"
-              ? "was removed from the group"
-              : normalizedSystemType
-                ? "joined the group"
-                : "";
+          normalizedSystemType === "referred"
+            ? null
+            : normalizedSystemType === "left"
+              ? "left the group"
+              : normalizedSystemType === "removed"
+                ? "was removed from the group"
+                : normalizedSystemType
+                  ? "joined the group"
+                  : "";
         const systemText =
-          systemSuffix && isolatedTargetName
-            ? `${isolatedTargetName} ${systemSuffix}`
-            : "";
+          normalizedSystemType === "referred"
+            ? `Ticket referred to ${isolatedTargetName}`
+            : systemSuffix && isolatedTargetName
+              ? `${isolatedTargetName} ${systemSuffix}`
+              : "";
         return {
           ...msg,
           body: normalizedBody,

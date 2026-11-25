@@ -56,6 +56,17 @@ export const common = {
     ticketClosedBanner:
       "This support ticket is closed. Reopen it to continue the conversation.",
     ticketStatusChanged: "Ticket status updated.",
+    ticketRefer: "Refer ticket",
+    ticketReferTitle: "Refer this ticket",
+    ticketReferHint:
+      "Pick an operator to hand this ticket to. The thread becomes a shared support group — every added operator can read and answer messages.",
+    ticketReferSearch: "Search by username, nickname or ID",
+    ticketReferLoading: "Loading operators…",
+    ticketReferRecent: "Recent",
+    ticketReferEmpty: "No available operator found",
+    ticketReferConfirm: "Refer",
+    ticketReferBusy: "Referring…",
+    ticketReferError: "Referring the ticket failed. Please try again.",
   },
   fa: {
     actions: {
@@ -107,5 +118,16 @@ export const common = {
     ticketClosedBanner:
       "این تیکت پشتیبانی بسته شده است. برای ادامه گفت‌وگو آن را بازگشایی کنید.",
     ticketStatusChanged: "وضعیت تیکت به‌روزرسانی شد.",
+    ticketRefer: "ارجاع تیکت",
+    ticketReferTitle: "ارجاع این تیکت",
+    ticketReferHint:
+      "اپراتوری را برای ارجاع تیکت انتخاب کنید. گفت‌وگو به یک گروه پشتیبانی مشترک تبدیل می‌شود و هر اپراتوری که اضافه شود می‌تواند پیام‌ها را ببیند و پاسخ دهد.",
+    ticketReferSearch: "جستجو با نام کاربری، نام یا شناسه",
+    ticketReferLoading: "در حال دریافت اپراتورها…",
+    ticketReferRecent: "اخیر",
+    ticketReferEmpty: "اپراتوری برای ارجاع پیدا نشد",
+    ticketReferConfirm: "ارجاع",
+    ticketReferBusy: "در حال ارجاع…",
+    ticketReferError: "ارجاع تیکت انجام نشد. لطفاً دوباره تلاش کنید.",
   },
 };
