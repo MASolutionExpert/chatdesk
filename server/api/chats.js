@@ -43,6 +43,9 @@ function registerChatRoutes(app, deps) {
     listChatsForUser,
     listMessageFilesByMessageIds,
     listUsers,
+    // Ticket registry lookup (migration 045) — protects referred tickets:
+    // the customer of a support thread can never be dropped from it.
+    getTicketByChatId,
     removeAvatarByUrl,
     removePendingPresignedUploads,
     removeStoredFileNames,
@@ -76,6 +79,18 @@ function registerChatRoutes(app, deps) {
 
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
+
+  // Ticket threads (migration 045): support-channel chats with a department —
+  // in their classic DM shape AND in the referred support-group shape (a
+  // referred ticket is converted from a DM into a private support group but
+  // keeps its support identity). Tickets are protected thread-objects: their
+  // deletion stays owner-only and their customer can never be dropped.
+  const isTicketThread = (chat) =>
+    Boolean(
+      chat &&
+        String(chat.channel || "direct") === "support" &&
+        chat.department_id,
+    );
 
   // Deletion policy note: thread/message deletion is owner-only (see the
   // /api/chats/hide handler). The former isModeratorRole helper was removed
@@ -1270,6 +1285,28 @@ function registerChatRoutes(app, deps) {
       }
     }
 
+    // Ticket protection: if the member sync dropped the ticket's customer
+    // (e.g. a stale client member list), silently restore them — a referred
+    // ticket must always keep its subject in the loop.
+    if (isTicketThread(chat)) {
+      const ticket = await resolveMaybePromise(getTicketByChatId(chatId));
+      if (ticket?.customerId) {
+        const rawStillMember = isMember(chatId, ticket.customerId);
+        const stillMember =
+          rawStillMember && typeof rawStillMember.then === "function"
+            ? await rawStillMember
+            : rawStillMember;
+        if (!stillMember) {
+          const c1 = clearChatMemberLeft(chatId, ticket.customerId);
+          if (c1 && typeof c1.then === "function") await c1;
+          const u = unhideChat(ticket.customerId, chatId);
+          if (u && typeof u.then === "function") await u;
+          const a = addChatMember(chatId, ticket.customerId, "member");
+          if (a && typeof a.then === "function") await a;
+        }
+      }
+    }
+
     const updated = await resolveMaybePromise(findChatById(chatId));
     const baseOrigin = resolveClientBaseOrigin(req);
     emitChatListChangedToChatParticipants(chatId);
@@ -1316,6 +1353,13 @@ function registerChatRoutes(app, deps) {
         (member) => member.id !== user.id,
       );
       if (remainingMembers.length === 0) {
+        // A ticket thread is never deleted by its last member walking away —
+        // that is the instance owner's job (deletion policy).
+        if (isTicketThread(chat)) {
+          return res.status(403).json({
+            error: "A support thread cannot be deleted by leaving. Ask the instance owner to delete it.",
+          });
+        }
         const result = await deletionService.deleteChat({ chatId });
         if (Array.isArray(result.storedFilesToRemove) && result.storedFilesToRemove.length > 0) {
           removeStoredFileNames(result.storedFilesToRemove);
@@ -1325,9 +1369,28 @@ function registerChatRoutes(app, deps) {
         }
         return res.json({ ok: true, deleted: true });
       }
-      const nextOwner = crypto?.randomInt
-        ? remainingMembers[crypto.randomInt(remainingMembers.length)]
-        : remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
+      // Ownership transfer on leave. For ticket threads (referred tickets)
+      // ownership must stay with STAFF: pass it to another operator/owner
+      // member; a staff owner cannot abandon the ticket to a customer, so
+      // they may only leave once another staff member remains.
+      let nextOwner = null;
+      if (isTicketThread(chat)) {
+        const remainingStaff = remainingMembers.filter((member) =>
+          ["operator", "owner"].includes(
+            String(member.user_role || member.role || "").toLowerCase(),
+          ),
+        );
+        if (!remainingStaff.length) {
+          return res.status(403).json({
+            error: "The last staff member cannot leave a ticket thread.",
+          });
+        }
+        nextOwner = remainingStaff[0];
+      } else {
+        nextOwner = crypto?.randomInt
+          ? remainingMembers[crypto.randomInt(remainingMembers.length)]
+          : remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
+      }
       if (nextOwner?.id) {
         await resolveMaybePromise(setChatMemberRole(chatId, nextOwner.id, "owner"));
       }
@@ -1395,6 +1458,14 @@ function registerChatRoutes(app, deps) {
         .json({ error: "Only the owner can delete this chat." });
     }
 
+    // Deletion policy: a referred ticket is a support GROUP whose chat-owner
+    // is the operator. Hard-deleting a ticket stays an instance-owner-only
+    // power (the same rule that guards DM-thread deletion) — an operator who
+    // owns the support group still gets 403.
+    if (isTicketThread(chat) && String(user.role || "").toLowerCase() !== "owner") {
+      return res.status(403).json({ error: "Only the owner can delete tickets." });
+    }
+
     const memberUsernames = members
       .map((member) => String(member?.username || "").toLowerCase())
       .filter(Boolean);
@@ -1460,6 +1531,17 @@ function registerChatRoutes(app, deps) {
     }
     if (String(targetMember.role || "").toLowerCase() === "owner") {
       return res.status(400).json({ error: "Owner cannot be removed." });
+    }
+
+    // Ticket protection: the customer of a referred ticket can never be
+    // dropped from the thread — without them the ticket loses its subject.
+    if (isTicketThread(chat)) {
+      const ticket = await resolveMaybePromise(getTicketByChatId(chatId));
+      if (ticket && String(ticket.customerId) === String(target.id)) {
+        return res
+          .status(400)
+          .json({ error: "The customer cannot be removed from a ticket." });
+      }
     }
 
     await resolveMaybePromise(removeChatMember(chatId, target.id));
@@ -1721,16 +1803,21 @@ function registerChatRoutes(app, deps) {
     // Deletion policy: this endpoint doubles as "delete thread" in the UI —
     // and ChatDesk is an organizational messenger and ticketing system, so
     // ONLY the instance owner may delete DM threads (support tickets
-    // included). Admins and operators are treated like regular users here:
-    // they get 403 for DM-type chats, while group/channel cleanup still
-    // works via leave + hide (list hygiene, not thread deletion).
+    // included) AND referred tickets (support groups). Admins and operators
+    // are treated like regular users here: they get 403 for DM-type chats
+    // and ticket threads, while group/channel cleanup still works via
+    // leave + hide (list hygiene, not thread deletion).
     const ownerHide = String(user.role || "").toLowerCase() === "owner";
     if (!ownerHide) {
-      // Only the owner can delete threads (support tickets are DM-type
-      // chats). Group/channel cleanup still works via leave + hide.
+      // Only the owner can delete threads (support tickets are DM-type chats
+      // or referred support groups). Group/channel cleanup still works via
+      // leave + hide.
       for (const id of idsToHide) {
         const chat = await resolveMaybePromise(findChatById(id));
-        if (chat && String(chat.type || "").toLowerCase() === "dm") {
+        if (
+          chat &&
+          (String(chat.type || "").toLowerCase() === "dm" || isTicketThread(chat))
+        ) {
           return res.status(403).json({
             error: "Only the owner can delete threads.",
           });

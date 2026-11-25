@@ -4737,9 +4737,11 @@ export function adminListChats({
     });
   }
   if (typeFilter === "support") {
-    // "Support messages" in the type filter = support tickets: DM chats on
-    // the support channel (the ticket threads the helpdesk serves).
-    qb = qb.where("c.type", "dm").where("c.channel", "support");
+    // "Support messages" in the type filter = support tickets: threads on the
+    // support channel (the ticket threads the helpdesk serves). A referred
+    // ticket is converted from a DM into a private support GROUP — it must
+    // stay listed here, so both shapes are matched.
+    qb = qb.where("c.channel", "support").whereIn("c.type", ["dm", "group"]);
   } else if (typeFilter === "group" || typeFilter === "channel" || typeFilter === "dm") {
     qb = qb.where("c.type", typeFilter);
   }
@@ -5536,6 +5538,127 @@ export function setTicketStatusByChatId(chatId, status) {
   return true;
 }
 
+// Re-point a ticket's primary operator (migration 045 registry). Used by the
+// ticket referral flow: the referred-to operator becomes the ticket's owner
+// of record, so fair routing (pickOperatorForDepartment) counts the open
+// ticket against THEIR workload. Safe no-op when the chat has no ticket row
+// (legacy/edge threads) and when the operator id is unchanged.
+export function setTicketOperatorByChatId(chatId, operatorId) {
+  if (!chatId || !operatorId) {
+    return isPostgresMode() ? Promise.resolve(false) : false;
+  }
+  const res = run(
+    dbKnex("tickets")
+      .where({ chat_id: String(chatId) })
+      .update({ operator_id: String(operatorId) })
+  );
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
+// ─── Ticket referral: dm support thread → shared support group ─────────────
+//
+// A referred ticket is shared between several operators: the support thread
+// is converted in place into a GROUP chat that keeps its support identity
+// (channel "support" + department_id), so every staff member added to it can
+// read and reply while the customer keeps their usual chat experience. The
+// conversion is intentionally narrow — only the fields below change:
+//   - type "dm" → "group"            (unlocks the group UI: members, invite,
+//                                     avatar, settings — full group parity)
+//   - name → department display name (groups render their own name)
+//   - group_visibility → "private"   (a ticket must never be discoverable)
+//   - auto_add_new_users → 0         (no automatic population of tickets)
+// channel / department_id / members / messages are untouched.
+export function convertSupportChatToGroup(chatId, { name } = {}) {
+  if (!chatId) return isPostgresMode() ? Promise.resolve(false) : false;
+  const res = run(
+    dbKnex("chats")
+      .where({ id: String(chatId) })
+      .update({
+        type: "group",
+        name: String(name || "Support").trim() || "Support",
+        group_visibility: "private",
+        auto_add_new_users: 0,
+      })
+  );
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
+// Candidate operators for the referral picker. Returns every unbanned staff
+// member (operator/owner) EXCEPT the given ids (the actor + operators already
+// in the thread). Each candidate carries their department name and a
+// last-interaction timestamp (most recent message exchanged with the actor —
+// shared-chats scan), so the picker can surface "recent contacts" first and
+// still allow lookup by id/username/nickname.
+export function listStaffReferCandidates({ actorUserId = null, excludeUserIds = [] } = {}) {
+  const excluded = new Set(
+    (Array.isArray(excludeUserIds) ? excludeUserIds : [])
+      .filter(Boolean)
+      .map((id) => String(id)),
+  );
+  const lastInteractionSql = dbKnex.raw(
+    "(SELECT MAX(m.created_at) FROM chat_messages m WHERE m.chat_id IN (" +
+      "SELECT c1.chat_id FROM chat_members c1 " +
+      "JOIN chat_members c2 ON c2.chat_id = c1.chat_id AND c2.user_id = ? " +
+      "WHERE c1.user_id = users.id)) AS last_interaction",
+    [String(actorUserId || "")],
+  );
+  const qb = dbKnex("users")
+    .leftJoin("departments as d", "d.id", "users.department_id")
+    .select(
+      "users.id",
+      "users.username",
+      "users.nickname",
+      "users.avatar_url",
+      "users.color",
+      "users.role",
+      "users.department_id",
+      "d.name as department_name",
+      lastInteractionSql,
+    )
+    .whereIn("users.role", SUPPORT_ROLES)
+    .where(function () {
+      this.where("users.banned", 0).orWhereNull("users.banned");
+    })
+    .whereNotIn(
+      "users.id",
+      excluded.size ? Array.from(excluded) : ["00000000-0000-0000-0000-000000000000"],
+    )
+    .orderByRaw("(last_interaction IS NULL) ASC, last_interaction DESC, users.username ASC")
+    .limit(200);
+  const rows = getAll(qb);
+  const normalize = (rowsOrPromise) => {
+    if (rowsOrPromise && typeof rowsOrPromise.then === "function") {
+      return rowsOrPromise.then((list) =>
+        (list || []).map((r) => ({
+          id: r.id,
+          username: r.username,
+          nickname: r.nickname || r.username,
+          avatarUrl: r.avatar_url || null,
+          color: r.color || null,
+          role: r.role,
+          departmentId: r.department_id ? Number(r.department_id) : null,
+          departmentName: r.department_name || null,
+          lastInteraction: r.last_interaction || null,
+        })),
+      );
+    }
+    return (rowsOrPromise || []).map((r) => ({
+      id: r.id,
+      username: r.username,
+      nickname: r.nickname || r.username,
+      avatarUrl: r.avatar_url || null,
+      color: r.color || null,
+      role: r.role,
+      departmentId: r.department_id ? Number(r.department_id) : null,
+      departmentName: r.department_name || null,
+      lastInteraction: r.last_interaction || null,
+    }));
+  };
+  return normalize(rows);
+}
+
 // Per-department support metrics for the admin reports.
 export async function getSupportOverview() {
   const departments = listDepartments({ activeOnly: false });
@@ -5548,7 +5671,9 @@ export async function getSupportOverview() {
       .leftJoin("departments as d", "d.id", "c.department_id")
       .leftJoin("tickets as t", "t.chat_id", "c.id")
       .whereNotNull("c.department_id")
-      .where("c.type", "dm")
+      // Referred tickets are private support GROUPS — keep them in the
+      // department workload overview next to the classic DM-shaped tickets.
+      .whereIn("c.type", ["dm", "group"])
       .select(
         "c.id",
         "c.department_id",
@@ -5692,9 +5817,10 @@ export async function getSupportReport({ departmentId = null, from = null, to = 
   );
 
   // Support chats (any age) — the range filter is applied by the aggregator.
+  // Referred tickets are private support GROUPS and stay part of the report.
   const chatQb = dbKnex("chats as c")
     .whereNotNull("c.department_id")
-    .where("c.type", "dm")
+    .whereIn("c.type", ["dm", "group"])
     .select("c.id", "c.department_id", "c.created_at");
   if (departmentId) chatQb.andWhere("c.department_id", Number(departmentId));
   const chatRows = await getAll(chatQb);
