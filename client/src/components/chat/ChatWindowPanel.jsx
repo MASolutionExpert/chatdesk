@@ -1032,7 +1032,19 @@ export default function ChatWindowPanel({
   // is a messenger-style direct chat. Referred tickets are GROUP chats that
   // keep their support identity — the ticket UI follows the channel, not the
   // chat type.
-  const isSupportChat = activeChat?.channel === "support";
+  //
+  // Defensive gate: the strip must never silently vanish when the `channel`
+  // field is missing from stale data. A chat list restored from an old
+  // IndexedDB offline cache (or any partial patch) can come back without
+  // `channel`, while the ticket furniture (ticket_status / department tag)
+  // is still there — those fields only exist on helpdesk threads, so their
+  // presence alone identifies a ticket. Messenger chats never carry either.
+  const isSupportChat =
+    activeChat?.channel === "support" ||
+    Boolean(activeChat?.ticket_status) ||
+    (activeChat?.department_id !== null &&
+      activeChat?.department_id !== undefined &&
+      String(activeChat?.department_id) !== "");
   const activeChatChannel = isSupportChat
     ? "support"
     : activeChat?.type === "dm"

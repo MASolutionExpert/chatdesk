@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.6.0-dev.2
+# chatdesk-deploy-version: 1.6.0-dev.3
 
 set -uo pipefail
 
@@ -4194,6 +4194,27 @@ switch_release_channel() {
   printf "\n"
   log "Current: ${current_channel}, version ${installed_version:-unknown}"
   log "Target:  ${target_channel}"
+
+  # Downgrade guard (dev → main): main only carries PROMOTED releases. Newer
+  # dev-only features are absent from main's source, so switching channels is
+  # a functional downgrade whenever main is behind — e.g. a server moved from
+  # dev back to main loses every helpdesk feature that shipped after the last
+  # promotion (ticket strip, referral, …) even though the process "rebuilds
+  # fine". Make the direction explicit before checkout.
+  if [[ "$current_branch" == "dev" && "$target_branch" == "main" ]]; then
+    local main_version=""
+    main_version="$(run_in_install_dir_output "git show origin/main:VERSION 2>/dev/null" 2>/dev/null | tr -d '\r\n' || true)"
+    warn "This is a DOWNGRADE in feature terms: main only contains promoted stable releases."
+    if [[ -n "$main_version" ]]; then
+      warn "main is currently at version ${main_version}; your dev install is ${installed_version:-unknown}."
+    fi
+    warn "Features added on dev after the last promotion (helpdesk ticket UI, referral, …) will DISAPPEAR from the app until they are promoted to main."
+    if [[ "$(prompt_yes_no "Really switch back to the stable channel and LOSE dev-only features for now?" "no")" != "yes" ]]; then
+      log "Channel switch canceled."
+      press_enter_to_continue
+      return 0
+    fi
+  fi
 
   if [[ "$(prompt_yes_no "Switch ChatDesk from ${current_channel} to ${target_channel}?" "no")" != "yes" ]]; then
     log "Channel switch canceled."

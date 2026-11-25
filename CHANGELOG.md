@@ -2,6 +2,18 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.6.0-dev.3
+
+### Fixed
+
+- 🛡️ **"Close ticket" and "Refer" disappeared from the chat page entirely — root cause identified: the install ended up on the stable (main) channel, which predates the whole helpdesk ticket UI.** The dev.2 code was verified end-to-end in a real browser against a real server (login → ticket → strip → referral dialog) on desktop AND mobile viewports, for both the DM-shaped ticket and a referred support group: the strip, the Refer dialog, the department accordion, and the inTicket badges all render and function. The ticket strip is **absent from main by design**: main is v1.3.0, which has no `tickets` table (migration 045), no ticket strip, and no referral endpoint — so any install that checks out main (e.g. via the updater's **Channel switch** to the stable channel) loses BOTH buttons at once while everything else keeps working, exactly matching the report. Two changes shipped so this cannot bite silently again:
+  - **Channel switch now warns before downgrading** (dev → main): the updater prints the target main version, states explicitly that dev-only features (helpdesk ticket UI, referral, …) will disappear until promoted, and requires a separate confirmation before checking out main.
+  - **The ticket strip's render gate is now defensive** in the client: the strip renders when the chat is tagged `channel: "support"` **or** still carries ticket furniture (`ticket_status` / a `department_id`) — those fields exist only on helpdesk threads, so a chat list restored from a stale IndexedDB offline cache that is missing the `channel` field can no longer make the strip silently vanish. Messenger chats never carry either field, so the gate stays exact.
+
+**Tests:** 433 client unit tests green, ESLint clean; `bash -n scripts/install.sh` clean; end-to-end verified in a real browser (desktop 1280px + mobile 390px: strip, dialog, search, department accordion all working — screenshots taken during verification). Server suite untouched (1371 tests, previous run).
+
+**خلاصهٔ فارسی:** ناپدید شدن کامل دکمه‌های «بستن تیکت» و «ارجاع» ریشه‌یابی شد: کدِ 1.6.0-dev.2 در مرورگر واقعی (دسکتاپ و موبایل، تیکت معمولی و گروه ارجاع‌شده) به‌طور کامل تست شد و همه‌چیز درست کار می‌کند. علت: کانال **main (پایدار)** نسخهٔ 1.3.0 است و اصلاً رابط تیکت/ارجاع را ندارد — اگر نصب به main سوییچ کند (مثلاً با گزینهٔ Channel switch در منوی آپدیت)، هر دو دکمه یک‌جا حذف می‌شوند. دو تغییر انجام شد: (۱) هنگام سوییچ dev→main آپدیت‌کننده حالا هشدار «کاهش قابلیت» می‌دهد و تأیید جداگانه می‌خواهد؛ (۲) نوار تیکت در کلاینت حالا حتی اگر فیلد `channel` در داده‌های کش‌شده قدیمی نباشد، با `ticket_status`/`department_id` هم تشخیص داده می‌شود و ناپدید نمی‌شود. **اگر روی سرور شما هم دکمه‌ها نیست:** در منوی آپدیتر چک کنید کانال فعلی چیست (Status یا `cat /opt/chatdesk/VERSION`)؛ اگر 1.3.0 است، با همان گزینهٔ Channel switch به کانال Test (dev) برگردید و Rebuild & Restart بزنید — نسخه باید 1.6.0-dev.3 شود و همهٔ امکانات تیکت برمی‌گردد.
+
 ## 1.6.0-dev.2
 
 ### Fixed
