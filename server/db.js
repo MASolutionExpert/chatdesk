@@ -5585,26 +5585,39 @@ export function convertSupportChatToGroup(chatId, { name } = {}) {
   return true;
 }
 
-// Candidate operators for the referral picker. Returns every unbanned staff
-// member (operator/owner) EXCEPT the given ids (the actor + operators already
-// in the thread). Each candidate carries their department name and a
-// last-interaction timestamp (most recent message exchanged with the actor —
-// shared-chats scan), so the picker can surface "recent contacts" first and
-// still allow lookup by id/username/nickname.
-export function listStaffReferCandidates({ actorUserId = null, excludeUserIds = [] } = {}) {
+// Candidate operators for the referral picker: every unbanned staff member
+// (operator/owner) EXCEPT the given ids (the actor + operators already in the
+// thread). Each candidate carries their department name and a last-interaction
+// timestamp (most recent message exchanged with the actor — shared-chats
+// scan), so the picker can surface "recent contacts" first and still allow
+// lookup by id/username/nickname.
+//
+// Builds the candidate-directory query for the referral picker. Exported so
+// tests can compile it with BOTH knex dialects: the dev.9 release shipped an
+// ORDER BY that referenced the `last_interaction` output alias inside an
+// expression ("(last_interaction IS NULL)") — SQLite tolerates that, but
+// PostgreSQL rejects aliases inside ORDER BY expressions ("column does not
+// exist") and the whole endpoint returned HTTP 500 in production while every
+// SQLite-backed unit test stayed green. Compiling this builder with a pg
+// client in tests keeps that regression visible.
+//
+// The "recent contact" ordering is expressed by inlining the full correlated
+// subquery everywhere it is needed (see orderByRaw below) instead of
+// referencing the alias — valid on SQLite AND PostgreSQL, same convention as
+// the chat-list ordering queries.
+export function buildStaffReferCandidatesQuery(knexInstance, { actorUserId = null, excludeUserIds = [] } = {}) {
   const excluded = new Set(
     (Array.isArray(excludeUserIds) ? excludeUserIds : [])
       .filter(Boolean)
       .map((id) => String(id)),
   );
-  const lastInteractionSql = dbKnex.raw(
+  const actorId = String(actorUserId || "");
+  const lastInteractionExpr =
     "(SELECT MAX(m.created_at) FROM chat_messages m WHERE m.chat_id IN (" +
-      "SELECT c1.chat_id FROM chat_members c1 " +
-      "JOIN chat_members c2 ON c2.chat_id = c1.chat_id AND c2.user_id = ? " +
-      "WHERE c1.user_id = users.id)) AS last_interaction",
-    [String(actorUserId || "")],
-  );
-  const qb = dbKnex("users")
+    "SELECT c1.chat_id FROM chat_members c1 " +
+    "JOIN chat_members c2 ON c2.chat_id = c1.chat_id AND c2.user_id = ? " +
+    "WHERE c1.user_id = users.id))";
+  return knexInstance("users")
     .leftJoin("departments as d", "d.id", "users.department_id")
     .select(
       "users.id",
@@ -5615,7 +5628,7 @@ export function listStaffReferCandidates({ actorUserId = null, excludeUserIds = 
       "users.role",
       "users.department_id",
       "d.name as department_name",
-      lastInteractionSql,
+      knexInstance.raw(`${lastInteractionExpr} AS last_interaction`, [actorId]),
     )
     .whereIn("users.role", SUPPORT_ROLES)
     .where(function () {
@@ -5625,8 +5638,18 @@ export function listStaffReferCandidates({ actorUserId = null, excludeUserIds = 
       "users.id",
       excluded.size ? Array.from(excluded) : ["00000000-0000-0000-0000-000000000000"],
     )
-    .orderByRaw("(last_interaction IS NULL) ASC, last_interaction DESC, users.username ASC")
+    // Cross-dialect "recent first, never-talked-to last" ordering: SQLite
+    // cannot use NULLS LAST, so the IS NULL flag stays an inlined expression
+    // instead of referencing the last_interaction alias.
+    .orderByRaw(
+      `(${lastInteractionExpr}) IS NULL ASC, (${lastInteractionExpr}) DESC, users.username ASC`,
+      [actorId, actorId],
+    )
     .limit(200);
+}
+
+export function listStaffReferCandidates({ actorUserId = null, excludeUserIds = [] } = {}) {
+  const qb = buildStaffReferCandidatesQuery(dbKnex, { actorUserId, excludeUserIds });
   const rows = getAll(qb);
   const normalize = (rowsOrPromise) => {
     if (rowsOrPromise && typeof rowsOrPromise.then === "function") {

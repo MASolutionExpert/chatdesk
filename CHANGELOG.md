@@ -2,6 +2,18 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.6.0-dev.2
+
+### Fixed
+
+- 🚨 **The referral picker's HTTP 500 on PostgreSQL is fixed — the true production root cause behind "no operators, no departments, search finds nothing" on every self-hosted install.** The candidates endpoint (`GET /api/support/tickets/:chatId/refer-candidates`) crashed with `ERROR: column "last_interaction" does not exist` on PostgreSQL: the candidate directory query's `ORDER BY` referenced the **`last_interaction` output alias inside an expression** (`"(last_interaction IS NULL) ASC, last_interaction DESC, …"`), and PostgreSQL only allows an output column name to **stand alone** in `ORDER BY` — never inside an expression. SQLite resolves aliases anywhere in `ORDER BY`, which is exactly why **all 1,366 unit tests stayed green** while production returned 500 on every open of the dialog. The chain is now fully explained: dev.8's client consumed the raw `fetch` `Response` (fixed in 1.6.0-dev.1), and *behind* it the server 500'd on PostgreSQL — dev.9's "empty picker" and dev.1's visible "Request failed (500)" were the same server crash surfacing through different client behaviors.
+  - The ordering is now expressed by **inlining the full correlated subquery** everywhere it is needed (SELECT list + both ORDER BY terms) instead of referencing the alias — valid on SQLite AND PostgreSQL, matching the codebase's existing chat-list ordering convention. "Recent contacts first, never-talked-to last" behaves identically on both engines (SQLite has no `NULLS LAST`).
+  - The query construction is extracted into an exported `buildStaffReferCandidatesQuery(knexInstance, …)` so tests can compile it with **both knex dialects** — no more "green on SQLite, dead on PostgreSQL" blind spots.
+
+**Tests:** 143 files / 1371 server tests — five new regression tests in `test/db/staffReferCandidatesDialect.test.js` pin the exact outage: compiling the builder with a **pg** client asserts the `ORDER BY` never references the `last_interaction` alias (only the inlined subquery), keeps the `AS last_interaction` projection for normalization, and lines up the actor binding (1× SELECT, 2× ORDER BY); a real-SQLite scan suite asserts the full unbanned staff directory, department name/last-interaction fields, exclusion of the actor/banned/customers, and recent-contacts-first ordering. 433 client unit tests green (client untouched in this release). ESLint clean.
+
+**خلاصهٔ فارسی:** خطای HTTP 500 پنجرهٔ ارجاع روی PostgreSQL رفع شد — ریشهٔ اصلی «هیچ اپراتوری نمی‌آید، هیچ دپارتمانی نمی‌آید، جستجو هم چیزی پیدا نمی‌کند» در نصب‌های واقعی. پرس‌وجوی فهرست اپراتورها در بند `ORDER BY` از نام مستعار خروجی `last_interaction` **داخل یک عبارت** استفاده می‌کرد (`(last_interaction IS NULL) ASC`)؛ PostgreSQL اجازه نمی‌دهد نام مستعار داخل عبارت بیاید (فقط به‌تنهایی مجاز است) و با خطای `column "last_interaction" does not exist` کل درخواست را 500 می‌کرد. SQLite این محدودیت را ندارد — برای همین هر ۱۳۶۶ تست واحد سبز بود ولی سرور در تولید 500 می‌داد. حالا عبارت کامل subquery به‌جای نام مستعار در همه‌جا (SELECT و ORDER BY) درج می‌شود که روی هر دو دیتابیس معتبر است؛ مرتب‌سازی «مخاطبان اخیر اول» روی هر دو موتور یکسان کار می‌کند. پنج تست رگرسیون جدید با کامپایل pg (نه SQLite) دقیقاً همین خطا را قفل می‌کنند تا دیگر «تست سبز، تولید مرده» تکرار نشود.
+
 ## 1.6.0-dev.1
 
 ### Fixed
