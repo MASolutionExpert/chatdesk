@@ -141,7 +141,7 @@ export function makeApp(overrides = {}) {
     // Emergency-claim gate: default = a healthy install (an admin exists) so
     // unrelated tests never see the claim form advertised. Lockout tests
     // override this with () => false.
-    hasAnyAdminUser: overrides.deps?.hasAnyAdminUser || (() => true),
+    hasAnyOwner: overrides.deps?.hasAnyOwner || (() => true),
     updateLastSeen: userStore.updateLastSeen,
     ensureAvatarExists: (_id, url) => url || null,
     findChatByGroupUsername: () => null,
@@ -437,7 +437,6 @@ export function makeApp(overrides = {}) {
         },
       };
     })(),
-    isUserAdmin: () => false,
     isUserOwner: () => false,
     getOwnerUser: () => null,
     getAdminStats: () => ({}),

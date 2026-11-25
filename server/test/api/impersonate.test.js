@@ -62,7 +62,6 @@ function makeImpersonationApp() {
     sessionStore,
     userStore,
     deps: {
-      isUserAdmin: (userId) => userId === owner.id || userId === admin.id,
       isUserOwner: (userId) => userId === owner.id,
     },
   });
@@ -119,7 +118,7 @@ describe("POST /api/admin/users/:id/impersonate", () => {
     expect(entry.details).toContain(plain.id);
   });
 
-  test("non-owner admin is rejected (403 owner_only), nothing minted or audited", async () => {
+  test("non-owner (operator) session is rejected at the panel gate, nothing minted or audited", async () => {
     const { app, sessionStore, deps, plain } = ctx;
 
     const res = await request(app)
@@ -127,8 +126,10 @@ describe("POST /api/admin/users/:id/impersonate", () => {
       .set("Cookie", "sid=admin-session")
       .send({});
 
+    // The panel is owner-only (role model, migration 047) — the request is
+    // rejected by the panel middleware before the endpoint's own owner_only
+    // defense-in-depth guard can fire.
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("owner_only");
     expect(deps.__auditLogStore.some((e) => e.action === "user.impersonate")).toBe(false);
     // Only the pre-seeded sessions exist — nothing was minted.
     expect(sessionStore.sessions.size).toBe(3);
@@ -196,7 +197,6 @@ describe("POST /api/admin/users/:id/impersonate", () => {
       sessionStore,
       userStore,
       deps: {
-        isUserAdmin: (userId) => userId === owner.id || userId === admin.id,
         isUserOwner: (userId) => userId === owner.id || userId === admin.id,
       },
     });

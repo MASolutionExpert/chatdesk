@@ -250,8 +250,7 @@ describe("Dual Avatar Upload (Presigned & Multipart S3)", () => {
   describe("Admin Avatar Endpoints", () => {
     function createAdminApp() {
       return createTestApp({
-        isUserAdmin: () => true,
-        // Admin chat deletion is owner-only now (deletion policy).
+        // Panel is owner-only (deletion policy + role model).
         isUserOwner: () => true,
         adminRun: vi.fn(),
         adminSave: vi.fn(),

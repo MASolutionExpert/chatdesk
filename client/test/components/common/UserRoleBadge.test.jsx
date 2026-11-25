@@ -35,27 +35,24 @@ describe("UserRoleBadge", () => {
     });
   });
 
-  describe("admin role", () => {
-    test("renders aria-label 'Server Admin' for role='admin'", async () => {
-      render(<UserRoleBadge role="admin" />);
+  describe("retired admin role (role model, migration 047)", () => {
+    // The "admin" role no longer exists — it must render nothing, exactly
+    // like a regular customer account.
+    test("renders nothing for role='admin'", async () => {
+      render(
+        <div data-testid="wrapper">
+          <UserRoleBadge role="admin" />
+        </div>,
+      );
       await expect
         .element(page.getByLabelText("Server Admin"))
-        .toBeInTheDocument();
-    });
-
-    test("reveals the 'Server Admin' tooltip on hover", async () => {
-      render(<UserRoleBadge role="admin" />);
-      await page.getByLabelText("Server Admin").hover();
+        .not.toBeInTheDocument();
       await expect
-        .element(page.getByRole("tooltip"))
-        .toHaveTextContent("Server Admin");
-    });
-
-    test("is case-insensitive for 'admin'", async () => {
-      render(<UserRoleBadge role="Admin" />);
+        .element(page.getByLabelText("Server Owner"))
+        .not.toBeInTheDocument();
       await expect
-        .element(page.getByLabelText("Server Admin"))
-        .toBeInTheDocument();
+        .element(page.getByLabelText("Support Operator"))
+        .not.toBeInTheDocument();
     });
   });
 
@@ -70,7 +67,7 @@ describe("UserRoleBadge", () => {
         .element(page.getByLabelText("Server Owner"))
         .not.toBeInTheDocument();
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .not.toBeInTheDocument();
     });
 
@@ -116,14 +113,14 @@ describe("UserRoleBadge", () => {
         .not.toBeInTheDocument();
     });
 
-    test("owner badge does NOT appear when role='admin'", async () => {
+    test("renders nothing for the retired 'admin' role (no owner badge either)", async () => {
       render(<UserRoleBadge role="admin" />);
       await expect
         .element(page.getByLabelText("Server Owner"))
         .not.toBeInTheDocument();
     });
 
-    test("admin badge does NOT appear when role='owner'", async () => {
+    test("owner badge does NOT render an admin badge", async () => {
       render(<UserRoleBadge role="owner" />);
       await expect
         .element(page.getByLabelText("Server Admin"))

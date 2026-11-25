@@ -211,7 +211,7 @@ describe("channel separation at the API layer (direct vs support)", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Role boundary: the messenger NEVER crosses the support boundary.
 //
-//   customer (role 'user') ↔ staff (operator/admin/owner)  →  TICKET ONLY.
+//   customer (role 'user') ↔ staff (operator/owner)  →  TICKET ONLY.
 //   POST /api/chats/dm must refuse the pair (both directions) and point at
 //   the support-request flow. user↔user and staff↔staff stay messenger.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ describe("dm role boundary: customers reach staff only via tickets", () => {
         avatar_url: null,
         color: "#10b981",
         status: "online",
-        role: "admin",
+        role: "operator",
         banned: false,
       },
     ]);

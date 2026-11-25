@@ -169,7 +169,6 @@ import {
   createTicketRow,
   getTicketByChatId,
   setTicketStatusByChatId,
-  isUserAdmin,
   isUserOwner,
   getOwnerUser,
   hasAnyUser,
@@ -1087,16 +1086,16 @@ const apiDeps = {
   createTicketRow,
   getTicketByChatId,
   setTicketStatusByChatId,
-  isUserAdmin,
   isUserOwner,
   getOwnerUser,
   hasAnyUser,
-  // Emergency-claim gate: true when at least one admin/owner exists on the
-  // server. /api/app/info exposes adminClaimAvailable = token configured
-  // AND no admin — so the client only shows the claim form on real lockout.
-  hasAnyAdminUser: async () => {
+  // Emergency-claim gate: true when NO owner exists on the server (the
+  // retired "admin" role no longer counts). /api/app/info exposes
+  // adminClaimAvailable = token configured AND no owner — so the client
+  // only shows the claim form on real lockout.
+  hasAnyOwner: async () => {
     const row = await adminGetRow(
-      "SELECT id FROM users WHERE role IN ('admin', 'owner') LIMIT 1",
+      "SELECT id FROM users WHERE role = 'owner' LIMIT 1",
     );
     return Boolean(row);
   },

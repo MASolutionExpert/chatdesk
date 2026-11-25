@@ -70,7 +70,7 @@ describe("POST /api/admin/claim", () => {
     expect(assignedRole).toBe("owner");
   });
 
-  test("promotes user to 'admin' when an owner already exists", async () => {
+  test("promotes user to 'operator' when an owner already exists", async () => {
     deps.onGetRow = async (query) => {
       if (
         typeof query === "string" &&
@@ -94,8 +94,8 @@ describe("POST /api/admin/claim", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(res.body.role).toBe("admin");
-    expect(assignedRole).toBe("admin");
+    expect(res.body.role).toBe("operator");
+    expect(assignedRole).toBe("operator");
   });
 
   test("rejects remote non-HTTPS request with 403", async () => {

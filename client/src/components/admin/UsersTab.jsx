@@ -128,7 +128,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
       label: t("admin.users.filters.role"),
       value: roleFilter,
       onChange: changeRoleFilter,
-      options: [["", t("admin.users.filters.allRoles")], ["user", t("admin.common.user")], ["admin", t("admin.common.admin")], ["owner", t("admin.common.owner")], ["banned", t("admin.common.banned")]],
+      options: [["", t("admin.users.filters.allRoles")], ["user", t("admin.common.user")], ["operator", t("admin.common.operator")], ["owner", t("admin.common.owner")], ["banned", t("admin.common.banned")]],
     },
     {
       id: "status",
@@ -171,8 +171,7 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
             {users.map((u) => {
               const isSelf    = u.id === currentUser.id;
               const isOwnerRow  = u.role === "owner";
-              const isAdminRow  = u.role === "admin";
-              const actionsBlocked = !isSelf && !iAmOwner && (isOwnerRow || isAdminRow);
+              const actionsBlocked = !isSelf && !iAmOwner && isOwnerRow;
               const displayName = u.nickname || u.username;
               const nameHasPersian = hasPersian(displayName);
 
@@ -268,10 +267,9 @@ const UsersTab = forwardRef(function UsersTab({ currentUser, active = true, onMu
                   {users.map((u) => {
                     const isSelf    = u.id === currentUser.id;
                     const isOwnerRow  = u.role === "owner";
-                    const isAdminRow  = u.role === "admin";
-                    // An admin cannot act on the owner or on other admins.
-                    // The owner can act on everyone (except themselves for ban/delete).
-                    const actionsBlocked = !isSelf && !iAmOwner && (isOwnerRow || isAdminRow);
+                    // The panel is owner-only (role model, migration 047):
+                    // this guard is defense-in-depth for the owner row.
+                    const actionsBlocked = !isSelf && !iAmOwner && isOwnerRow;
                     const displayName = u.nickname || u.username;
                     const nameHasPersian = hasPersian(displayName);
 

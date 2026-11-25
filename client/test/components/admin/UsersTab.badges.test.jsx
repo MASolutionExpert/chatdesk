@@ -76,10 +76,19 @@ describe("UsersTab badge rendering", () => {
       await expect.element(page.getByLabelText("Server Owner").first()).toBeInTheDocument();
     });
 
-    test("shows Admin badge for admin user", async () => {
+    test("shows Operator badge for operator user", async () => {
+      vi.stubGlobal("fetch", mockFetch([makeApiUser({ role: "operator" })]));
+      render(<UsersTab currentUser={CURRENT_USER} active={true} />);
+      await expect.element(page.getByLabelText("Support Operator").first()).toBeInTheDocument();
+    });
+
+    test("renders no badge for the retired 'admin' role (migration 047)", async () => {
       vi.stubGlobal("fetch", mockFetch([makeApiUser({ role: "admin" })]));
       render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-      await expect.element(page.getByLabelText("Server Admin").first()).toBeInTheDocument();
+      await expect.element(page.getByText("Bob").first()).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Server Admin")).not.toBeInTheDocument();
+      await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
+      await expect.element(page.getByLabelText("Support Operator")).not.toBeInTheDocument();
     });
 
     test("shows no role badge for plain user", async () => {
@@ -99,11 +108,11 @@ describe("UsersTab badge rendering", () => {
       await expect.element(page.getByLabelText("Server Owner").first()).toBeInTheDocument();
     });
 
-    test("shows both Verified and Admin badges for a verified admin", async () => {
-      vi.stubGlobal("fetch", mockFetch([makeApiUser({ verified: true, role: "admin" })]));
+    test("shows both Verified and Operator badges for a verified operator", async () => {
+      vi.stubGlobal("fetch", mockFetch([makeApiUser({ verified: true, role: "operator" })]));
       render(<UsersTab currentUser={CURRENT_USER} active={true} />);
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
-      await expect.element(page.getByLabelText("Server Admin").first()).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Support Operator").first()).toBeInTheDocument();
     });
 
     test("shows no badges for plain unverified user", async () => {
@@ -127,14 +136,14 @@ describe("UsersTab badge rendering", () => {
       expect(verified.element().compareDocumentPosition(owner.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    test("Verified badge appears before Admin badge in the DOM", async () => {
-      vi.stubGlobal("fetch", mockFetch([makeApiUser({ verified: true, role: "admin" })]));
+    test("Verified badge appears before Operator badge in the DOM", async () => {
+      vi.stubGlobal("fetch", mockFetch([makeApiUser({ verified: true, role: "operator" })]));
       render(<UsersTab currentUser={CURRENT_USER} active={true} />);
       const verified = page.getByLabelText("Verified").first();
-      const admin = page.getByLabelText("Server Admin").first();
+      const operator = page.getByLabelText("Support Operator").first();
       await expect.element(verified).toBeInTheDocument();
-      await expect.element(admin).toBeInTheDocument();
-      expect(verified.element().compareDocumentPosition(admin.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      await expect.element(operator).toBeInTheDocument();
+      expect(verified.element().compareDocumentPosition(operator.element()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
   });
 
@@ -150,13 +159,13 @@ describe("UsersTab badge rendering", () => {
       await expect.element(page.getByLabelText("Verified").first()).toBeInTheDocument();
     });
 
-    test("admin badge on admin, no badge on plain user", async () => {
+    test("operator badge on operator, no badge on plain user", async () => {
       vi.stubGlobal("fetch", mockFetch([
-        makeApiUser({ id: 2, username: "bob", nickname: "Bob", role: "admin" }),
+        makeApiUser({ id: 2, username: "bob", nickname: "Bob", role: "operator" }),
         makeApiUser({ id: 3, username: "carol", nickname: "Carol", role: "user" }),
       ]));
       render(<UsersTab currentUser={CURRENT_USER} active={true} />);
-      await expect.element(page.getByLabelText("Server Admin").first()).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Support Operator").first()).toBeInTheDocument();
       await expect.element(page.getByLabelText("Server Owner")).not.toBeInTheDocument();
     });
   });

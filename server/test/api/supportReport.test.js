@@ -40,7 +40,7 @@ function makeAdminApp({ getSupportReport } = {}) {
     sessionStore,
     userStore: makeUserStore([admin, operator]),
     deps: {
-      isUserAdmin: (userId) => userId === ADMIN_ID,
+      isUserOwner: (userId) => userId === ADMIN_ID,
       getSupportReport: spy,
     },
   });

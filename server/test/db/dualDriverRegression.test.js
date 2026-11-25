@@ -51,7 +51,6 @@ import {
   createSession,
   getSession,
   getUserRole,
-  isUserAdmin,
   isUserOwner,
   getOwnerUser,
   run,
@@ -297,7 +296,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
       expect(res).toEqual({ storedNames: ["file1.png"] });
     });
 
-    test("getUserRole, isUserAdmin, isUserOwner, getOwnerUser resolve properly under Postgres mode", async () => {
+    test("getUserRole, isUserOwner, getOwnerUser resolve properly under Postgres mode", async () => {
       process.env.DB_CLIENT = "postgres";
       vi.spyOn(dbKnex, "raw").mockImplementation(async (sql, params) => {
         const query = String(sql?.sql || sql || "").toLowerCase();
@@ -307,7 +306,7 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         }
         if (query.includes("users")) {
           const val = bindings ? bindings[0] : null;
-          if (val == 1) return { rows: [{ role: "admin" }] };
+          if (val == 1) return { rows: [{ role: "operator" }] };
           if (val == 2) return { rows: [{ role: "owner" }] };
           if (val == 3) return { rows: [{ role: "user" }] };
           return { rows: [] };
@@ -315,16 +314,15 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
         return { rows: [] };
       });
 
-      expect(await getUserRole(1)).toBe("admin");
-      expect(await isUserAdmin(1)).toBe(true);
+      // Role model (migration 047): owner / operator / user.
+      expect(await getUserRole(1)).toBe("operator");
       expect(await isUserOwner(1)).toBe(false);
 
       expect(await getUserRole(2)).toBe("owner");
-      expect(await isUserAdmin(2)).toBe(true);
       expect(await isUserOwner(2)).toBe(true);
 
       expect(await getUserRole(3)).toBe("user");
-      expect(await isUserAdmin(3)).toBe(false);
+      expect(await isUserOwner(3)).toBe(false);
 
       const owner = await getOwnerUser();
       expect(owner).toEqual({ id: 2, username: "boss" });
@@ -1045,7 +1043,6 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           createChat: () => Promise.resolve("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
           addChatMember: () => Promise.resolve(true),
           addAllEligibleChatMembers: () => Promise.resolve({ addedUsers: [], skippedLeftCount: 0 }),
-          isUserAdmin: () => Promise.resolve(true),
           isUserOwner: () => Promise.resolve(true),
           getOwnerUser: () => Promise.resolve(alice),
           adminListUsers: () => Promise.resolve({ users: [alice, bob], total: 2 }),

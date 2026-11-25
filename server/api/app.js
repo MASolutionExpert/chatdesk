@@ -9,7 +9,7 @@ function registerAppRoutes(app, deps) {
     projectRootDir,
     getSessionFromRequest,
     isUserOwner,
-    hasAnyAdminUser,
+    hasAnyOwner,
   } = deps;
 
   const resolveMaybePromise = async (value) =>
@@ -27,9 +27,9 @@ function registerAppRoutes(app, deps) {
   const adminClaimAvailable = async () => {
     const tokenConfigured = Boolean(String(process.env.ADMIN_API_TOKEN || "").trim());
     if (!tokenConfigured) return false;
-    if (typeof hasAnyAdminUser !== "function") return false;
+    if (typeof hasAnyOwner !== "function") return false;
     try {
-      const anyAdmin = await resolveMaybePromise(hasAnyAdminUser());
+      const anyAdmin = await resolveMaybePromise(hasAnyOwner());
       return !anyAdmin;
     } catch {
       // Fail closed: if the check cannot run, never advertise the form.

@@ -537,7 +537,7 @@ function registerChatRoutes(app, deps) {
     //   user↔user and staff↔staff remain messenger flows ("find user by ID").
     //   Existing legacy cross-boundary threads are left untouched (no data
     //   migration); they can no longer be (re)opened through this endpoint.
-    const STAFF_ROLES = ["operator", "admin", "owner"];
+    const STAFF_ROLES = ["operator", "owner"];
     const fromIsStaff = STAFF_ROLES.includes(String(fromUser.role || "").toLowerCase());
     const toIsStaff = STAFF_ROLES.includes(String(toUser.role || "").toLowerCase());
     if (fromIsStaff !== toIsStaff) {

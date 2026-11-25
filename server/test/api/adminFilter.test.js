@@ -21,7 +21,7 @@ describe("GET /api/admin/users and GET /api/admin/chats filter params", () => {
       sessionStore,
       userStore: makeUserStore([admin]),
       deps: {
-        isUserAdmin: (userId) => userId === admin.id,
+        isUserOwner: (userId) => userId === admin.id,
         adminListUsers,
       },
     });
@@ -48,7 +48,7 @@ describe("GET /api/admin/users and GET /api/admin/chats filter params", () => {
       sessionStore,
       userStore: makeUserStore([admin]),
       deps: {
-        isUserAdmin: (userId) => userId === admin.id,
+        isUserOwner: (userId) => userId === admin.id,
         adminListChats,
       },
     });
@@ -82,7 +82,7 @@ describe("GET /api/admin/users and GET /api/admin/chats filter params", () => {
       sessionStore,
       userStore: makeUserStore([admin]),
       deps: {
-        isUserAdmin: (userId) => userId === admin.id,
+        isUserOwner: (userId) => userId === admin.id,
         adminListChats,
       },
     });
@@ -115,7 +115,7 @@ describe("GET /api/admin/users and GET /api/admin/chats filter params", () => {
       sessionStore,
       userStore: makeUserStore([admin]),
       deps: {
-        isUserAdmin: (userId) => userId === admin.id,
+        isUserOwner: (userId) => userId === admin.id,
         adminListChats,
       },
     });
@@ -140,7 +140,7 @@ describe("GET /api/admin/users and GET /api/admin/chats filter params", () => {
       sessionStore,
       userStore: makeUserStore([admin]),
       deps: {
-        isUserAdmin: (userId) => userId === admin.id,
+        isUserOwner: (userId) => userId === admin.id,
         adminListUsers,
         getConnectedUsernames: () => ["alice"],
       },

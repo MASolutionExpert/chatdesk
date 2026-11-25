@@ -51,7 +51,7 @@ describe("GET /api/app/info → adminClaimAvailable (emergency-claim gate)", () 
   test("token configured + admin exists (healthy install) → false", async () => {
     withTokenEnv("secret-token");
     const { app } = makeApp({
-      deps: { hasAnyAdminUser: () => true },
+      deps: { hasAnyOwner: () => true },
     });
     const res = await request(app).get("/api/app/info");
     expect(res.status).toBe(200);
@@ -61,7 +61,7 @@ describe("GET /api/app/info → adminClaimAvailable (emergency-claim gate)", () 
   test("token configured + NO admin exists (real lockout) → true", async () => {
     withTokenEnv("secret-token");
     const { app } = makeApp({
-      deps: { hasAnyAdminUser: () => false },
+      deps: { hasAnyOwner: () => false },
     });
     const res = await request(app).get("/api/app/info");
     expect(res.status).toBe(200);
@@ -71,18 +71,18 @@ describe("GET /api/app/info → adminClaimAvailable (emergency-claim gate)", () 
   test("no token configured + no admin → false (nothing to claim with)", async () => {
     withTokenEnv(undefined);
     const { app } = makeApp({
-      deps: { hasAnyAdminUser: () => false },
+      deps: { hasAnyOwner: () => false },
     });
     const res = await request(app).get("/api/app/info");
     expect(res.status).toBe(200);
     expect(res.body.adminClaimAvailable).toBe(false);
   });
 
-  test("hasAnyAdminUser check throws → fails closed (false)", async () => {
+  test("hasAnyOwner check throws → fails closed (false)", async () => {
     withTokenEnv("secret-token");
     const { app } = makeApp({
       deps: {
-        hasAnyAdminUser: () => {
+        hasAnyOwner: () => {
           throw new Error("db offline");
         },
       },
@@ -92,10 +92,10 @@ describe("GET /api/app/info → adminClaimAvailable (emergency-claim gate)", () 
     expect(res.body.adminClaimAvailable).toBe(false);
   });
 
-  test("hasAnyAdminUser may return a promise (real db shape)", async () => {
+  test("hasAnyOwner may return a promise (real db shape)", async () => {
     withTokenEnv("secret-token");
     const { app } = makeApp({
-      deps: { hasAnyAdminUser: async () => false },
+      deps: { hasAnyOwner: async () => false },
     });
     const res = await request(app).get("/api/app/info");
     expect(res.status).toBe(200);
@@ -135,7 +135,6 @@ function makeImpersonationLogoutApp() {
     sessionStore,
     userStore: makeUserStore([owner, plain]),
     deps: {
-      isUserAdmin: (userId) => userId === owner.id,
       isUserOwner: (userId) => userId === owner.id,
     },
   });

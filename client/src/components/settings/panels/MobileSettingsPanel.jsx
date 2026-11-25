@@ -179,7 +179,7 @@ export function MobileSettingsPanel({
     notificationsEnabled;
   const notificationsDisabled =
     Boolean(notificationsDisabledProp) || Boolean(notificationStatusLabel);
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === "owner";
   const showAdminPanel = isAdmin && adminPanelEnabled;
   const detailTitle = t(DETAIL_TITLE_KEYS[settingsPanel] || "settings.title");
 

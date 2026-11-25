@@ -9,8 +9,8 @@ import { makeApp, makeUserStore } from "../helpers/makeApp.js";
  * 1. FIRST-SETUP RULE — the very first user registered on a fresh install
  *    becomes the permanent system owner (role 'owner'). Everyone else is a
  *    normal user.
- * 2. OWNER IMMUTABILITY — no actor through the app (admin, operator, user,
- *    AND the owner themselves via the admin panel) can edit, ban, re-role,
+ * 2. OWNER IMMUTABILITY — no actor through the app (operator, user, AND the
+ *    owner themselves via the admin panel) can edit, ban, re-role,
  *    password-reset or delete the owner account. The only supported path for
  *    changing the owner account is the server's interactive menu (CLI).
  * 3. WHAT'S NEW IS OWNER-ONLY — the per-version changelog payload and the
@@ -34,11 +34,13 @@ const makeUsers = () => [
     verified: 1,
   },
   {
+    // Role model (migration 047): staff accounts are operators — the
+    // retired "admin" role no longer exists.
     id: ADMIN_ID,
     username: "deputy",
-    nickname: "Deputy Admin",
+    nickname: "Deputy Operator",
     password_hash: bcrypt.hashSync("adminpass", 6),
-    role: "admin",
+    role: "operator",
     banned: false,
     status: "online",
     color: "#0ea5e9",
@@ -61,10 +63,6 @@ function makeOwnerApp({ users = makeUsers() } = {}) {
   const harness = makeApp({
     userStore: makeUserStore(users),
     deps: {
-      isUserAdmin: (id) => {
-        const u = harness?.userStore?.findUserById?.(id) ?? findUser(id);
-        return u?.role === "admin" || u?.role === "owner";
-      },
       isUserOwner: (id) => (findUser(id)?.role === "owner"),
       getOwnerUser: () => findUserByRole("owner") || null,
     },
@@ -145,14 +143,14 @@ describe("first-setup ownership rule", () => {
 // ─── 2. Owner immutability ─────────────────────────────────────────────────────
 
 describe("owner account immutability via the admin API", () => {
-  test("admin cannot EDIT the owner account", async () => {
+  test("operator cannot even reach the owner-edit endpoint (panel gate)", async () => {
     const harness = makeOwnerApp();
     const res = await request(harness.app)
       .patch(`/api/admin/users/${OWNER_ID}`)
       .set("Cookie", sessionCookie(harness, ADMIN_ID))
       .send({ nickname: "Hacked" });
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("owner_protected");
+    expect(res.body.error).toBe("Admin access required");
   });
 
   test("owner cannot EDIT their own account via the admin panel either", async () => {
@@ -165,14 +163,14 @@ describe("owner account immutability via the admin API", () => {
     expect(res.body.code).toBe("owner_protected");
   });
 
-  test("admin cannot BAN the owner", async () => {
+  test("operator cannot even reach the owner-ban endpoint (panel gate)", async () => {
     const harness = makeOwnerApp();
     const res = await request(harness.app)
       .post(`/api/admin/users/${OWNER_ID}/ban`)
       .set("Cookie", sessionCookie(harness, ADMIN_ID))
       .send({ banned: true });
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("owner_protected");
+    expect(res.body.error).toBe("Admin access required");
   });
 
   test("owner cannot be DEMOTED via the role endpoint (by anyone)", async () => {
@@ -180,28 +178,49 @@ describe("owner account immutability via the admin API", () => {
     const res = await request(harness.app)
       .post(`/api/admin/users/${OWNER_ID}/role`)
       .set("Cookie", sessionCookie(harness, OWNER_ID))
-      .send({ role: "admin" });
+      .send({ role: "user" });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe("owner_protected");
   });
 
-  test("admin cannot RESET the owner's password", async () => {
+  test("operator cannot even reach the owner password-reset (panel gate)", async () => {
     const harness = makeOwnerApp();
     const res = await request(harness.app)
       .post(`/api/admin/users/${OWNER_ID}/reset-password`)
       .set("Cookie", sessionCookie(harness, ADMIN_ID))
       .send({ password: "newpass123" });
     expect(res.status).toBe(403);
+    expect(res.body.error).toBe("Admin access required");
+  });
+
+  test("the owner cannot RESET their own password via the panel either", async () => {
+    const harness = makeOwnerApp();
+    const res = await request(harness.app)
+      .post(`/api/admin/users/${OWNER_ID}/reset-password`)
+      .set("Cookie", sessionCookie(harness, OWNER_ID))
+      .send({ password: "newpass123" });
+    expect(res.status).toBe(403);
     expect(res.body.code).toBe("owner_protected");
   });
 
-  test("admin cannot DELETE the owner", async () => {
+  test("operator cannot even reach the owner-delete endpoint (panel gate)", async () => {
     const harness = makeOwnerApp();
     const res = await request(harness.app)
       .delete(`/api/admin/users/${OWNER_ID}`)
       .set("Cookie", sessionCookie(harness, ADMIN_ID));
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("owner_protected");
+    expect(res.body.error).toBe("Admin access required");
+  });
+
+  test("the owner cannot DELETE their own account via the panel either", async () => {
+    const harness = makeOwnerApp();
+    const res = await request(harness.app)
+      .delete(`/api/admin/users/${OWNER_ID}`)
+      .set("Cookie", sessionCookie(harness, OWNER_ID));
+    // Self-deletion is refused first (400); the owner_protected guard backs
+    // it up for any other actor that might ever reach the route.
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Cannot delete yourself");
   });
 
   test("a SECOND owner cannot be promoted while one exists (409)", async () => {
@@ -214,24 +233,25 @@ describe("owner account immutability via the admin API", () => {
     expect(res.body.code).toBe("owner_protected");
   });
 
-  test("owner and admin sessions pass the admin middleware (proven by route-level guards)", async () => {
+  test("only the owner session passes the panel middleware (proven by route-level guards)", async () => {
     const harness = makeOwnerApp();
     // Reaching the route's own owner_protected guard (403, not 401 "Not
     // authenticated" nor 403 "Admin access required") proves the actor
-    // cleared the admin middleware.
-    const asAdmin = await request(harness.app)
+    // cleared the panel middleware. Operators and plain users are stopped
+    // by the middleware itself — the panel is owner-only (migration 047).
+    const asOperator = await request(harness.app)
       .post(`/api/admin/users/${OWNER_ID}/ban`)
       .set("Cookie", sessionCookie(harness, ADMIN_ID))
       .send({ banned: true });
-    expect(asAdmin.status).toBe(403);
-    expect(asAdmin.body.code).toBe("owner_protected");
+    expect(asOperator.status).toBe(403);
+    expect(asOperator.body.error).toBe("Admin access required");
     const asOwner = await request(harness.app)
       .post(`/api/admin/users/${OWNER_ID}/ban`)
       .set("Cookie", sessionCookie(harness, OWNER_ID))
       .send({ banned: true });
     expect(asOwner.status).toBe(403);
     expect(asOwner.body.code).toBe("owner_protected");
-    // And a plain user is stopped by the middleware itself.
+    // And a plain user is stopped by the middleware too.
     const asUser = await request(harness.app)
       .post(`/api/admin/users/${OWNER_ID}/ban`)
       .set("Cookie", sessionCookie(harness, USER_ID))
@@ -262,7 +282,7 @@ describe("GET /api/app/whats-new (owner-only changelog)", () => {
     expect(res.body.code).toBe("owner_only");
   });
 
-  test("admin → 403 owner_only (not even admins see the changelog)", async () => {
+  test("operator → 403 owner_only (not even staff sees the changelog)", async () => {
     const harness = makeApp({
       userStore: makeUserStore(makeUsers()),
       deps: { fs: META_FS, isUserOwner: (id) => id === OWNER_ID },

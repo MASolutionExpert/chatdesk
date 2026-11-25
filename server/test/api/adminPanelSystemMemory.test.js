@@ -23,7 +23,7 @@ describe("GET /api/admin/system — memory metrics", () => {
       userStore: {
         findUserById: async (id) => (id === admin.id ? admin : null),
       },
-      deps: { isUserAdmin: (userId) => userId === admin.id },
+      deps: { isUserOwner: (userId) => userId === admin.id },
     });
 
     const res = await request(app)

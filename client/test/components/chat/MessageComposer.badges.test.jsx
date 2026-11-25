@@ -103,16 +103,16 @@ for (const [label, viewport] of [
         .toBeInTheDocument();
     });
 
-    test("shows Admin badge when replyTarget.role='admin'", async () => {
+    test("shows Operator badge when replyTarget.role='operator'", async () => {
       render(
         <MessageComposer
           {...BASE_PROPS}
           isDesktop={label === "desktop"}
-          replyTarget={makeReplyTarget({ role: "admin" })}
+          replyTarget={makeReplyTarget({ role: "operator" })}
         />,
       );
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .toBeInTheDocument();
     });
 
@@ -133,17 +133,17 @@ for (const [label, viewport] of [
         .not.toBeInTheDocument();
     });
 
-    test("shows both Verified and Admin badges for verified admin", async () => {
+    test("shows both Verified and Operator badges for verified operator", async () => {
       render(
         <MessageComposer
           {...BASE_PROPS}
           isDesktop={label === "desktop"}
-          replyTarget={makeReplyTarget({ verified: true, role: "admin" })}
+          replyTarget={makeReplyTarget({ verified: true, role: "operator" })}
         />,
       );
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .toBeInTheDocument();
     });
 

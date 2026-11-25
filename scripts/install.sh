@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.5.0-dev.6
+# chatdesk-deploy-version: 1.5.0-dev.7
 
 set -uo pipefail
 
@@ -5074,7 +5074,7 @@ Backup & repair:
 
 User and chat management:
   10    Create user
-        Prompts: nickname, username, password, role (user/admin/owner, default: user)
+        Prompts: nickname, username, password, role (user/operator/owner, default: user)
         Passes: --nickname --username --password --role
   11    Generate users in bulk
         Prompts: count, password, nickname prefix, username prefix
@@ -5299,13 +5299,13 @@ db_user_create() {
   password="$(prompt_secret "Password")"
 
   while true; do
-    prompt_read "Role (user/admin/owner, default: user): " role
+    prompt_read "Role (user/operator/owner, default: user): " role
     role="${role#"${role%%[![:space:]]*}"}"
     role="${role%"${role##*[![:space:]]}"}"
     [[ -z "$role" ]] && role="user"
     case "$role" in
-      user|admin|owner) break ;;
-      *) printf "Invalid role. Choose: user, admin, or owner.\n" ;;
+      user|operator|owner) break ;;
+      *) printf "Invalid role. Choose: user, operator, or owner.\n" ;;
     esac
   done
 
@@ -5601,15 +5601,15 @@ db_user_edit() {
   prompt_read "Color hex (optional, example: #10b981): " color
 
   while true; do
-    prompt_read "Role (user/admin/owner, optional — leave blank to keep current): " role
+    prompt_read "Role (user/operator/owner, optional — leave blank to keep current): " role
     role="${role#"${role%%[![:space:]]*}"}"
     role="${role%"${role##*[![:space:]]}"}"
     if [[ -z "$role" ]]; then
       break
     fi
     case "$role" in
-      user|admin|owner) break ;;
-      *) printf "Invalid role. Choose: user, admin, owner, or leave blank.\n" ;;
+      user|operator|owner) break ;;
+      *) printf "Invalid role. Choose: user, operator, owner, or leave blank.\n" ;;
     esac
   done
 

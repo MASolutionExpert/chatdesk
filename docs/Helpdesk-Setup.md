@@ -44,7 +44,7 @@ tables, separate lifecycle:
 
 Operators are normal accounts with the `operator` role:
 
-- Created only by the owner/admin (`Users` tab → `New user` → account type
+- Created only by the owner (`Users` tab → `New user` → account type
   `Operator`) or via the CLI:
   ```bash
   npm run db:user:create -- --nickname "Sara Ahmadi" --username sara \

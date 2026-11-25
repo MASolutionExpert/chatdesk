@@ -85,7 +85,6 @@ function registerAdminPanelRoutes(app, deps) {
     findChatById,
     isConnected,
     getConnectedUsernames,
-    isUserAdmin,
     isUserOwner,
     isLoopbackRequest,
     getOwnerUser,
@@ -334,10 +333,12 @@ function registerAdminPanelRoutes(app, deps) {
         return res.status(401).json({ error: "Invalid admin token" });
       }
 
-      // 4. Role determination (owner vs admin)
+      // 4. Role determination. The first claim mints the owner; any later
+      // claim (an owner already exists) becomes an operator — the retired
+      // "admin" role is no longer assignable.
       const getRow = deps.getRow || deps.adminGetRow || adminGetRow;
       const existingOwner = await resolveMaybePromise(getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1"));
-      const targetRole = existingOwner ? "admin" : "owner";
+      const targetRole = existingOwner ? "operator" : "owner";
 
       // 5. Apply role change
       await resolveMaybePromise(setUserRole(session.id, targetRole));
@@ -366,7 +367,10 @@ function registerAdminPanelRoutes(app, deps) {
       if (!session) {
         return res.status(401).json({ error: "Not authenticated" });
       }
-      const rawIsAdmin = isUserAdmin(session.id);
+      // Role model (migration 047): the "admin" role is retired — the panel
+      // is owner-only. Operators are staff inside the messenger/tickets and
+      // never touch the panel.
+      const rawIsAdmin = isUserOwner(session.id);
       const isAdmin = rawIsAdmin && typeof rawIsAdmin.then === "function"
         ? await rawIsAdmin
         : rawIsAdmin;
@@ -390,7 +394,7 @@ function registerAdminPanelRoutes(app, deps) {
       }
       return null;
     }
-    if (req.adminSession || isUserAdmin(session.id) === true) return session;
+    if (req.adminSession || isUserOwner(session.id) === true) return session;
     res.status(403).json({ error: "Admin access required" });
     return null;
   };
@@ -834,7 +838,7 @@ function registerAdminPanelRoutes(app, deps) {
     const sortBy    = ["id", "username", "nickname", "role", "created_at", "last_seen"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
-    const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
+    const roleFilter = ["user", "operator", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
     const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
     const connectedUsernames = typeof getConnectedUsernames === "function" ? getConnectedUsernames() : null;
@@ -857,7 +861,10 @@ function registerAdminPanelRoutes(app, deps) {
     const password    = String(req.body?.password  || "");
     const requestedRole = String(req.body?.role || "user");
     // Only owners can assign the owner role; admins can assign user/admin
-    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner", "operator"] : ["user", "admin", "operator"];
+    // Role model (migration 047): the "admin" role is retired. Only the
+    // owner (the only panel user) may assign roles; owner assignment keeps
+    // its own guards below.
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "operator", "owner"] : ["user", "operator"];
     const role = allowedRoles.includes(requestedRole) ? requestedRole : "user";
 
     if (!rawUsername || !nickname || !password) {
@@ -1040,7 +1047,10 @@ function registerAdminPanelRoutes(app, deps) {
     const { role } = req.body || {};
 
     // Only the owner can assign/revoke the owner role; admins can only use user/admin
-    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner", "operator"] : ["user", "admin", "operator"];
+    // Role model (migration 047): the "admin" role is retired. Only the
+    // owner (the only panel user) may assign roles; owner assignment keeps
+    // its own guards below.
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "operator", "owner"] : ["user", "operator"];
     if (!allowedRoles.includes(role)) {
       return res.status(400).json({ error: "Invalid role" });
     }
@@ -1177,10 +1187,10 @@ function registerAdminPanelRoutes(app, deps) {
       });
     }
     const ownerUser = await resolveMaybePromise(findUserById(ownerId));
-    const isOwnerAdmin = ownerUser
-      ? await resolveMaybePromise(isUserAdmin(ownerUser.id))
+    const ownerStillOwner = ownerUser
+      ? await resolveMaybePromise(isUserOwner(ownerUser.id))
       : false;
-    if (!ownerUser || !isOwnerAdmin) {
+    if (!ownerUser || !ownerStillOwner) {
       clearParkedCookie();
       return res.status(403).json({ error: "Admin access required", code: "admin_required" });
     }
@@ -1258,7 +1268,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.post("/api/admin/users/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
     const session = await resolveMaybePromise(getSessionFromRequest(req));
-    const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
+    const isAdmin = session ? await resolveMaybePromise(isUserOwner(session.id)) : false;
     if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
@@ -1751,7 +1761,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.post("/api/admin/chats/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
     const session = await resolveMaybePromise(getSessionFromRequest(req));
-    const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
+    const isAdmin = session ? await resolveMaybePromise(isUserOwner(session.id)) : false;
     if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });

@@ -947,7 +947,7 @@ export default function App() {
     }
   }
 
-  const isNonAdminClaimRoute = route === 'admin' && user && user.role !== 'admin' && user.role !== 'owner'
+  const isNonAdminClaimRoute = route === 'admin' && user && user.role !== 'owner'
   const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite' || route === 'support' || isNonAdminClaimRoute
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
   const safeAreaThemeColor = getThemeColor(isDark, route)

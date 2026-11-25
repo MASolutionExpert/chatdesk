@@ -76,8 +76,10 @@ describe("GET /api/admin/secrets", () => {
     expect(res.status).toBe(401);
   });
 
-  test("services payload no longer leaks the tick secret to admins", async () => {
-    const { app } = setupSecretsApp({ isOwner: false });
+  test("services payload no longer leaks the tick secret", async () => {
+    // The panel is owner-only now (role model, migration 047) — the check
+    // runs against the only panel user that exists.
+    const { app } = setupSecretsApp({ isOwner: true });
     const res = await request(app)
       .get("/api/admin/services")
       .set("Cookie", "sid=sid-1");

@@ -2,6 +2,20 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.7
+
+### Changed
+
+- 👥 **The role model is now exactly three roles — owner, operator, customer ("user"); the "admin" role is retired from the root.** The owner creates two kinds of accounts (Operator and Customer) and is the system owner themselves, so the intermediate "admin" role carried no real meaning while leaving dead branches in filters, badges, prompts, and permission checks. Removed end to end, backend-first:
+  - **Migration 047** (`server/migrations/047-role-admin-to-operator.js`): every existing `admin` account is normalized to `operator` (staff) — case-insensitive, NULL-safe, idempotent; restored old backups re-run it automatically through the migration tracker. Tested in `server/test/migrations/047-role-admin-to-operator.test.js`.
+  - **Admin panel is owner-only**: the panel middleware, `requireAdmin`, avatar-upload bypasses, and the impersonation-return gate now check `isUserOwner` (the retired `isUserAdmin` helper is deleted from `db.js`). Operators are staff inside the messenger/tickets and never touch the panel — matching what the UI already showed.
+  - **Emergency claim**: the first claim still mints the owner; a claim while an owner exists now promotes to `operator` (not "admin"), and the lockout gate (`adminClaimAvailable`) checks for an owner, not "any admin/owner".
+  - **Role assignment** (`POST /api/admin/users/:id/role`, user create/edit): allowed values are `user | operator | owner`; the "admin" option is gone from the panel modal, the Users-tab role filter (which also **gained the missing Operator filter** — the reported gap), the CLI prompts (`chatdesk-deploy` → Manage Database, `db:user:create/edit`), and `bootstrapAdminUsers` (now promotes to operator).
+  - **Client parity**: the Users tab role filter offers Customer / **Operator** / Owner / Banned; the account-type modal offers Customer/Operator in create AND edit mode; the "Server Admin" shield badge and role chip are removed (the retired role renders nothing); profile badges highlight Owner + Operator; the admin-panel entry points and the moderation (edit) gate treat exactly `owner`/`operator` as staff.
+  - Unchanged by design: the panel is still called "Admin Panel" (it is the owner's panel); owner protection, one-owner rule, deletion policy (1.5.0-dev.6), departments and ticket routing all keep working — operators were already the ticket-handling staff.
+
+**Tests:** 141 files / 1350 server tests (new: migration 047 normalization/idempotency/NULL-safety; contract re-pinned: owner-only panel gates, claim → operator, role endpoint without "admin"), 427 client unit tests — all green. Docs: `docs/Admin-Panel.md` (+ FA) — three-role model, owner-only panel, claim behavior; `AGENTS.md` — new Role Model law and the DB/Migration Compatibility Law.
+
 ## 1.5.0-dev.6
 
 ### Changed

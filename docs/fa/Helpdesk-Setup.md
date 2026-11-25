@@ -26,7 +26,7 @@
 
 اپراتورها اکانت‌های عادی با نقش `operator` هستند:
 
-- فقط توسط owner/admin ساخته می‌شوند (تب `Users` → `New user` → نوع اکانت
+- فقط توسط owner ساخته می‌شوند (تب `Users` → `New user` → نوع اکانت
   `Operator`) یا از طریق CLI:
   ```bash
   npm run db:user:create -- --nickname "Sara Ahmadi" --username sara \

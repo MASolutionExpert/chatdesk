@@ -148,7 +148,19 @@ for (const [label, viewport] of [
           .toBeInTheDocument();
       });
 
-      test("shows Admin badge when user.role='admin'", async () => {
+      test("shows Operator badge when user.role='operator'", async () => {
+        render(
+          <MobileSettingsPanel
+            {...BASE_PROPS}
+            user={makeUser({ role: "operator" })}
+          />,
+        );
+        await expect
+          .element(page.getByLabelText("Support Operator"))
+          .toBeInTheDocument();
+      });
+
+      test("renders nothing for the retired 'admin' role (migration 047)", async () => {
         render(
           <MobileSettingsPanel
             {...BASE_PROPS}
@@ -157,7 +169,13 @@ for (const [label, viewport] of [
         );
         await expect
           .element(page.getByLabelText("Server Admin"))
-          .toBeInTheDocument();
+          .not.toBeInTheDocument();
+        await expect
+          .element(page.getByLabelText("Server Owner"))
+          .not.toBeInTheDocument();
+        await expect
+          .element(page.getByLabelText("Support Operator"))
+          .not.toBeInTheDocument();
       });
 
       test("shows no role badge when user.role='user'", async () => {
@@ -195,18 +213,18 @@ for (const [label, viewport] of [
           .toBeInTheDocument();
       });
 
-      test("shows both Verified and Admin badge for a verified admin", async () => {
+      test("shows both Verified and Operator badge for a verified operator", async () => {
         render(
           <MobileSettingsPanel
             {...BASE_PROPS}
-            user={makeUser({ verified: true, role: "admin" })}
+            user={makeUser({ verified: true, role: "operator" })}
           />,
         );
         await expect
           .element(page.getByLabelText("Verified"))
           .toBeInTheDocument();
         await expect
-          .element(page.getByLabelText("Server Admin"))
+          .element(page.getByLabelText("Support Operator"))
           .toBeInTheDocument();
       });
 
@@ -252,21 +270,21 @@ for (const [label, viewport] of [
         ).toBeTruthy();
       });
 
-      test("Verified badge appears before Admin badge in the DOM", async () => {
+      test("Verified badge appears before Operator badge in the DOM", async () => {
         render(
           <MobileSettingsPanel
             {...BASE_PROPS}
-            user={makeUser({ verified: true, role: "admin" })}
+            user={makeUser({ verified: true, role: "operator" })}
           />,
         );
         const verified = page.getByLabelText("Verified");
-        const admin = page.getByLabelText("Server Admin");
+        const operator = page.getByLabelText("Support Operator");
         await expect.element(verified).toBeInTheDocument();
-        await expect.element(admin).toBeInTheDocument();
+        await expect.element(operator).toBeInTheDocument();
         const verifiedEl = verified.element();
-        const adminEl = admin.element();
+        const operatorEl = operator.element();
         expect(
-          verifiedEl.compareDocumentPosition(adminEl) &
+          verifiedEl.compareDocumentPosition(operatorEl) &
             Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
       });

@@ -53,7 +53,7 @@
 // collapse every operator/chat/message onto a single "last row wins" bucket.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const STAFF_ROLES = new Set(["operator", "admin", "owner"]);
+const STAFF_ROLES = new Set(["operator", "owner"]);
 
 // SQLite's `datetime('now')` yields "YYYY-MM-DD HH:MM:SS" (UTC, no zone);
 // Postgres rows and newer SQLite writes carry ISO strings. Normalize both to

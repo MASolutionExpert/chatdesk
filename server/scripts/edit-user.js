@@ -75,8 +75,8 @@ async function main() {
   const normalizedRole = roleValue !== null && roleValue !== undefined
     ? String(roleValue || "").trim().toLowerCase()
     : undefined;
-  if (normalizedRole !== undefined && !["user", "admin", "owner"].includes(normalizedRole)) {
-    console.error("Invalid role. Allowed: user, admin, owner.");
+  if (normalizedRole !== undefined && !["user", "operator", "owner"].includes(normalizedRole)) {
+    console.error("Invalid role. Allowed: user, operator, owner.");
     process.exit(1);
   }
 

@@ -453,7 +453,7 @@ export default function ChatProfileModal({
               <UserRoleBadge
                 role={
                   targetUser?.user_role ||
-                  (["owner", "admin", "user"].includes(String(targetUser?.role || "").toLowerCase())
+                  (["owner", "operator"].includes(String(targetUser?.role || "").toLowerCase())
                     ? targetUser?.role
                     : null)
                 }

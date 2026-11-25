@@ -1,12 +1,20 @@
 # Admin Panel
 
-The Admin Panel provides a web-based interface for managing users, chats, runtime settings, and system operations. It's accessible to users with the **owner** or **admin** role.
+The Admin Panel provides a web-based interface for managing users, chats, runtime settings, and system operations. It's accessible to the **owner** only (role model: owner / operator / user — the retired "admin" role was removed in 1.5.0-dev.7, migration 047).
 
 ## User Roles
 
-- **Owner**: Full access to admin panel and all features
-- **Admin**: Limited access to admin panel
-- **User**: Regular user with no admin access
+ChatDesk has exactly three roles:
+
+- **Owner**: The system owner — full access to everything, including the admin panel. The only role that may delete messages, tickets/threads, and chats.
+- **Operator**: Staff — handles support tickets and moderates conversations inside the messenger. No admin panel access.
+- **User**: Regular customer account.
+
+:::warning
+
+The former intermediate **admin** role is retired (migration 047): existing `admin` accounts were normalized to `operator` on upgrade, and the role can no longer be assigned anywhere. The admin panel is owner-only.
+
+:::
 
 :::warning
 
@@ -16,11 +24,11 @@ Only one user with owner role can exist at a time.
 
 ## The Owner Account (system owner)
 
-The **first user registered on a fresh installation automatically becomes the owner** of the whole system (role `owner`). The owner has full access to every feature of ChatDesk — admin panel, settings, departments, and every capability an admin has.
+The **first user registered on a fresh installation automatically becomes the owner** of the whole system (role `owner`). The owner has full access to every feature of ChatDesk — admin panel, settings, departments, and everything else.
 
 The owner account is **permanently protected**:
 
-- No admin (and no other user, and not even the owner through the admin panel) can **edit, ban, delete, re-role, or password-reset** the owner account. Every such attempt through the app is refused with `403 owner_protected`.
+- No one (no other user, not even the owner through the admin panel) can **edit, ban, delete, re-role, or password-reset** the owner account. Every such attempt through the app is refused with `403 owner_protected`.
 - A second owner can never be promoted while an owner exists.
 - The **"What's new" feature** (the per-version changelog popup shown on each new release and the "What's new" entry in Settings) is a privilege of the owner alone — no other account ever sees it.
 - **Deletion is owner-only**: ChatDesk is an organizational messenger and ticketing system, so message deletion, DM/ticket thread deletion, and admin-panel chat deletion are reserved for the owner alone. Admins and operators never see delete actions and every server endpoint rejects them with `403` (see [Deletion Policy](#deletion-policy-owner-only)).
@@ -37,17 +45,17 @@ The owner can still manage their own profile (nickname, avatar, own password) fr
 
 ## Accessing the Admin Panel
 
-There are two primary ways to grant an account **owner** or **admin** privileges:
+There are two primary ways to grant an account **owner** privileges:
 
 ### Option 1: CLI / Deployment Script (VPS & Shell Deployments)
 
-1. Create or edit a user and give them the **owner** or **admin** role (prompted on fresh install, or later via the [Deployment Script](./Deployment-Script.md)):
+1. Create or edit a user and give them the **owner** role (prompted on fresh install, or later via the [Deployment Script](./Deployment-Script.md)):
 
   ```bash
   chatdesk-deploy
   # Navigate to "Manage Database" submenu
   # Select "Create user" or "Edit user"
-  # Follow prompts and select either "owner" or "admin" role
+  # Follow prompts and select the "owner" role
   ```
   :::info You can also use [database commands](./Database-Commands.md) if you prefer:
 
@@ -57,13 +65,13 @@ There are two primary ways to grant an account **owner** or **admin** privileges
    npm run db:user:create
    # Or if you want to promote a user
    npm run db:user:edit
-   # Follow prompts and select either "owner" or "admin" role
+   # Follow prompts and select the "owner" role
    ```
   :::
 
 2. Log in to your ChatDesk instance with the promoted account.
 
-3. Click the **Admin Panel** button in the sidebar (accessible only by owner and admins).
+3. Click the **Admin Panel** button in the sidebar (accessible only by the owner).
 
 ### Option 2: Emergency Admin & Owner Claim (PaaS & Web UI)
 
@@ -111,7 +119,7 @@ Manage all users in your ChatDesk instance:
 - **Edit Users**: 
   - Update username, nickname, avatar
   - Reset password inline
-  - Change user role (admin/user)
+  - Change user role (operator/user)
   - Ban/unban users
 - **Log in as user (owner only)**: The system owner can click the login button on any user row and enter the app as that user, without their password — for supervision and monitoring. Security details:
   - Enforced server-side: any non-owner session is rejected (`owner_only`).
@@ -133,10 +141,10 @@ Manage DMs, groups, and channels:
 - **Time Filter**: From/to date inputs with **Today / Last 7 days / Last 30 days / All time** presets (the same filter as the helpdesk report) — filters the list by chat creation date
 - **Create Chats**: Create a new group or channel
 - **Edit Chats**: Update chat metadata and its ownership
-- **Delete Chats**: Permanently remove chats and all associated messages — **owner only**; admins and operators see no delete button (server returns `403 Owner access required`)
+- **Delete Chats**: Permanently remove chats and all associated messages — **owner only** (the panel itself is owner-only since 1.5.0-dev.7; the server keeps its `403 Owner access required` guard as defense-in-depth)
 - **Search & Filter**: Filtering across all chats — the **Chat Type** filter offers Direct messages, **Support messages** (the helpdesk ticket threads), Groups and Channels, plus privacy, verification, auto-add and remote-channel filters. Ticket threads are labeled **Ticket** (headset icon) in the Type column — never "Direct messages" — and the Channel column shows their department next to the SUPPORT badge instead of a duplicate ticket label (the list payload carries an explicit `isTicket` classification since 1.5.0-dev.3)
 - **Sorting**: Sort by Name, Type, Visibility, Created Date, Member Count, or Message Count
-- **Member Management**: Editing a group or channel loads its **existing members** as selected chips — the admin sees the current membership at a glance; removing a chip removes that member on save, adding a chip adds them
+- **Member Management**: Editing a group or channel loads its **existing members** as selected chips — the owner sees the current membership at a glance; removing a chip removes that member on save, adding a chip adds them
 - **Auto-Add New Users**: Automatically add newly registered user accounts to public chats
 
 ## Services Tab
@@ -305,7 +313,7 @@ Service control (restart/stop) requires the right setup depending on deployment:
 
 ### Danger Zone
 
-**Clear All Messages** (owner only — the action is hidden for admins/operators)
+**Clear All Messages** (owner only — the panel itself is owner-only since 1.5.0-dev.7)
 - Delete all messages from all chats
 - Preserves chat structure and membership
 - Preserves user accounts
@@ -346,7 +354,7 @@ ADMIN_PANEL=false
 When disabled:
 - Admin button hidden from UI
 - Admin API endpoints return 403
-- Existing owner and admin accounts remain but cannot access panel
+- Existing accounts remain but cannot access the panel (the panel is owner-only)
 
 ## Security Notes
 

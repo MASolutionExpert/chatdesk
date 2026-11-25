@@ -337,8 +337,9 @@ const buildInviteLinkForChat = (chat) => {
 };
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
-  // Moderators (owner/admin/operator) may edit and moderate messages.
-  const canModerateContent = ["owner", "admin", "operator"].includes(
+  // Moderators (owner/operator — role model, migration 047) may edit and
+  // moderate messages.
+  const canModerateContent = ["owner", "operator"].includes(
     String(user?.role || "").toLowerCase(),
   );
   // Deletion policy: ChatDesk is an organizational messenger and ticketing

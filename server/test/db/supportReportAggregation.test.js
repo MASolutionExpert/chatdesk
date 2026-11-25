@@ -18,13 +18,13 @@ const DEPTS = [
 const OPERATORS = [
   { id: 10, username: "bob", nickname: "Bob", color: "#f59e0b", role: "operator", department_id: 1, banned: 0 },
   { id: 11, username: "carol", nickname: "Carol", color: "#8b5cf6", role: "operator", department_id: 1, banned: 0 },
-  { id: 12, username: "dan", nickname: "Dan", color: "#14b8a6", role: "admin", department_id: 2, banned: 0 },
+  { id: 12, username: "dan", nickname: "Dan", color: "#14b8a6", role: "operator", department_id: 2, banned: 0 },
 ];
 
 const USERS = [
   { id: 10, role: "operator" },
   { id: 11, role: "operator" },
-  { id: 12, role: "admin" },
+  { id: 12, role: "operator" },
   { id: 30, role: "user" },
   { id: 31, role: "user" },
 ];
@@ -207,7 +207,7 @@ describe("aggregateSupportReport — conversation cohort metrics", () => {
           { chat_id: 100, user_id: 99, created_at: "2025-06-10T09:02:00Z" }, // +120s
           { chat_id: 100, user_id: 10, created_at: "2025-06-10T09:03:00Z" },
         ],
-        users: [...USERS, { id: 99, role: "admin" }],
+        users: [...USERS, { id: 99, role: "owner" }],
         tickets: [
           { chat_id: 100, department_id: 1, customer_id: 30, operator_id: 10, status: "open", created_at: "2025-06-10T09:00:00Z", closed_at: null },
         ],

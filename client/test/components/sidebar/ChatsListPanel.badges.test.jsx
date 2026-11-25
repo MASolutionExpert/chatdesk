@@ -193,13 +193,13 @@ describe("ChatsListPanel — DM chat card badges", () => {
       .toBeInTheDocument();
   });
 
-  test("shows Admin badge for DM peer with user_role='admin'", async () => {
-    const peer = makeDmPeer({ user_role: "admin" });
+  test("shows Operator badge for DM peer with user_role='admin'", async () => {
+    const peer = makeDmPeer({ user_role: "operator" });
     render(
       <ChatsListPanel {...BASE_PROPS} visibleChats={[makeDmChat(peer)]} />,
     );
     await expect
-      .element(page.getByLabelText("Server Admin"))
+      .element(page.getByLabelText("Support Operator"))
       .toBeInTheDocument();
   });
 
@@ -230,19 +230,19 @@ describe("ChatsListPanel — DM chat card badges", () => {
       .toBeInTheDocument();
   });
 
-  test("shows both Verified and Admin badges for a verified admin DM peer", async () => {
-    const peer = makeDmPeer({ user_verified: 1, user_role: "admin" });
+  test("shows both Verified and Operator badges for a verified operator DM peer", async () => {
+    const peer = makeDmPeer({ user_verified: 1, user_role: "operator" });
     render(
       <ChatsListPanel {...BASE_PROPS} visibleChats={[makeDmChat(peer)]} />,
     );
     await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
     await expect
-      .element(page.getByLabelText("Server Admin"))
+      .element(page.getByLabelText("Support Operator"))
       .toBeInTheDocument();
   });
 
   test("DM card badge order: Verified before role badge", async () => {
-    const peer = makeDmPeer({ user_verified: 1, user_role: "admin" });
+    const peer = makeDmPeer({ user_verified: 1, user_role: "operator" });
     render(
       <ChatsListPanel {...BASE_PROPS} visibleChats={[makeDmChat(peer)]} />,
     );
@@ -349,15 +349,15 @@ describe("ChatsListPanel — discover user search badges", () => {
       .not.toBeInTheDocument();
   });
 
-  test("shows Admin badge for admin user in discover results", async () => {
+  test("shows Operator badge for operator user in discover results", async () => {
     render(
       <ChatsListPanel
         {...searchProps}
-        discoverUsers={[makeDiscoverUser({ role: "admin" })]}
+        discoverUsers={[makeDiscoverUser({ role: "operator" })]}
       />,
     );
     await expect
-      .element(page.getByLabelText("Server Admin"))
+      .element(page.getByLabelText("Support Operator"))
       .toBeInTheDocument();
   });
 
@@ -382,12 +382,12 @@ describe("ChatsListPanel — discover user search badges", () => {
     render(
       <ChatsListPanel
         {...searchProps}
-        discoverUsers={[makeDiscoverUser({ verified: true, role: "admin" })]}
+        discoverUsers={[makeDiscoverUser({ verified: true, role: "operator" })]}
       />,
     );
     await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
     await expect
-      .element(page.getByLabelText("Server Admin"))
+      .element(page.getByLabelText("Support Operator"))
       .toBeInTheDocument();
   });
 });

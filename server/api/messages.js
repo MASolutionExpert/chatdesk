@@ -127,8 +127,11 @@ function registerMessageRoutes(app, deps) {
     }
   };
 
+  // Role model (migration 047): owner + operator (the retired "admin" role
+  // was normalized to operator). Moderation here = message editing only —
+  // deletion is owner-only (see POST /api/messages/delete).
   const isModeratorRole = (role) =>
-    ["owner", "admin", "operator"].includes(String(role || "").toLowerCase());
+    ["owner", "operator"].includes(String(role || "").toLowerCase());
 
   // Short human-readable preview of a deleted message for the audit log.
   const summarizeMessageForAudit = (message) => {

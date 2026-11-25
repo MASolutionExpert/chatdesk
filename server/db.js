@@ -4438,11 +4438,9 @@ export async function hasAnyUser() {
   return Boolean(row?.id);
 }
 
-export async function isUserAdmin(userId) {
-  const role = await getUserRole(userId);
-  return role === "admin" || role === "owner";
-}
-
+// Role model (migration 047): exactly three roles — owner, operator, user.
+// The former intermediate "admin" role is retired (normalized to operator);
+// "is admin" therefore means "is the owner". The admin panel is owner-only.
 export async function isUserOwner(userId) {
   const role = await getUserRole(userId);
   return role === "owner";
@@ -4453,13 +4451,16 @@ export async function getOwnerUser() {
   return row || null;
 }
 
+// Bootstrap staff accounts (env-provided usernames): promote them to the
+// operator role. The retired "admin" role is no longer assignable; the
+// owner account is created by registration, never here.
 export async function bootstrapAdminUsers(adminUsernames) {
   if (!adminUsernames || !adminUsernames.length) return;
   for (const username of adminUsernames) {
     const rawUser = getRow(dbKnex("users").where({ username: username.toLowerCase() }).select("id", "role").first());
     const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
-    if (user && user.id && user.role !== "admin" && user.role !== "owner") {
-      await run(dbKnex("users").where({ id: user.id }).update({ role: "admin" }));
+    if (user && user.id && user.role !== "operator" && user.role !== "owner") {
+      await run(dbKnex("users").where({ id: user.id }).update({ role: "operator" }));
     }
   }
 }
@@ -5248,7 +5249,7 @@ export function dbDeleteSetting(key) {
 // every messenger feature (files, calls, push, SSE) keeps working unchanged.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const SUPPORT_ROLES = ["operator", "admin", "owner"];
+const SUPPORT_ROLES = ["operator", "owner"];
 
 export function listDepartments({ activeOnly = true } = {}) {
   const qb = dbKnex("departments")
@@ -5565,10 +5566,10 @@ export async function getSupportOverview() {
           "(SELECT u.nickname FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role = 'user' LIMIT 1) AS customer_nickname"
         ),
         dbKnex.raw(
-          "(SELECT u.username FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role IN ('operator','admin','owner') LIMIT 1) AS operator_username"
+          "(SELECT u.username FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role IN ('operator','owner') LIMIT 1) AS operator_username"
         ),
         dbKnex.raw(
-          "(SELECT u.nickname FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role IN ('operator','admin','owner') LIMIT 1) AS operator_nickname"
+          "(SELECT u.nickname FROM chat_members m JOIN users u ON u.id = m.user_id WHERE m.chat_id = c.id AND u.role IN ('operator','owner') LIMIT 1) AS operator_nickname"
         ),
         dbKnex.raw(
           "(SELECT body FROM chat_messages WHERE chat_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1) AS last_message_body"
