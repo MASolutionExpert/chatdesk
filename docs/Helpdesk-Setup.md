@@ -50,7 +50,8 @@ Operators are normal accounts with the `operator` role:
   npm run db:user:create -- --nickname "Sara Ahmadi" --username sara \
     --password "..." --role operator
   ```
-- The CLI role flag accepts `user | operator | admin | owner`.
+- The CLI role flag accepts `user | operator | owner` (the retired "admin"
+  role is no longer assignable).
 - Operators do **not** have access to the admin panel.
 - A user's department can be changed at any time via
   `PATCH /api/admin/users/:id` with `{ "department_id": <id> }` (or the admin
@@ -68,6 +69,49 @@ Operators are normal accounts with the `operator` role:
 | `DELETE` | `/api/admin/departments/:id` | Soft delete (deactivates, keeps history) |
 | `GET` | `/api/admin/support/overview` | Per-department reports + latest conversations |
 | `GET` | `/api/admin/support/report` | Time-filtered performance report (`?departmentId=&from=&to=`, dates inclusive) |
+| `GET` | `/api/support/tickets/:chatId/refer-candidates` | Staff-only: candidate operators for the referral picker (recent contacts first) |
+| `POST` | `/api/support/tickets/:chatId/refer` | Staff-only: hand the ticket to another operator (`{ creator, operatorUsername }` or `{ creator, operatorId }`) |
+
+## Ticket referral (sharing a ticket between operators)
+
+Any staff member can hand a ticket to another operator from inside the chat
+window: the ticket strip (next to **Close ticket**) shows a **Refer ticket**
+button for operators and the owner — customers never see it. The picker lists
+available operators sorted by **recent contact** (most recent exchanged
+message first) and supports lookup by username, nickname, or user ID.
+
+What happens on confirm (all server-side, one atomic endpoint
+`POST /api/support/tickets/:chatId/refer`):
+
+- The support thread is **converted in place from a DM into a private support
+  group** that keeps its support identity (channel `support` + department
+  tag). It looks and behaves like any messenger group — invite link, avatar,
+  member management, group settings — but stays a ticket: the admin panel and
+  the chat window still show it with the red headset ("Ticket") badge.
+- The chosen operator **joins the thread as the group owner** and becomes the
+  ticket's operator of record, so fair routing counts the open ticket against
+  their workload. Referring again adds further operators (every staff member
+  in the thread can read and reply; the most recently referred operator holds
+  the group ownership and the ticket record).
+- The customer is demoted to a plain chat member and keeps their usual
+  experience; a `[[system:referred:<name>]]` message marks the handoff in the
+  thread, and the target operator gets a push notification.
+- Guards: only staff may refer; direct (messenger) chats are refused
+  (`400 not_a_ticket`); closed tickets, non-staff targets, self-referral,
+  and already-member targets are refused; non-member operators get `403`.
+
+The referred ticket stays fully protected by the platform's deletion policy:
+
+- `POST /api/chats/hide` (delete thread) and
+  `POST /api/chats/group/:chatId/delete` remain **owner-only** for support
+  groups — even the operator who owns the support group gets `403`.
+- The customer can never be dropped from the thread (remove-member refuses;
+  group-settings member sync silently restores them).
+- The last staff member cannot abandon the thread by leaving; when a staff
+  owner leaves, ownership passes to another staff member — never to a
+  customer.
+- A new support request from the same customer starts a **fresh ticket** — a
+  referred group is never silently reused as someone else's ticket.
 
 ## Department performance report
 

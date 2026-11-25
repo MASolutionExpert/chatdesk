@@ -2,6 +2,20 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.8
+
+### Added
+
+- 🔁 **Ticket referral — hand a ticket to another operator and share the thread as a support group.** From the chat window's ticket strip (next to **Close ticket**), staff members now see a **Refer ticket** button (customers never do). The picker lists available operators sorted by **recent contact** (latest exchanged message first) and supports lookup by username, nickname, or user ID. On confirm, one server-side endpoint does the whole handoff:
+  - **In-place conversion** (`POST /api/support/tickets/:chatId/refer`): the DM-shaped support thread becomes a **private support group** that keeps its support identity (channel `support` + department tag) — full messenger-group parity (invite link, avatar, member management, settings) while still showing the red-headset "Ticket" badge in the admin panel and the chat window. Reports, admin type filter, and department overview were extended so referred tickets never disappear from the helpdesk surfaces.
+  - **Ownership moves with the ticket**: the referred-to operator joins as the group owner and becomes the ticket's operator of record — fair routing counts the open ticket against their workload. Referring again adds further operators; every staff member in the thread can read and reply. The customer is demoted to a plain chat member, a `[[system:referred:<name>]]` message marks the handoff in-thread, and the target operator receives a push notification.
+  - **Guards** (backend-first, fully tested): only staff may refer (`403` for customers); messenger chats are refused (`400 not_a_ticket`); closed tickets, non-staff targets, self-referral, and already-member targets are refused; non-member operators get `403`. Candidates endpoint (`GET .../refer-candidates`) is staff-only and excludes the actor plus everyone already in the thread.
+  - **Ticket-thread protection** (extends the owner-only deletion policy to the new shape): `hide` (delete thread) and group hard-delete stay **owner-only** for support groups — even the operator who owns the support group gets `403`; the customer can never be dropped (remove-member refuses, group-settings member sync silently restores them); the last staff member cannot abandon the thread by leaving, and staff ownership on leave passes to another staff member — never to a customer. A fresh support request from the same customer always opens a new ticket; a referred group is never silently reused.
+
+**Tests:** 142 files / 1365 server tests (new `supportRefer.test.js`: conversion, role demotion/ownership, operator-of-record re-pointing, system message, realtime fan-out, all guards, and the four referred-ticket protections), 427 client unit tests — all green. Docs: `docs/Helpdesk-Setup.md` (+ FA) — new "Ticket referral" chapter, Admin API table additions, stale role lists corrected to `user | operator | owner`.
+
+**خلاصهٔ فارسی:** ارجاع تیکت اضافه شد — دکمهٔ «ارجاع تیکت» در نوار وضعیت تیکت (فقط برای اپراتورها و owner، نه مشتری‌ها) تیکت را به اپراتور دیگری می‌سپارد؛ انتخابگر بر اساس مخاطبان اخیر مرتب می‌کند و جستجو با نام کاربری/شناسه هم کار می‌کند. با تأیید، ترد پشتیبانی در جا به یک گروه پشتیبانی خصوصی تبدیل می‌شود که همهٔ تنظیمات گروه مسنجر را دارد ولی تگ تیکت/دپارتمانش حفظ می‌شود؛ اپراتور مقصد مالک گروه و ثبت تیکت می‌شود و مسیریابی عادلانه بار را به حساب او می‌گذارد. حذف ترد و گروه همچنان فقط با owner است، مشتری هرگز از ترد حذف نمی‌شود، و آخرین عضو پرسنل نمی‌تواند ترد را با leave رها کند.
+
 ## 1.5.0-dev.7
 
 ### Changed
