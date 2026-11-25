@@ -8,6 +8,8 @@ import {
 import {
   ArrowDown,
   ArrowLeft,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Ghost,
   LoaderCircle,
@@ -1080,6 +1082,9 @@ export default function ChatWindowPanel({
   );
   const [referOpen, setReferOpen] = useState(false);
   const [referCandidates, setReferCandidates] = useState([]);
+  const [referDepartments, setReferDepartments] = useState([]);
+  const [referExpandedDept, setReferExpandedDept] = useState(null);
+  const [referDirect, setReferDirect] = useState("");
   const [referLoading, setReferLoading] = useState(false);
   const [referQuery, setReferQuery] = useState("");
   const [referSelected, setReferSelected] = useState(null);
@@ -1091,8 +1096,11 @@ export default function ChatWindowPanel({
     setReferOpen(true);
     setReferQuery("");
     setReferSelected(null);
+    setReferDirect("");
+    setReferExpandedDept(null);
     setReferError("");
     setReferCandidates([]);
+    setReferDepartments([]);
     setReferLoading(true);
     try {
       const result = await fetchReferCandidates({
@@ -1100,6 +1108,7 @@ export default function ChatWindowPanel({
         creator: user?.username,
       });
       setReferCandidates(Array.isArray(result?.candidates) ? result.candidates : []);
+      setReferDepartments(Array.isArray(result?.departments) ? result.departments : []);
     } catch (err) {
       setReferError(err?.message || t("common.ticketReferError"));
     } finally {
@@ -1117,18 +1126,59 @@ export default function ChatWindowPanel({
       )
     : referCandidates;
 
+  // Department → operator browser: group the full staff directory under
+  // their departments (server sends the active departments alongside), so
+  // the picker keeps working even when the actor has no recent contacts.
+  const referDepartmentsWithStaff = referDepartments
+    .map((department) => ({
+      ...department,
+      staff: referCandidates.filter(
+        (candidate) => candidate.departmentId === department.id,
+      ),
+    }))
+    .concat(
+      referCandidates.some((candidate) => !candidate.departmentId)
+        ? [{
+            id: "__none__",
+            name: t("common.ticketReferNoDepartment"),
+            color: null,
+            staff: referCandidates.filter((candidate) => !candidate.departmentId),
+          }]
+        : [],
+    );
+
+  const referRecentCandidates = referCandidates.filter(
+    (candidate) => candidate.lastInteraction,
+  );
+
+  // Direct handoff: the user may paste an operator ID (UUID) or a username.
+  // A UUID goes through operatorId, anything else through operatorUsername
+  // (leading @ stripped) — the server validates both shapes.
+  const UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const referDirectTrimmed = referDirect.trim().replace(/^@/, "");
+  const referDirectPayload = referDirectTrimmed
+    ? UUID_PATTERN.test(referDirectTrimmed)
+      ? { operatorId: referDirectTrimmed }
+      : { operatorUsername: referDirectTrimmed.toLowerCase() }
+    : null;
+
   const handleConfirmRefer = async () => {
-    if (!activeChatId || !referSelected || referBusy) return;
+    if (!activeChatId || referBusy) return;
+    if (!referSelected && !referDirectPayload) return;
     setReferBusy(true);
     setReferError("");
     try {
       await referTicket({
         chatId: activeChatId,
         creator: user?.username,
-        operatorUsername: referSelected.username,
+        ...(referSelected
+          ? { operatorUsername: referSelected.username }
+          : referDirectPayload),
       });
       setReferOpen(false);
       setReferSelected(null);
+      setReferDirect("");
       // The server fans out chat_list_changed to every member, which reloads
       // the (now group-shaped) thread for everyone — including this client.
       if (typeof onTicketStatusChanged === "function") {
@@ -1139,6 +1189,70 @@ export default function ChatWindowPanel({
     } finally {
       setReferBusy(false);
     }
+  };
+
+  // One candidate row, reused by the search results, the "Recent" section
+  // and the department browser. Staff already inside the thread stay listed
+  // (full directory!) but are disabled — the server would refuse them (409).
+  const renderReferCandidateRow = (candidate) => {
+    const selected = referSelected?.id === candidate.id;
+    const inTicket = Boolean(candidate.inTicket);
+    return (
+      <li key={candidate.id}>
+        <button
+          type="button"
+          onClick={() => {
+            if (inTicket) return;
+            setReferSelected(candidate);
+            setReferDirect("");
+          }}
+          disabled={inTicket}
+          aria-pressed={selected}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${
+            selected
+              ? "bg-emerald-50 dark:bg-emerald-500/10"
+              : inTicket
+                ? "opacity-55"
+                : "hover:bg-slate-50 dark:hover:bg-white/5"
+          }`}
+        >
+          <Avatar
+            name={candidate.nickname || candidate.username}
+            color={candidate.color || undefined}
+            src={candidate.avatarUrl || undefined}
+            className="h-8 w-8 shrink-0"
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+              {candidate.nickname || candidate.username}
+            </span>
+            <span className="block truncate text-xs text-slate-400 dark:text-slate-500">
+              @{candidate.username}
+              {candidate.departmentName
+                ? ` · ${candidate.departmentName}`
+                : ""}
+            </span>
+          </span>
+          {inTicket ? (
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
+              {t("common.ticketReferInTicket")}
+            </span>
+          ) : candidate.lastInteraction ? (
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
+              {t("common.ticketReferRecent")}
+            </span>
+          ) : null}
+          {selected ? (
+            <span
+              className="shrink-0 text-emerald-600 dark:text-emerald-400"
+              aria-hidden="true"
+            >
+              ✓
+            </span>
+          ) : null}
+        </button>
+      </li>
+    );
   };
 
   const renderMessageItem = (msg, options = {}) => (
@@ -1681,7 +1795,7 @@ export default function ChatWindowPanel({
           chats have no ticket row and never see this strip. */}
       {isSupportChat ? (
         <div
-          className="mx-2 mb-1 flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-xs sm:mx-3"
+          className="mx-2 mb-1 flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-xs sm:mx-3 dark:bg-white/[0.04]"
           role="status"
           data-testid="ticket-status-strip"
           dir="auto"
@@ -1737,10 +1851,12 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
-      {/* Ticket referral picker (dev.8): staff-only operator chooser. Lists
-          staff from recent contacts first and supports lookup by username /
-          nickname / id. Confirming converts the thread into a shared support
-          group and re-points the ticket to the chosen operator. */}
+      {/* Ticket referral picker (dev.8, reworked in dev.9): staff-only
+          operator chooser with three ways to pick a target — search across
+          the whole staff directory (username / nickname / ID), browse by
+          department (click a department to unfold its operators, alias
+          first), or paste an operator ID / username for a direct handoff.
+          Staff already inside the thread stay visible but disabled. */}
       {referOpen ? (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
@@ -1778,62 +1894,129 @@ export default function ChatWindowPanel({
                 <div className="flex items-center justify-center py-8 text-xs text-slate-500 dark:text-slate-400">
                   {t("common.ticketReferLoading")}
                 </div>
-              ) : filteredReferCandidates.length ? (
-                <ul className="flex flex-col gap-1">
-                  {filteredReferCandidates.map((candidate) => {
-                    const selected =
-                      referSelected?.id === candidate.id;
-                    return (
-                      <li key={candidate.id}>
-                        <button
-                          type="button"
-                          onClick={() => setReferSelected(candidate)}
-                          className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${
-                            selected
-                              ? "bg-emerald-50 dark:bg-emerald-500/10"
-                              : "hover:bg-slate-50 dark:hover:bg-white/5"
-                          }`}
-                        >
-                          <Avatar
-                            name={candidate.nickname || candidate.username}
-                            color={candidate.color || undefined}
-                            src={candidate.avatarUrl || undefined}
-                            className="h-8 w-8 shrink-0"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">
-                              {candidate.nickname || candidate.username}
-                            </span>
-                            <span className="block truncate text-xs text-slate-400 dark:text-slate-500">
-                              @{candidate.username}
-                              {candidate.departmentName
-                                ? ` · ${candidate.departmentName}`
-                                : ""}
-                            </span>
-                          </span>
-                          {candidate.lastInteraction ? (
-                            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
-                              {t("common.ticketReferRecent")}
-                            </span>
-                          ) : null}
-                          {selected ? (
-                            <span
-                              className="shrink-0 text-emerald-600 dark:text-emerald-400"
-                              aria-hidden="true"
-                            >
-                              ✓
-                            </span>
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+              ) : referQueryTrimmed ? (
+                // Search mode: one flat list over the entire staff directory.
+                filteredReferCandidates.length ? (
+                  <ul className="flex flex-col gap-1">
+                    {filteredReferCandidates.map((candidate) =>
+                      renderReferCandidateRow(candidate),
+                    )}
+                  </ul>
+                ) : (
+                  <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                    {t("common.ticketReferEmpty")}
+                  </div>
+                )
               ) : (
-                <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
-                  {t("common.ticketReferEmpty")}
-                </div>
+                <>
+                  {referRecentCandidates.length ? (
+                    <section className="mb-1">
+                      <p className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        {t("common.ticketReferRecent")}
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {referRecentCandidates.map((candidate) =>
+                          renderReferCandidateRow(candidate),
+                        )}
+                      </ul>
+                    </section>
+                  ) : null}
+                  {referDepartmentsWithStaff.length ? (
+                    <section>
+                      <p className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        {t("common.ticketReferDepartments")}
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {referDepartmentsWithStaff.map((department) => {
+                          const expanded =
+                            referExpandedDept === department.id;
+                          return (
+                            <li key={String(department.id)}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReferExpandedDept(
+                                    expanded ? null : department.id,
+                                  )
+                                }
+                                aria-expanded={expanded}
+                                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-white/5"
+                              >
+                                {expanded ? (
+                                  <ChevronDown
+                                    className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
+                                    aria-hidden="true"
+                                  />
+                                ) : (
+                                  <ChevronRight
+                                    className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                {department.color ? (
+                                  <span
+                                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                                    style={{ backgroundColor: department.color }}
+                                    aria-hidden="true"
+                                  />
+                                ) : null}
+                                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                  {department.name}
+                                </span>
+                                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
+                                  {department.staff.length}{" "}
+                                  {t("common.ticketReferOperators")}
+                                </span>
+                              </button>
+                              {expanded ? (
+                                department.staff.length ? (
+                                  <ul className="mb-1 ml-4 flex flex-col gap-1 border-l border-slate-100 pl-1 dark:border-white/5">
+                                    {department.staff.map((candidate) =>
+                                      renderReferCandidateRow(candidate),
+                                    )}
+                                  </ul>
+                                ) : (
+                                  <p className="mb-1 ml-4 px-2.5 py-1.5 text-xs text-slate-400 dark:text-slate-500">
+                                    {t("common.ticketReferEmpty")}
+                                  </p>
+                                )
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  ) : null}
+                  {!referRecentCandidates.length &&
+                  !referDepartmentsWithStaff.length ? (
+                    <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                      {t("common.ticketReferEmpty")}
+                    </div>
+                  ) : null}
+                </>
               )}
+            </div>
+            {/* Direct handoff: paste an operator ID (UUID) or username —
+                the server validates the target (staff-only, unbanned). */}
+            <div className="border-t border-slate-100 px-4 py-3 dark:border-white/5">
+              <label
+                htmlFor="ticket-refer-direct-input"
+                className="mb-1 block text-[11px] font-semibold text-slate-500 dark:text-slate-400"
+              >
+                {t("common.ticketReferDirect")}
+              </label>
+              <input
+                id="ticket-refer-direct-input"
+                type="text"
+                value={referDirect}
+                onChange={(e) => {
+                  setReferDirect(e.target.value);
+                  setReferSelected(null);
+                }}
+                placeholder={t("common.ticketReferDirectPlaceholder")}
+                autoComplete="off"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200"
+              />
             </div>
             {referError ? (
               <p className="px-4 pb-1 text-xs font-medium text-rose-600 dark:text-rose-400">
@@ -1847,12 +2030,12 @@ export default function ChatWindowPanel({
                 disabled={referBusy}
                 className="rounded-full border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
               >
-                {t("common.cancel")}
+                {t("common.actions.cancel")}
               </button>
               <button
                 type="button"
                 onClick={handleConfirmRefer}
-                disabled={!referSelected || referBusy}
+                disabled={(!referSelected && !referDirectPayload) || referBusy}
                 data-testid="ticket-refer-confirm"
                 className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
               >

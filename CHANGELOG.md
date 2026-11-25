@@ -2,6 +2,21 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.5.0-dev.9
+
+### Fixed
+
+- 🧭 **Ticket referral picker reworked — the "no operators available" dead end is gone.** Two real defects surfaced in production and both are fixed from the root, without touching any other referral logic:
+  - **The picker no longer starves itself of candidates.** The candidates endpoint used to exclude the actor *plus everyone already inside the thread*; combined with the "Recent contacts first" sort this could leave an empty-feeling list ("no operator found") in small deployments. `GET /api/support/tickets/:chatId/refer-candidates` now returns the **full staff directory** (every unbanned operator/owner except the actor), and staff who are already members of the thread stay listed but carry an `inTicket: true` flag — the picker shows them **disabled** with an "In this ticket" badge instead of hiding them (the server still refuses them with `409`).
+  - **The Cancel button rendered a raw translation key** (`common.cancel` — the key actually lives at `common.actions.cancel`). Fixed; the dialog now shows a real localized label in both UI languages.
+  - **A new department → operator browser** inside the same dialog: the endpoint now also returns the full **active department list**, and with an empty search the picker shows "Recent" contacts plus a **"Browse by department"** accordion — click a department to unfold its complete operator list (alias first, department color dot, live operator count). Operators without a department get their own "No department" group, so the picker is never empty while staff exists.
+  - **Direct handoff by ID or username**: a dedicated input at the bottom of the dialog accepts an operator **ID (UUID)** or **@username** — a UUID is sent as `operatorId`, anything else as `operatorUsername`, and the server keeps validating the target (staff-only, unbanned, not self, not already in the ticket). Typing in it clears the list selection and vice versa; the **Refer** confirm button works for both paths.
+  - **The ticket status strip lost its stray white outline**: the strip around the open-state label and the Refer/Close buttons drew a `border` without a color, which Tailwind v4 resolves to `currentColor` — a bright ring in dark mode. The border is removed and replaced by a barely-there surface tint; the layout is unchanged.
+
+**Tests:** 142 files / 1366 server tests (refer-candidates contract re-pinned: full directory minus self, `inTicket` flags for thread members, active-only department list) and 427 client unit tests — all green; ESLint clean. Docs: `docs/Helpdesk-Setup.md` (+ FA) picker chapter updated.
+
+**خلاصهٔ فارسی:** دو باگ واقعی ارجاع تیکت از ریشه رفع شد. انتخابگر ارجاع دیگر خالی نمی‌ماند: سرور حالا کل فهرست پرسنل (به‌جز خود ارجاع‌دهنده) را برمی‌گرداند و اپراتورهایی که از قبل در تیکت هستند با نشان «در همین تیکت» نمایان ولی غیرفعال می‌مانند. باگ نمایش متن خام `common.cancel` روی دکمهٔ لغو هم اصلاح شد. داخل همان پنجره یک مرورگر «دپارتمان → اپراتور» اضافه شد: روی هر دپارتمان بزنید تا فهرست کامل اپراتورهایش (نام مستعار اول، با نقطهٔ رنگ دپارتمان و شمار اپراتورها) باز شود؛ اپراتورهای بدون دپارتمان در گروه «بدون دپارتمان» می‌آیند. یک کادر «ارجاع با شناسه یا نام کاربری» هم اضافه شده که شناسهٔ اپراتور (UUID) یا @نام‌کاربری را می‌پذیرد و سرور همچنان اعتبار هدف را بررسی می‌کند. در نهایت حاشیهٔ سفید اضافی دور نوار وضعیت تیکت (بستن/ارجاع) حذف شد.
+
 ## 1.5.0-dev.8
 
 ### Added

@@ -69,16 +69,28 @@ Operators are normal accounts with the `operator` role:
 | `DELETE` | `/api/admin/departments/:id` | Soft delete (deactivates, keeps history) |
 | `GET` | `/api/admin/support/overview` | Per-department reports + latest conversations |
 | `GET` | `/api/admin/support/report` | Time-filtered performance report (`?departmentId=&from=&to=`, dates inclusive) |
-| `GET` | `/api/support/tickets/:chatId/refer-candidates` | Staff-only: candidate operators for the referral picker (recent contacts first) |
+| `GET` | `/api/support/tickets/:chatId/refer-candidates` | Staff-only: the referral picker's directory — full staff list (minus the actor, each flagged `inTicket` when already in the thread) + active departments |
 | `POST` | `/api/support/tickets/:chatId/refer` | Staff-only: hand the ticket to another operator (`{ creator, operatorUsername }` or `{ creator, operatorId }`) |
 
 ## Ticket referral (sharing a ticket between operators)
 
 Any staff member can hand a ticket to another operator from inside the chat
 window: the ticket strip (next to **Close ticket**) shows a **Refer ticket**
-button for operators and the owner — customers never see it. The picker lists
-available operators sorted by **recent contact** (most recent exchanged
-message first) and supports lookup by username, nickname, or user ID.
+button for operators and the owner — customers never see it. The picker offers
+three ways to choose a target:
+
+- **Search** across the whole staff directory by username, nickname, or user
+  ID.
+- **Browse by department** — click a department to unfold its complete
+  operator list (alias first). Operators without a department appear under
+  their own "No department" group.
+- **Direct handoff** — paste an operator **ID (UUID)** or **@username** into
+  the "Refer by ID or username" field; the server validates the target.
+
+Candidates are sorted by **recent contact** (most recent exchanged message
+first, marked "Recent"). Staff who are already members of the thread stay
+listed but disabled with an "In this ticket" badge — the server refuses them
+with `409`.
 
 What happens on confirm (all server-side, one atomic endpoint
 `POST /api/support/tickets/:chatId/refer`):

@@ -20,8 +20,11 @@ import { makeApp, makeUserStore } from "../helpers/makeApp.js";
 //     self-referral 400, non-member actors 403.
 //
 // GET /api/support/tickets/:chatId/refer-candidates lists unbanned staff
-// members excluding the actor and everyone already in the thread, sorted by
-// last interaction with the actor (recent contacts first).
+// members (excluding only the actor) — each candidate carries `inTicket`
+// when they are already inside the thread — plus the full active department
+// directory, sorted by last interaction with the actor (recent contacts
+// first). The picker can therefore always offer a department → operator
+// browser and a direct by-ID handoff, even in small deployments.
 //
 // Referred tickets keep the deletion policy: /api/chats/hide and
 // /api/chats/group/:chatId/delete stay owner-only for support groups, the
@@ -171,6 +174,10 @@ describe("ticket referral at the API layer", () => {
               departmentName: "Billing",
               lastInteraction: null,
             })),
+        listDepartments: () => [
+          { id: deptId, name: "Billing", color: "#10b981", active: true },
+          { id: 9, name: "Archived dept", color: null, active: false },
+        ],
         createMessage: (chatId, userId, body) => {
           calls.messages.push({ chatId, userId, body });
           return "message-1";
@@ -246,7 +253,7 @@ describe("ticket referral at the API layer", () => {
 
   // ─── refer-candidates ──────────────────────────────────────────────────────
 
-  test("staff see candidate operators excluding self and current members", async () => {
+  test("staff see the full staff directory (minus self) with inTicket flags + departments", async () => {
     const { app } = createTestApp({
       chat: dmTicketChat,
       members: defaultMembers,
@@ -261,9 +268,43 @@ describe("ticket referral at the API layer", () => {
       .set("Cookie", cookie);
 
     expect(res.status).toBe(200);
+    // The actor (bob) is gone; everyone else staff stays listed.
     const usernames = res.body.candidates.map((c) => c.username);
     expect(usernames).toEqual(["carol", "dave"]);
     expect(res.body.candidates[0].departmentName).toBe("Billing");
+    // Nobody in this thread yet — no candidate is flagged.
+    expect(res.body.candidates.every((c) => c.inTicket === false)).toBe(true);
+    // Only ACTIVE departments reach the picker.
+    expect(res.body.departments).toEqual([
+      { id: deptId, name: "Billing", color: "#10b981", active: true },
+    ]);
+  });
+
+  test("staff already inside the thread stay listed but flagged inTicket", async () => {
+    const { app } = createTestApp({
+      chat: referredGroupChat,
+      members: referredMembers,
+      memberRoles: referredMemberRoles,
+      ticket: { ...openTicket, operatorId: carolId },
+    });
+    const cookie = await loginCookie(app, "bob");
+
+    const res = await request(app)
+      .get(`/api/support/tickets/${ticketChatId}/refer-candidates`)
+      .query({ creator: "bob" })
+      .set("Cookie", cookie);
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      res.body.candidates.map((c) => [c.username, c]),
+    );
+    // Carol is now a member of the thread — still visible, but flagged.
+    expect(byName.carol?.inTicket).toBe(true);
+    expect(byName.dave?.inTicket).toBe(false);
+    // The customer (alice) never appears — not staff.
+    expect(byName.alice).toBeUndefined();
+    // The actor (bob) never appears.
+    expect(byName.bob).toBeUndefined();
   });
 
   test("customers cannot list referral candidates", async () => {

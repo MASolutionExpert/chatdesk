@@ -395,14 +395,43 @@ function registerDepartmentRoutes(app, deps) {
         });
       }
 
+      // Full directory (dev.8 fix): every unbanned staff member except the
+      // actor themselves. Members already inside the thread stay in the list
+      // but carry `inTicket: true` so the picker can show (and disable) them —
+      // an empty-feeling picker ("no operators") used to happen because
+      // excluding members starved small deployments of candidates.
       const members =
         (await awaitMaybe(listChatMembers(req.params.chatId))) || [];
-      const excludeUserIds = [actor.id, ...members.map((m) => m?.id)];
-
-      const candidates = await awaitMaybe(
-        listStaffReferCandidates({ actorUserId: actor.id, excludeUserIds }),
+      const memberIds = new Set(
+        members
+          .map((m) => String(m?.id || ""))
+          .filter(Boolean),
       );
-      return res.json({ candidates });
+
+      const staff = await awaitMaybe(
+        listStaffReferCandidates({ actorUserId: actor.id, excludeUserIds: [actor.id] }),
+      );
+      const candidates = (staff || []).map((candidate) => ({
+        ...candidate,
+        inTicket: memberIds.has(String(candidate?.id)),
+      }));
+
+      // Full department directory so the picker can offer a
+      // department → operator browser (not just the flat candidate list).
+      const departments = await awaitMaybe(
+        listDepartments({ activeOnly: true }),
+      );
+      return res.json({
+        candidates,
+        departments: (departments || [])
+          .filter((d) => d && d.active !== false)
+          .map((d) => ({
+            id: d.id,
+            name: d.name,
+            color: d.color || null,
+            active: true,
+          })),
+      });
     },
   );
 

@@ -183,9 +183,11 @@ export const setTicketStatus = ({ chatId, action, creator }) =>
     },
   );
 
-// Staff-only: candidate operators for the referral picker (dev.8) — unbanned
-// staff members excluding the actor and everyone already in the thread,
-// sorted by last interaction with the actor (recent contacts first).
+// Staff-only: the referral picker's directory (dev.8, reworked in dev.9) —
+// resolves to { candidates, departments }: every unbanned staff member
+// except the actor (each flagged `inTicket` when already inside the thread),
+// plus the full active department list for the department → operator
+// browser. Sorted by last interaction with the actor (recent contacts first).
 export const fetchReferCandidates = ({ chatId, creator }) =>
   apiFetch(
     `${API_BASE}/api/support/tickets/${encodeURIComponent(chatId)}/refer-candidates?creator=${encodeURIComponent(creator || "")}`,
