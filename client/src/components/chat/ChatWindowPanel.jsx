@@ -1084,7 +1084,6 @@ export default function ChatWindowPanel({
   const [referCandidates, setReferCandidates] = useState([]);
   const [referDepartments, setReferDepartments] = useState([]);
   const [referExpandedDept, setReferExpandedDept] = useState(null);
-  const [referDirect, setReferDirect] = useState("");
   const [referLoading, setReferLoading] = useState(false);
   const [referQuery, setReferQuery] = useState("");
   const [referSelected, setReferSelected] = useState(null);
@@ -1096,13 +1095,14 @@ export default function ChatWindowPanel({
     setReferOpen(true);
     setReferQuery("");
     setReferSelected(null);
-    setReferDirect("");
     setReferExpandedDept(null);
     setReferError("");
     setReferCandidates([]);
     setReferDepartments([]);
     setReferLoading(true);
     try {
+      // fetchReferCandidates resolves to parsed data ({ candidates,
+      // departments }) and throws on HTTP errors — see chatApi.js.
       const result = await fetchReferCandidates({
         chatId: activeChatId,
         creator: user?.username,
@@ -1151,34 +1151,20 @@ export default function ChatWindowPanel({
     (candidate) => candidate.lastInteraction,
   );
 
-  // Direct handoff: the user may paste an operator ID (UUID) or a username.
-  // A UUID goes through operatorId, anything else through operatorUsername
-  // (leading @ stripped) — the server validates both shapes.
-  const UUID_PATTERN =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const referDirectTrimmed = referDirect.trim().replace(/^@/, "");
-  const referDirectPayload = referDirectTrimmed
-    ? UUID_PATTERN.test(referDirectTrimmed)
-      ? { operatorId: referDirectTrimmed }
-      : { operatorUsername: referDirectTrimmed.toLowerCase() }
-    : null;
-
   const handleConfirmRefer = async () => {
-    if (!activeChatId || referBusy) return;
-    if (!referSelected && !referDirectPayload) return;
+    if (!activeChatId || !referSelected || referBusy) return;
     setReferBusy(true);
     setReferError("");
     try {
+      // referTicket resolves to parsed data and throws with the server's
+      // message on rejections (unknown ID, already a member, closed…).
       await referTicket({
         chatId: activeChatId,
         creator: user?.username,
-        ...(referSelected
-          ? { operatorUsername: referSelected.username }
-          : referDirectPayload),
+        operatorUsername: referSelected.username,
       });
       setReferOpen(false);
       setReferSelected(null);
-      setReferDirect("");
       // The server fans out chat_list_changed to every member, which reloads
       // the (now group-shaped) thread for everyone — including this client.
       if (typeof onTicketStatusChanged === "function") {
@@ -1204,7 +1190,6 @@ export default function ChatWindowPanel({
           onClick={() => {
             if (inTicket) return;
             setReferSelected(candidate);
-            setReferDirect("");
           }}
           disabled={inTicket}
           aria-pressed={selected}
@@ -1851,12 +1836,12 @@ export default function ChatWindowPanel({
         </div>
       ) : null}
 
-      {/* Ticket referral picker (dev.8, reworked in dev.9): staff-only
-          operator chooser with three ways to pick a target — search across
-          the whole staff directory (username / nickname / ID), browse by
-          department (click a department to unfold its operators, alias
-          first), or paste an operator ID / username for a direct handoff.
-          Staff already inside the thread stay visible but disabled. */}
+      {/* Ticket referral picker (dev.8, reworked in dev.9/dev.10): staff-only
+          operator chooser with two ways to pick a target — search across the
+          whole staff directory (username / nickname / ID — a pasted UUID
+          matches the operator's ID directly), or browse by department (click
+          a department to unfold its operators, alias first). Staff already
+          inside the thread stay visible but disabled. */}
       {referOpen ? (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
@@ -1996,28 +1981,6 @@ export default function ChatWindowPanel({
                 </>
               )}
             </div>
-            {/* Direct handoff: paste an operator ID (UUID) or username —
-                the server validates the target (staff-only, unbanned). */}
-            <div className="border-t border-slate-100 px-4 py-3 dark:border-white/5">
-              <label
-                htmlFor="ticket-refer-direct-input"
-                className="mb-1 block text-[11px] font-semibold text-slate-500 dark:text-slate-400"
-              >
-                {t("common.ticketReferDirect")}
-              </label>
-              <input
-                id="ticket-refer-direct-input"
-                type="text"
-                value={referDirect}
-                onChange={(e) => {
-                  setReferDirect(e.target.value);
-                  setReferSelected(null);
-                }}
-                placeholder={t("common.ticketReferDirectPlaceholder")}
-                autoComplete="off"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200"
-              />
-            </div>
             {referError ? (
               <p className="px-4 pb-1 text-xs font-medium text-rose-600 dark:text-rose-400">
                 {referError}
@@ -2035,7 +1998,7 @@ export default function ChatWindowPanel({
               <button
                 type="button"
                 onClick={handleConfirmRefer}
-                disabled={(!referSelected && !referDirectPayload) || referBusy}
+                disabled={!referSelected || referBusy}
                 data-testid="ticket-refer-confirm"
                 className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
               >

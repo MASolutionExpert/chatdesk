@@ -2,6 +2,20 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.6.0-dev.1
+
+### Fixed
+
+- 🚨 **The referral picker actually loads its data now — the root cause of "no operators, no departments, search finds nothing" is fixed.** The dev.8 client helpers called the raw `fetch` wrapper and consumed the **`Response` object itself as if it were the parsed body** (`apiFetch` never parses JSON — every other call site in the codebase does its own `res.json()`). So `result.candidates` / `result.departments` were *always* `undefined` on every install, the picker rendered its empty state no matter how many operators or departments existed, and search "never recognized operators". Three helpers in `chatApi.js` now parse the body and **throw with the server's message on HTTP errors** via a shared `readJson`:
+  - `fetchReferCandidates` → parsed `{ candidates, departments }`;
+  - `referTicket` → parsed handoff result — rejections (unknown ID `404`, already a member `409`, closed ticket…) previously vanished silently and the modal closed pretending success;
+  - `setTicketStatus` → parsed `{ chatId, ticketId, status, changed }` — the old code read `result.status` off the Response, which is the **HTTP code (200)**, not `"open"`/`"closed"`, feeding garbage into the ticket-strip state.
+- 🧹 **The redundant "Refer by ID or username" input is removed** — the top search box already covers it: it matches username, nickname, and the operator's **ID (UUID)** across the full staff directory. One input, one purpose, no duplicated UX.
+
+**Tests:** 40 files / 433 client unit tests — six new contract tests in `chatApiHelpdesk.test.js` pin the exact regression: helpers must resolve to parsed data (never a Response) and must throw with the server's message on 403/409/400. Server untouched. Docs: `docs/Helpdesk-Setup.md` (+ FA) updated to the two-way picker.
+
+**خلاصهٔ فارسی:** ریشهٔ واقعی باگ «اپراتوری برای ارجاع وجود ندارد» پیدا و رفع شد: هلپرهای کلاینت خروجی خام `fetch` (شیء Response) را به‌جای دادهٔ JSON مصرف می‌کردند، پس `candidates` و `departments` همیشه undefined بودند و انتخابگر روی هر نصبی خالی می‌ماند. حالا هر سه هلپر (`fetchReferCandidates`، `referTicket`، `setTicketStatus`) بدنه را parse می‌کنند و روی خطای HTTP با پیام سرور خطا پرتاب می‌کنند — قبلاً خطاهای سرور (مثل «اپراتور پیدا نشد» یا «از قبل عضو است») بی‌صدا نادیده گرفته می‌شدند و `setTicketStatus` به‌جای وضعیت تیکت، کد HTTP یعنی ۲۰۰ را به UI می‌داد. کادر تکراری پایین پنجره هم حذف شد — کادر جستجوی بالا با نام کاربری، نام مستعار و شناسهٔ (UUID) اپراتور کار می‌کند.
+
 ## 1.5.0-dev.9
 
 ### Fixed

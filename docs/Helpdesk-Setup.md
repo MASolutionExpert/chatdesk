@@ -77,15 +77,13 @@ Operators are normal accounts with the `operator` role:
 Any staff member can hand a ticket to another operator from inside the chat
 window: the ticket strip (next to **Close ticket**) shows a **Refer ticket**
 button for operators and the owner — customers never see it. The picker offers
-three ways to choose a target:
+two ways to choose a target:
 
 - **Search** across the whole staff directory by username, nickname, or user
-  ID.
+  ID — pasting an operator's UUID into the search box matches them directly.
 - **Browse by department** — click a department to unfold its complete
   operator list (alias first). Operators without a department appear under
   their own "No department" group.
-- **Direct handoff** — paste an operator **ID (UUID)** or **@username** into
-  the "Refer by ID or username" field; the server validates the target.
 
 Candidates are sorted by **recent contact** (most recent exchanged message
 first, marked "Recent"). Staff who are already members of the thread stay

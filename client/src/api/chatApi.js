@@ -154,7 +154,20 @@ export const createDmChat = ({ from, to }) =>
 
 // ─── Helpdesk: departments & support requests ────────────────────────────────
 
+// Parses an apiFetch Response and throws on HTTP errors with the server's
+// message. Helpers that RETURN DATA must never leak a raw Response object —
+// the dev.8 referral picker consumed the Response itself (`result.candidates`
+// on a Response is always undefined) and every install saw "no operators".
+const readJson = async (res) => {
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed (${res.status})`);
+  }
+  return data;
+};
+
 // Lists active support departments for the department picker.
+// NOTE: resolves to the raw Response — callers parse it with res.json().
 export const listDepartments = () =>
   apiFetch(`${API_BASE}/api/departments`);
 
@@ -168,9 +181,10 @@ export const createSupportRequest = ({ departmentId, message, creator }) =>
   });
 
 // Closes or reopens a support ticket (the ticket domain's lifecycle,
-// migration 045). action: "close" | "reopen" — resolves to
-// { chatId, ticketId, status, changed }. Messenger chats have no ticket
-// row and the server refuses the action for them (400 not_a_ticket).
+// migration 045). action: "close" | "reopen" — resolves to the parsed
+// { chatId, ticketId, status, changed }; throws on HTTP errors. Messenger
+// chats have no ticket row and the server refuses the action for them
+// (400 not_a_ticket).
 export const setTicketStatus = ({ chatId, action, creator }) =>
   apiFetch(
     `${API_BASE}/api/support/tickets/${encodeURIComponent(chatId)}/${
@@ -181,22 +195,26 @@ export const setTicketStatus = ({ chatId, action, creator }) =>
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ creator }),
     },
-  );
+  ).then(readJson);
 
-// Staff-only: the referral picker's directory (dev.8, reworked in dev.9) —
-// resolves to { candidates, departments }: every unbanned staff member
-// except the actor (each flagged `inTicket` when already inside the thread),
-// plus the full active department list for the department → operator
-// browser. Sorted by last interaction with the actor (recent contacts first).
+// Staff-only: the referral picker's directory — resolves to the parsed
+// { candidates, departments }: every unbanned staff member except the actor
+// (each flagged `inTicket` when already inside the thread), plus the full
+// active department list for the department → operator browser. Sorted by
+// last interaction with the actor (recent contacts first). Throws on HTTP
+// errors.
 export const fetchReferCandidates = ({ chatId, creator }) =>
   apiFetch(
     `${API_BASE}/api/support/tickets/${encodeURIComponent(chatId)}/refer-candidates?creator=${encodeURIComponent(creator || "")}`,
-  );
+  ).then(readJson);
 
 // Refers a ticket to another operator (dev.8): the support thread becomes a
 // shared private support group, the target joins it as the group owner, and
-// the ticket's primary operator moves to them. Resolves to
-// { chatId, ticketId, converted, referredTo, ticket }.
+// the ticket's primary operator moves to them. Resolves to the parsed
+// { chatId, ticketId, converted, referredTo, ticket }; throws with the
+// server's message on HTTP errors (404 unknown ID, 409 already a member,
+// …) — the old version returned the raw Response and silently swallowed
+// every rejection.
 export const referTicket = ({ chatId, creator, operatorUsername, operatorId }) =>
   apiFetch(
     `${API_BASE}/api/support/tickets/${encodeURIComponent(chatId)}/refer`,
@@ -209,7 +227,7 @@ export const referTicket = ({ chatId, creator, operatorUsername, operatorId }) =
           : { creator, operatorId },
       ),
     },
-  );
+  ).then(readJson);
 
 export const createGroupChat = (payload) =>
   apiFetch(`${API_BASE}/api/chats/group`, {
