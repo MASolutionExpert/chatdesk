@@ -49,6 +49,7 @@ function registerDepartmentRoutes(app, deps) {
     convertSupportChatToGroup,
     setTicketOperatorByChatId,
     listStaffReferCandidates,
+    getUserLanguage,
     writeAdminAuditLog,
   } = deps;
 
@@ -501,12 +502,45 @@ function registerDepartmentRoutes(app, deps) {
       // staff thread) and the referred-to operator becomes the group owner —
       // which keeps the standard group settings (member management, invite,
       // avatar) in staff hands, exactly like any messenger group.
+      //
+      // Group naming: the group is named after the referral itself —
+      // «ارجاع (creator-username)» in Persian / "Refer (creator-username)" in
+      // English — localized by the referring staff member's UI language, so
+      // every member instantly sees whose ticket landed in the group (instead
+      // of a generic department name). Falls back to the department name when
+      // the ticket's customer can no longer be resolved.
       let converted = false;
       if (String(chat.type || "").toLowerCase() === "dm") {
         const department = await awaitMaybe(getDepartmentById(chat.department_id));
+        let referralLabel = "ارجاع";
+        try {
+          const actorLang =
+            typeof getUserLanguage === "function"
+              ? await awaitMaybe(getUserLanguage(actor.id))
+              : "fa";
+          if (String(actorLang || "").toLowerCase() === "en") {
+            referralLabel = "Refer";
+          }
+        } catch {
+          // language lookup is cosmetic — keep the Persian default
+        }
+        let creatorName = null;
+        try {
+          const creator = ticket?.customerId
+            ? await awaitMaybe(findUserById(ticket.customerId))
+            : null;
+          creatorName = creator?.username
+            ? String(creator.username)
+            : null;
+        } catch {
+          // creator lookup is cosmetic — fall back below
+        }
+        const groupName = creatorName
+          ? `${referralLabel} (${creatorName})`
+          : department?.name || "Support";
         await awaitMaybe(
           convertSupportChatToGroup(req.params.chatId, {
-            name: department?.name || "Support",
+            name: groupName,
           }),
         );
         const members =

@@ -30,6 +30,15 @@ export function useContextMenuTrigger({
   isMobile = false,
   holdDelayMs = DEFAULT_HOLD_DELAY_MS,
   moveTolerancePx = MOVE_TOLERANCE_PX,
+  // When true, a DESKTOP right-click that starts on an interactive child
+  // (button/link/input inside this surface) does NOT open this surface's
+  // menu — the inner element's own menu (if any) already handled the event
+  // and bubbling must not overwrite it. Mirrors the interactive-child guard
+  // the mobile long-press path below has always applied. Without this, e.g.
+  // right-clicking a message's sender-name button inside a message bubble
+  // opened the MESSAGE menu, instantly replacing the USER menu the sender
+  // surface had just opened.
+  skipInteractiveChild = false,
   onOpen,
 }) {
   const holdTimerRef = useRef(null);
@@ -83,6 +92,23 @@ export function useContextMenuTrigger({
 
     const onContextMenu = (event) => {
       if (isMobile) return;
+      if (skipInteractiveChild) {
+        const target = event.target instanceof Element ? event.target : null;
+        const surface =
+          event.currentTarget instanceof Element ? event.currentTarget : null;
+        if (target && surface && target !== surface) {
+          const interactive = target.closest(
+            "button, a, input, textarea, select, [role='button']",
+          );
+          if (
+            interactive &&
+            surface.contains(interactive) &&
+            interactive !== surface
+          ) {
+            return;
+          }
+        }
+      }
       event.preventDefault();
       openMenu(event, "desktop");
     };
@@ -177,5 +203,12 @@ export function useContextMenuTrigger({
       onPointerCancel: cancelPointer,
       onClickCapture,
     };
-  }, [disabled, holdDelayMs, isMobile, moveTolerancePx, onOpen]);
+  }, [
+    disabled,
+    holdDelayMs,
+    isMobile,
+    moveTolerancePx,
+    skipInteractiveChild,
+    onOpen,
+  ]);
 }

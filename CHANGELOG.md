@@ -2,6 +2,27 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.6.0-dev.5
+
+### Fixed
+
+- 🏷️ **Referred support groups are now named after the referral itself: «ارجاع (creator-username)» in Persian / "Refer (creator-username)" in English** — instead of the generic department name. The label is localized by the referring staff member's UI language (default fa), and the name carries the ticket creator's username so every member instantly sees whose ticket landed in the group. Falls back to the department name only if the ticket's customer can no longer be resolved. Verified live in the browser: the chat list and the group header both show «ارجاع (customer1)».
+
+- 🚪 **Tapping a member's username in a referred support group no longer kicks you out of the chat page — root cause found in the overlay history-sentinel bookkeeping.** The reported flow was reproduced end-to-end: with a member profile modal open, opening the member context menu ("نمایه و …") and choosing an item closed the menu via its own `history.back()`; the pop landed on the **modal's live sentinel entry**, and the open chat's popstate handler misread "the new top is another LIVE sentinel" as "the pop went past me" — calling `closeChat()` and throwing the user out of the conversation while the modal was still on screen. `useOverlayBack` now keeps a **shared module-level mirror of the sentinel history stack**: a back traversal removes exactly the topmost entry, and only the overlay whose OWN entry was removed reacts — every other overlay (including the open chat) treats the pop as internal bookkeeping and stays put. Stale-sentinel disposal is preserved. Regression test added: "closing a menu that sits above a modal keeps the chat underneath open" (6/6 hook tests green).
+
+- 🖱️ **Right-clicking a member's username in a message now opens the member's own menu (Profile / Chat), not the message menu.** The message container's context-menu trigger overwrote the sender's user menu within the same bubbling pass (Reply/Copy/Forward appeared instead). The desktop right-click path now skips interactive children (sender-name button, avatar, file chip) — the same rule the mobile long-press path has always applied — via a new opt-in `skipInteractiveChild` flag on the message surface.
+
+- 🚫 **The dead-end "گفتگو" (Chat) shortcut is hidden for customer members of support threads** — in the member context menu AND the profile modal. `POST /api/chats/dm` refuses customer↔staff pairs by design ("those are tickets"); inside a referred support group the thread is a GROUP, so no existing DM matched and the client actually attempted to CREATE one, which always failed. Worse, the failure was swallowed: the error went to `profileError`, which is only rendered by the self-profile editor — the button just did nothing. Now: the shortcut is hidden for customer targets (chat role vs. account role disambiguated via `user_role`), staff↔staff DMs inside the group stay available, and any residual DM failure renders inline inside the profile modal (`dmError` prop) instead of vanishing.
+
+**Tests:** 143 server files / 1373 tests green (incl. 3 new referral-naming tests: fa label, en label, fallback); 40 client files / 433 unit tests green; `useOverlayBack` browser tests 6/6 green including the new menu-over-modal regression; ESLint clean. End-to-end verified in a real browser (desktop 1280px): referred group naming, member context menus on sender names and inside the group profile, profile modal navigation with the chat page surviving every path, customer/staff menu differentiation.
+
+**خلاصهٔ فارسی:**
+
+- 🏷️ **نام‌گذاری گروه ارجاع اصلاح شد:** گروه ساپورتی بعد از ارجاع حالا «ارجاع (نام‌کاربریِ سازندهٔ تیکت)» نام می‌گیرد (برای رابط انگلیسی: "Refer (username)")، نه نام دپارتمان. برچسب بر اساس زبانِ رابط کاربریِ کارمندی که ارجاع را انجام داده انتخاب می‌شود و نامِ کاربریِ مشتری داخلش می‌آید تا همه فوراً بفهمند تیکتِ چه کسی در گروه است.
+- 🚪 **پرش از صفحهٔ چت هنگام لمس نام کاربری اعضا ریشه‌یابی و رفع شد.** با باز بودن مودالِ نمایهٔ عضو، وقتی منوی زمینهٔ عضو («نمایه و …») باز و بسته می‌شد، بسته‌شدن منو یک ورودی تاریخچه را `back()` می‌کرد و popstate روی ورودیِ زندهٔ مودال فرود می‌آمد؛ هندلرِ چتِ باز این را «pop از بالای من گذشت» اشتباه می‌گرفت و `closeChat()` را صدا می‌زد — یعنی کاربر وسط کار از صفحهٔ گفتگو بیرون پرت می‌شد. حالا `useOverlayBack` یک آینهٔ مشترک از پشتهٔ ورودی‌های تاریخچه نگه می‌دارد: فقط مالکِ ورودیِ حذف‌شده واکنش نشان می‌دهد و بقیه (از جمله چتِ باز) سر جایشان می‌مانند.
+- 🖱️ **راست‌کلیک روی نام کاربری عضو حالا منوی خودِ عضو (نمایه/گفتگو) را باز می‌کند** نه منوی پیام (پاسخ/کپی/ارسال به دیگران).
+- 🚫 **میان‌بر «گفتگو» برای اعضای مشتریِ رشته‌های ساپورت حذف شد** (در منو و مودال نمایه) — سرور به‌هرحال چت مستقیم مشتری↔کارمند را رد می‌کند و خطای قبلی هم بی‌صدا گم می‌شد. گفتگوی کارمند↔کارمند داخل گروه باقی است و خطاهای باقی‌مانده داخل مودال نمایش داده می‌شوند.
+
 ## 1.6.0-dev.4
 
 ### Fixed

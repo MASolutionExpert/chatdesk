@@ -694,7 +694,10 @@ export const MessageItem = memo(function MessageItem({
     nickname: msg.nickname || "",
     avatar_url: msg.avatar_url || "",
     color: msg.color || "#10b981",
-    role: "",
+    // The member's real app role — the context menu uses it to decide
+    // whether the DM shortcut makes sense (a customer inside a support
+    // group can never receive a direct chat: the server refuses those).
+    role: msg.user_role || "",
   };
   const senderContextMenu = {
     disabled: !canOpenSenderProfile || !onOpenContextMenu,
@@ -708,6 +711,7 @@ export const MessageItem = memo(function MessageItem({
         data: {
           member: senderMenuMember,
           sourceChatType: isGroupChat ? "group" : "dm",
+          sourceChatChannel: chatChannel,
           onOpenProfile: () => onOpenSenderProfile?.(msg),
         },
       }),
@@ -720,6 +724,16 @@ export const MessageItem = memo(function MessageItem({
   const messageContextMenu = {
     disabled: !onOpenContextMenu,
     isMobile: contextMenuMobileEnabled,
+    // A right-click (or long-press) that starts on an interactive child —
+    // the sender-name button, the avatar, a file chip — must open THAT
+    // element's own menu, not this message menu. On touch the long-press
+    // path already skips interactive children; this flag extends the same
+    // rule to the desktop contextmenu path, which otherwise OVERWROTE the
+    // sender's user menu (Profile/Chat) with the message menu within the
+    // same bubbling pass — right-clicking a member's username in a support
+    // group showed Reply/Copy/Forward instead of the member's profile
+    // actions.
+    skipInteractiveChild: true,
     holdDelayMs:
       contextMenuMobileEnabled && canSwipeReply ? 650 : undefined,
     moveTolerancePx:

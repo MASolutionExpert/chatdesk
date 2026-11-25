@@ -376,6 +376,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [filesModalOpen, setFilesModalOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [profileModalMember, setProfileModalMember] = useState(null);
+  // Failure of a DM attempt launched from the profile modal (e.g. the server
+  // refusing a customer↔staff direct chat). Rendered INSIDE the modal so the
+  // action can never fail silently — previously the error went to
+  // `profileError`, which is only displayed by the self-profile editor, so a
+  // refused DM looked like a dead button.
+  const [profileDmError, setProfileDmError] = useState("");
   const [profileInviteLink, setProfileInviteLink] = useState("");
   const [profileInviteLinkLoading, setProfileInviteLinkLoading] = useState(false);
   const [profileRemoteChannelStatus, setProfileRemoteChannelStatus] = useState(null);
@@ -6205,6 +6211,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setProfileInviteLink("");
     setProfileInviteLinkLoading(false);
     setMentionProfile(null);
+    setProfileDmError("");
   };
 
   // Files gallery (opened from the profile panel's "Files" action).
@@ -6668,6 +6675,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const targetUsername = String(member?.username || "").toLowerCase();
     if (!targetUsername) return;
     if (targetUsername === String(user.username || "").toLowerCase()) return;
+    setProfileDmError("");
     try {
       const existingDm = chats.find((chat) => {
         if (chat?.type !== "dm") return false;
@@ -6705,7 +6713,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       );
       setActivePeer(nextPeer || member || null);
     } catch (err) {
-      setProfileError(err.message || t("chat.profileErrors.dmOpenFailed"));
+      // Surface the failure inside the profile modal (profileError is only
+      // rendered by the self-profile editor, so DM refusals were invisible).
+      setProfileDmError(err.message || t("chat.profileErrors.dmOpenFailed"));
     }
   }
 
@@ -7661,6 +7671,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
+            dmError={profileDmError}
             onStartVoiceCall={handleProfileStartVoiceCall}
             onStartVideoCall={handleProfileStartVideoCall}
             callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled}

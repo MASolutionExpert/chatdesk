@@ -110,6 +110,7 @@ describe("ticket referral at the API layer", () => {
     members,
     memberRoles,
     ticket,
+    deps: extraDeps,
   } = {}) {
     const calls = {
       convert: [],
@@ -197,6 +198,7 @@ describe("ticket referral at the API layer", () => {
         deletionService: {
           deleteChat: async () => ({ storedFilesToRemove: [], sseEvents: [] }),
         },
+        ...extraDeps,
       },
     });
     return { app, calls, chatState, ticketState };
@@ -346,9 +348,10 @@ describe("ticket referral at the API layer", () => {
     expect(res.body.referredTo.username).toBe("carol");
     expect(res.body.ticket.operatorId).toBe(carolId);
 
-    // DM → private support group named after the department.
+    // DM → private support group named after the referral: the referring
+    // staff member's UI language decides the label (makeApp defaults to fa).
     expect(calls.convert).toEqual([
-      { chatId: ticketChatId, opts: { name: "Billing" } },
+      { chatId: ticketChatId, opts: { name: "ارجاع (alice)" } },
     ]);
     expect(chatState.type).toBe("group");
     expect(chatState.group_visibility).toBe("private");
@@ -386,6 +389,47 @@ describe("ticket referral at the API layer", () => {
     );
     expect(ticketUpdate.payload.referred).toBe(true);
     expect(ticketUpdate.payload.toUsername).toBe("carol");
+  });
+
+  test("the referral group name localizes by the referring staff's UI language (en → 'Refer (creator)')", async () => {
+    const { app, calls } = createTestApp({
+      chat: dmTicketChat,
+      members: defaultMembers,
+      memberRoles: defaultMemberRoles,
+      ticket: openTicket,
+      deps: { getUserLanguage: () => "en" },
+    });
+    const cookie = await loginCookie(app, "bob");
+
+    const res = await request(app)
+      .post(`/api/support/tickets/${ticketChatId}/refer`)
+      .set("Cookie", cookie)
+      .send({ creator: "bob", operatorUsername: "carol" });
+
+    expect(res.status).toBe(200);
+    expect(calls.convert).toEqual([
+      { chatId: ticketChatId, opts: { name: "Refer (alice)" } },
+    ]);
+  });
+
+  test("the referral group name falls back to the department when the customer cannot be resolved", async () => {
+    const { app, calls } = createTestApp({
+      chat: dmTicketChat,
+      members: defaultMembers,
+      memberRoles: defaultMemberRoles,
+      ticket: { ...openTicket, customerId: "99999999-9999-4999-8999-999999999999" },
+    });
+    const cookie = await loginCookie(app, "bob");
+
+    const res = await request(app)
+      .post(`/api/support/tickets/${ticketChatId}/refer`)
+      .set("Cookie", cookie)
+      .send({ creator: "bob", operatorUsername: "carol" });
+
+    expect(res.status).toBe(200);
+    expect(calls.convert).toEqual([
+      { chatId: ticketChatId, opts: { name: "Billing" } },
+    ]);
   });
 
   test("referring again adds the next operator without re-converting", async () => {
