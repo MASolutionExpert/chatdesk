@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.6.0-dev.3
+# chatdesk-deploy-version: 1.6.0-dev.4
 
 set -uo pipefail
 
@@ -1904,14 +1904,15 @@ rebuild_and_restart_chatdesk() {
 # npm installs on the deployment box rewrite the tracked package-lock.json
 # files (the server's npm version differs from the one that produced the
 # committed lockfiles), so the working tree is dirty by the time the next
-# update runs and `git pull --ff-only` aborts with "Your local changes to the
-# following files would be overwritten by merge". The deployment tree must
-# mirror the remote branch, so stash tracked + untracked local modifications
-# away before every pull — the stash keeps a recoverable copy on the box
-# (`git stash list` inside /opt/chatdesk) instead of destroying anything;
-# a clean tree simply produces "No local changes to save" and moves on.
+# update runs and BOTH `git checkout <branch>` and `git pull --ff-only` abort
+# with "Your local changes to the following files would be overwritten".
+# The deployment tree must mirror the remote branch, so stash tracked +
+# untracked local modifications away BEFORE every checkout/pull — the stash
+# keeps a recoverable copy on the box (`git stash list` inside /opt/chatdesk)
+# instead of destroying anything; a clean tree simply produces "No local
+# changes to save" and moves on.
 discard_repo_local_changes() {
-  run_in_install_dir "git stash push --include-untracked -m 'chatdesk-updater auto-stash before pull'" >/dev/null 2>&1 || true
+  run_in_install_dir "git stash push --include-untracked -m 'chatdesk-updater auto-stash before checkout'" >/dev/null 2>&1 || true
 }
 
 clone_repo() {
@@ -1920,8 +1921,8 @@ clone_repo() {
   if run_as_root test -d "$INSTALL_DIR/.git"; then
     log "Repository exists at ${INSTALL_DIR}. Updating source..."
     run_in_install_dir "git fetch --all --prune" || return 1
-    run_in_install_dir "git checkout ${REPO_BRANCH}" || return 1
     discard_repo_local_changes
+    run_in_install_dir "git checkout ${REPO_BRANCH}" || return 1
     run_in_install_dir "git pull --ff-only origin ${REPO_BRANCH}" || return 1
     write_install_config || true
     return 0
@@ -4134,14 +4135,16 @@ update_chatdesk_run() {
     log "Update available. Preparing to update ChatDesk..."
     preserve_backup_and_restore_data
 
-    # Ensure we're on the tracked branch and pull latest
+    # Ensure we're on the tracked branch and pull latest. Stash BEFORE the
+    # checkout: npm-rewritten lockfiles make the tree dirty and checkout
+    # refuses to run on it (the pull would fail the same way).
+    discard_repo_local_changes
     if ! run_in_install_dir "git checkout ${active_branch}"; then
       warn "Failed to checkout ${active_branch} branch."
       press_enter_to_continue
       return 1
     fi
 
-    discard_repo_local_changes
     if ! run_in_install_dir "git pull --ff-only origin ${active_branch}"; then
       warn "Failed to pull updates. Repository may have non-fast-forward changes."
       press_enter_to_continue
@@ -4237,13 +4240,13 @@ switch_release_channel() {
 
   preserve_backup_and_restore_data
 
+  discard_repo_local_changes
   if ! run_in_install_dir "git checkout ${target_branch}"; then
     warn "Failed to checkout ${target_branch}."
     restore_chatdesk_service_after_update
     press_enter_to_continue
     return 1
   fi
-  discard_repo_local_changes
   if ! run_in_install_dir "git pull --ff-only origin ${target_branch}"; then
     warn "Failed to pull ${target_branch}. Repository may have non-fast-forward changes."
     restore_chatdesk_service_after_update

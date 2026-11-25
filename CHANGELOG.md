@@ -2,6 +2,18 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.6.0-dev.4
+
+### Fixed
+
+- 🛠️ **The updater could no longer update a self-hosted install: `git checkout dev` aborted with "Your local changes to the following files would be overwritten by checkout: client/package-lock.json, server/package-lock.json"** — reported by a production deployment (`[ERROR] Command failed … git checkout dev … Aborting`, then "WARNING: Failed to checkout dev"). Root cause: `npm install` on the deployment box (whose npm version differs from the one that produced the committed lockfiles) rewrites the tracked `package-lock.json` files, so the working tree is dirty by the time the NEXT update runs — and the updater ran its stash helper (`discard_repo_local_changes`) **after** the `git checkout` instead of **before** it, protecting the pull but leaving the checkout to hit the dirty tree and abort. The updater became unable to update itself past any dirty tree.
+  - The stash now runs **before every `git checkout`** at all three call sites: the initial update path (`clone_repo`), the in-app update flow (`checkout active branch`), and the **channel switch** flow (dev ↔ main). Nothing is destroyed — the auto-stash keeps a recoverable copy on the box (`git stash list` inside /opt/chatdesk), and a clean tree simply produces "No local changes to save" and moves on.
+  - Recovery for the affected box: re-run the dev one-liner (`curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/dev/scripts/install.sh | REPO_BRANCH=dev bash`) — the freshly downloaded script stashes first and the checkout succeeds.
+
+**Tests:** `bash -n scripts/install.sh` clean; stash-before-checkout ordering verified by inspection at all three call sites; no server/client code touched (previous suites unchanged: 1371 server + 433 client green).
+
+**خلاصهٔ فارسی:** آپدیت‌کننده روی نصب‌های خودمیزبان دیگر کار نمی‌کرد و با خطای «Your local changes … would be overwritten by checkout: package-lock.json» متوقف می‌شد. علت: `npm install` روی سرورِ استقرار، فایل‌های `package-lock.json` تحتِ گیت را بازنویسی می‌کند (نسخهٔ npm سرور با نسخهٔ سازندهٔ lockfile ها فرق دارد) و درخت کاری موقع آپدیتِ بعدی آلوده (dirty) است — ولی آپدیت‌کننده دستور stash را **بعد از** `git checkout` اجرا می‌کرد نه **قبل از** آن؛ یعنی فقط pull محافظت می‌شد و checkout روی درخت آلوده متوقف می‌شد. اصلاح: stash حالا در هر سه مسیر (آپدیت اولیه، جریان آپدیت درون‌برنامه‌ای، و سوییچ کانال dev↔main) **قبل از** هر checkout اجرا می‌شود. هیچ‌چیز از بین نمی‌رود — نسخهٔ خودکار stash روی سرور قابل بازیابی است (`git stash list` داخل /opt/chatdesk). **برای رفع فوری روی سرور:** یک‌لاینر dev را دوباره اجرا کنید — اسکریپتِ تازه‌دانلودشده اول stash می‌زند و checkout موفق می‌شود.
+
 ## 1.6.0-dev.3
 
 ### Fixed
