@@ -1,5 +1,10 @@
 import rateLimit from "express-rate-limit";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
+import {
+  chatMessageScope,
+  messagePermissionKey,
+  callHistoryPermissionKey,
+} from "../lib/permissions.js";
 import { createMessagePublicationService } from "../lib/services/messagePublicationService.js";
 import { dispatchMediaWorkerJob } from "../lib/mediaWorker.js";
 import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
@@ -73,7 +78,27 @@ function registerMessageRoutes(app, deps) {
     enqueueVideoTranscodeJob,
     markMessagesRead,
     markMessageRead,
+    // Configurable permission system (1.7.0): registry-driven role checks.
+    hasPermission,
   } = deps;
+
+  // Permission gate helper (see departments.js): denies with 403 when the
+  // actor's account role lacks the registry permission; fails open only
+  // when the permission service is not wired (legacy dep stubs).
+  async function requirePermission(res, role, permissionKey, message) {
+    if (typeof hasPermission !== "function") return true;
+    let allowed = true;
+    try {
+      allowed = await hasPermission(role, permissionKey);
+    } catch {
+      allowed = true;
+    }
+    if (!allowed) {
+      res.status(403).json({ error: message, code: "permission_denied" });
+      return false;
+    }
+    return true;
+  }
 
   const safeBasename = (p) => {
     if (path && typeof path.basename === "function") return path.basename(p);
@@ -126,12 +151,6 @@ function registerMessageRoutes(app, deps) {
       // ignore
     }
   };
-
-  // Role model (migration 047): owner + operator (the retired "admin" role
-  // was normalized to operator). Moderation here = message editing only —
-  // deletion is owner-only (see POST /api/messages/delete).
-  const isModeratorRole = (role) =>
-    ["owner", "operator"].includes(String(role || "").toLowerCase());
 
   // Short human-readable preview of a deleted message for the audit log.
   const summarizeMessageForAudit = (message) => {
@@ -1058,6 +1077,25 @@ function registerMessageRoutes(app, deps) {
               .json({ error: "Only channel owner can send messages." });
           }
         }
+        // Permission registry (1.7.0): 'dm.send' gates file uploads in
+        // messenger (direct) chats.
+        if (chatMessageScope(chat) === "dm") {
+          const allowed = await (async () => {
+            try {
+              if (typeof hasPermission !== "function") return true;
+              return await hasPermission(user.role, "dm.send");
+            } catch {
+              return true;
+            }
+          })();
+          if (!allowed) {
+            removeUploadedFiles(uploadedFiles);
+            return res.status(403).json({
+              error: "You do not have permission to send direct messages.",
+              code: "permission_denied",
+            });
+          }
+        }
         if (replyToMessageId && editMessageId) {
           removeUploadedFiles(uploadedFiles);
           return res.status(400).json({
@@ -1088,13 +1126,25 @@ function registerMessageRoutes(app, deps) {
               error: "Only the message author can edit this message.",
             });
           }
-          // Regular users must never edit messages — even their own.
-          // Moderators (owner/admin/operator) only.
-          if (!isModeratorRole(user.role)) {
-            removeUploadedFiles(uploadedFiles);
-            return res.status(403).json({
-              error: "Only moderators can edit messages.",
-            });
+          // Permission registry (1.7.0): edit allowance is per chat scope
+          // (ticket/dm/group) and configurable per role.
+          {
+            const editKey = messagePermissionKey(chat, "edit");
+            const allowed = await (async () => {
+              try {
+                if (typeof hasPermission !== "function") return true;
+                return await hasPermission(user.role, editKey);
+              } catch {
+                return true;
+              }
+            })();
+            if (!allowed) {
+              removeUploadedFiles(uploadedFiles);
+              return res.status(403).json({
+                error: "You do not have permission to edit messages.",
+                code: "permission_denied",
+              });
+            }
           }
         }
 
@@ -1926,6 +1976,21 @@ function registerMessageRoutes(app, deps) {
       }
     }
 
+    // Permission registry (1.7.0): 'dm.send' gates writing in messenger
+    // (direct) chats. Ticket threads and groups have their own send rules.
+    if (chatMessageScope(chat) === "dm") {
+      if (
+        !(await requirePermission(
+          res,
+          user.role,
+          "dm.send",
+          "You do not have permission to send direct messages.",
+        ))
+      ) {
+        return;
+      }
+    }
+
     // Ticket lifecycle (migration 045): a CLOSED support ticket stops
     // accepting messages. The conversation is archived, not deleted — either
     // party can reopen it via POST /api/support/tickets/:chatId/reopen.
@@ -2067,10 +2132,18 @@ function registerMessageRoutes(app, deps) {
     if (!isMessageAuthoredByUser(message, user.id)) {
       return res.status(403).json({ error: "Only the author can edit this message." });
     }
-    // Regular users must never edit messages — even their own.
-    // Moderators (owner/admin/operator) only.
-    if (!isModeratorRole(user.role)) {
-      return res.status(403).json({ error: "Only moderators can edit messages." });
+    // Permission registry (1.7.0): edit allowance is per chat scope
+    // (ticket/dm/group) and configurable per role. Previously a bare
+    // moderator-role check (owner/operator only).
+    if (
+      !(await requirePermission(
+        res,
+        user.role,
+        messagePermissionKey(chat, "edit"),
+        "You do not have permission to edit messages.",
+      ))
+    ) {
+      return;
     }
 
     const editRes = editMessage(messageId, trimmedBody);
@@ -2105,17 +2178,25 @@ function registerMessageRoutes(app, deps) {
     if (!user) {
       return res.status(404).json({ error: "User not found." });
     }
-    // Deletion policy: ChatDesk is an organizational messenger and ticketing
-    // system — message deletion is destructive and must stay centralized.
-    // ONLY the instance owner may delete messages (neither scope, neither
-    // role). Regular users, admins, and operators are all rejected, and every
-    // owner deletion is recorded in the admin audit log (گزارش‌ها).
-    const ownerDelete = String(user.role || "").toLowerCase() === "owner";
-    if (!ownerDelete) {
-      return res.status(403).json({
-        error: "Only the owner can delete messages.",
-      });
-    }
+    // Deletion policy (configurable permissions, 1.7.0): ChatDesk is an
+    // organizational messenger and ticketing system — message deletion is
+    // destructive and stays centralized. The registry gates it per chat
+    // scope: 'dm.message.delete_any' / 'ticket.message.delete_any' /
+    // 'group.message.delete_any' allow deleting ANY message for everyone;
+    // 'dm.message.delete_own' additionally lets the AUTHOR remove their own
+    // message from their own view (self scope). Previously ONLY the instance
+    // owner could delete — that remains true by default; the owner can now
+    // extend it per role from the admin panel. Every deletion is audited.
+    const isOwner = String(user.role || "").toLowerCase() === "owner";
+    const permCheck = async (permissionKey) => {
+      if (isOwner) return true; // owner always full (registry rule)
+      if (typeof hasPermission !== "function") return false; // legacy stubs behave pre-1.7
+      try {
+        return await hasPermission(user.role, permissionKey);
+      } catch {
+        return false; // destructive action → fail closed on service errors
+      }
+    };
     // The owner may delete messages in any chat — membership is not required
     // for the system owner (they are not a member of most support tickets).
     const rawMessage = findMessageById(messageId);
@@ -2123,19 +2204,23 @@ function registerMessageRoutes(app, deps) {
     if (!message || message.chat_id !== chatId) {
       return res.status(404).json({ error: "Message not found." });
     }
+    const rawChat = findChatById(chatId);
+    const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found." });
+    }
 
     const deleteScope = String(scope || "").toLowerCase() === "everyone"
       ? "everyone"
       : "self";
 
     if (deleteScope === "everyone") {
-      const rawChat = findChatById(chatId);
-      const chat = rawChat && typeof rawChat.then === "function" ? await rawChat : rawChat;
-      if (!chat) {
-        return res.status(404).json({ error: "Chat not found." });
+      if (!(await permCheck(messagePermissionKey(chat, "delete_any")))) {
+        return res.status(403).json({
+          error: "You do not have permission to delete messages.",
+          code: "permission_denied",
+        });
       }
-      // Owner-only: no other actor (group owner, admin, operator, author)
-      // may delete a message for everyone.
       const h = hideMessageForEveryone(message.id);
       if (h && typeof h.then === "function") await h;
       emitChatEvent(chatId, {
@@ -2154,6 +2239,16 @@ function registerMessageRoutes(app, deps) {
       return res.json({ ok: true, scope: "everyone", id: message.id });
     }
 
+    const selfAllowed =
+      (await permCheck(messagePermissionKey(chat, "delete_any"))) ||
+      (isMessageAuthoredByUser(message, user.id) &&
+        (await permCheck(messagePermissionKey(chat, "delete_own"))));
+    if (!selfAllowed) {
+      return res.status(403).json({
+        error: "You do not have permission to delete messages.",
+        code: "permission_denied",
+      });
+    }
     const hSelf = hideMessageForUser(message.id, user.id);
     if (hSelf && typeof hSelf.then === "function") await hSelf;
     logModerationAudit({

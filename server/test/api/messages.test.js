@@ -374,7 +374,7 @@ describe("POST /api/messages/edit", () => {
       .set("Cookie", cookie)
       .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, body: "New body" });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/moderator/i);
+    expect(res.body.error).toMatch(/do not have permission to edit/i);
   });
 
   test("returns 200 on successful edit", async () => {
@@ -453,34 +453,35 @@ describe("POST /api/messages/delete", () => {
     expect(res.status).toBe(400);
   });
 
-  // Deletion policy: ONLY the instance owner may delete messages —
-  // regular users, admins, and operators are all rejected.
+  // Deletion policy (configurable permissions, 1.7.0): by registry default
+  // only the owner carries the delete permissions — regular users, admins,
+  // and operators are all rejected with permission_denied.
   test("regular users cannot delete messages (even their own)", async () => {
     const { app } = makeDeleteApp({}, "user");
     const res = await loginAndDelete(app, { scope: "self" });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/only the owner/i);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
   });
 
   test("operators cannot delete messages (403)", async () => {
     const { app } = makeDeleteApp({}, "operator");
     const res = await loginAndDelete(app, { scope: "self" });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/only the owner/i);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
   });
 
   test("operators cannot delete for everyone either (403)", async () => {
     const { app } = makeDeleteApp({}, "operator");
     const res = await loginAndDelete(app, { scope: "everyone" });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/only the owner/i);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
   });
 
   test("admins cannot delete messages (403)", async () => {
     const { app } = makeDeleteApp({}, "admin");
     const res = await loginAndDelete(app, { scope: "everyone" });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/only the owner/i);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
   });
 
   test("owner deletes for self by default (scope: self) and the deletion is audited", async () => {

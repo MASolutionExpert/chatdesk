@@ -324,7 +324,7 @@ describe("ticket referral at the API layer", () => {
       .set("Cookie", cookie);
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/only staff/i);
+    expect(res.body.error).toMatch(/do not have permission to refer/i);
   });
 
   // ─── refer: happy paths ────────────────────────────────────────────────────
@@ -486,7 +486,7 @@ describe("ticket referral at the API layer", () => {
       .send({ creator: "alice", operatorUsername: "carol" });
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/only staff/i);
+    expect(res.body.error).toMatch(/do not have permission to refer/i);
     expect(calls.convert).toEqual([]);
   });
 
@@ -616,7 +616,7 @@ describe("ticket referral at the API layer", () => {
       .send({ username: "carol", password: "secret123" });
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/only the owner can delete tickets/i);
+    expect(res.body.error).toMatch(/do not have permission to delete tickets/i);
   });
 
   test("the last staff member cannot abandon a referred ticket by leaving", async () => {

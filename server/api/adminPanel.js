@@ -1,4 +1,9 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
+import {
+  PERMISSION_DEFS,
+  PERMISSION_GROUPS,
+  CONFIGURABLE_ROLES,
+} from "../lib/permissions.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { validateUuidParams } from "../lib/uuidMiddleware.js";
 import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
@@ -442,6 +447,87 @@ function registerAdminPanelRoutes(app, deps) {
       // Logging must never break the request flow.
     }
   };
+
+  // ─── Permissions (configurable role permission matrix, 1.7.0) ─────────────
+  //
+  // The registry (server/lib/permissions.js) is the source of truth for the
+  // permission list, labels and built-in defaults; the role_permissions
+  // table stores admin overrides per (role, permission). The owner role is
+  // intentionally absent — the owner ALWAYS has every permission.
+
+  app.get("/api/admin/permissions", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const service = deps.permissionsService;
+    if (!service) {
+      return res.status(503).json({ error: "Permission service unavailable." });
+    }
+    const matrix = await service.getMatrix();
+    const defsByKey = new Map(PERMISSION_DEFS.map((d) => [d.key, d]));
+    const permissions = matrix.permissions.map((entry) => {
+      const def = defsByKey.get(entry.key) || {};
+      return {
+        key: entry.key,
+        group: def.group || null,
+        labelEn: def.labelEn || entry.key,
+        labelFa: def.labelFa || entry.key,
+        descEn: def.descEn || null,
+        descFa: def.descFa || null,
+        roles: entry.roles,
+      };
+    });
+    res.json({
+      roles: matrix.roles,
+      ownerAlwaysFull: true,
+      groups: PERMISSION_GROUPS,
+      permissions,
+      overrides: await service.listOverrides(),
+    });
+  });
+
+  app.put("/api/admin/permissions", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const service = deps.permissionsService;
+    if (!service) {
+      return res.status(503).json({ error: "Permission service unavailable." });
+    }
+    const role = String(req.body?.role || "").trim().toLowerCase();
+    const permission = String(req.body?.permission || "").trim();
+    const allowed = req.body?.allowed;
+    if (!CONFIGURABLE_ROLES.includes(role)) {
+      return res.status(400).json({
+        error: "Role must be 'operator' or 'user' (the owner always has full access).",
+      });
+    }
+    if (!permission) {
+      return res.status(400).json({ error: "Permission key is required." });
+    }
+    if (allowed !== null && allowed !== undefined && typeof allowed !== "boolean") {
+      return res.status(400).json({
+        error: "'allowed' must be true, false, or null (null resets to the default).",
+      });
+    }
+    try {
+      const effective = await service.setOverride({
+        role,
+        permission,
+        allowed: allowed === undefined ? null : allowed,
+      });
+      log(session, "permission.update", {
+        targetType: "permission",
+        targetLabel: `${role}:${permission}`,
+        details: {
+          role,
+          permission,
+          allowed: allowed === undefined || allowed === null ? null : Boolean(allowed),
+          effective,
+        },
+      });
+      res.json({ ok: true, role, permission, effective });
+    } catch (err) {
+      res.status(400).json({ error: String(err?.message || "Invalid permission update.") });
+    }
+  });
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
 

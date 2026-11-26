@@ -14,6 +14,11 @@ import { createSessionHelpers } from "../../lib/sessions.js";
 import { USER_COLORS } from "../../settings/colors.js";
 import { createStorageProvider } from "../../lib/storage/index.js";
 import { generateUuid } from "../../lib/uuidUtils.js";
+import {
+  ALL_PERMISSION_KEYS,
+  CONFIGURABLE_ROLES,
+  getDefaultPermission,
+} from "../../lib/permissions.js";
 
 // ─── Minimal in-memory session store ─────────────────────────────────────────
 
@@ -438,6 +443,74 @@ export function makeApp(overrides = {}) {
       };
     })(),
     isUserOwner: () => false,
+    // ── Configurable permission system (1.7.0) ──
+    // Default: registry built-in defaults, i.e. EXACTLY the pre-1.7 hard-coded
+    // behaviour — so every existing test keeps passing unchanged. Tests that
+    // exercise permission overrides replace these via `overrides.deps`.
+    hasPermission: (role, permissionKey) => getDefaultPermission(role, permissionKey),
+    getAllowedPermissions: (role) =>
+      ALL_PERMISSION_KEYS.filter((key) => getDefaultPermission(role, key)),
+    // In-memory override store mirroring the role_permissions table semantics.
+    permissionsService: (() => {
+      const overrideMap = new Map(); // "role:permission" -> 0|1
+      const overridesFor = (role) => {
+        const obj = {};
+        for (const [k, v] of overrideMap) {
+          const [r, p] = k.split(":");
+          if (r === role) obj[p] = v;
+        }
+        return obj;
+      };
+      const effective = (role, key) => {
+        if (String(role).toLowerCase() === "owner") return true;
+        const o = overridesFor(role)[key];
+        if (o === 0 || o === 1) return Boolean(o);
+        return getDefaultPermission(role, key);
+      };
+      return {
+        __overrides: overrideMap,
+        isAllowed: async (role, key) => effective(role, key),
+        getAllowedKeys: async (role) =>
+          ALL_PERMISSION_KEYS.filter((key) => effective(role, key)),
+        getMatrix: async () => ({
+          roles: CONFIGURABLE_ROLES,
+          permissions: ALL_PERMISSION_KEYS.map((key) => ({
+            key,
+            roles: Object.fromEntries(
+              CONFIGURABLE_ROLES.map((role) => [
+                role,
+                {
+                  default: getDefaultPermission(role, key),
+                  override: overridesFor(role)[key] === 0 ? false : overridesFor(role)[key] === 1 ? true : null,
+                  effective: effective(role, key),
+                },
+              ]),
+            ),
+          })),
+        }),
+        listOverrides: async () =>
+          [...overrideMap.entries()].map(([k, v]) => {
+            const [role, permission] = k.split(":");
+            return { role, permission, allowed: v };
+          }),
+        setOverride: async ({ role, permission, allowed }) => {
+          const r = String(role).toLowerCase();
+          if (!CONFIGURABLE_ROLES.includes(r)) {
+            throw new Error(`Role '${role}' is not configurable (owner always has full access).`);
+          }
+          if (!ALL_PERMISSION_KEYS.includes(permission)) {
+            throw new Error(`Unknown permission '${permission}'.`);
+          }
+          if (allowed === null || allowed === undefined) {
+            overrideMap.delete(`${r}:${permission}`);
+          } else {
+            overrideMap.set(`${r}:${permission}`, allowed ? 1 : 0);
+          }
+          return effective(r, permission);
+        },
+        invalidate: () => {},
+      };
+    })(),
     getOwnerUser: () => null,
     getAdminStats: () => ({}),
     adminListUsers: () => [],

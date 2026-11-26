@@ -1,5 +1,6 @@
 import { createCallManager } from "../lib/callManager.js";
 import { validateUuidBody } from "../lib/uuidMiddleware.js";
+import { callHistoryPermissionKey } from "../lib/permissions.js";
 
 /**
  * Register HTTP routes for WebRTC call setup and signaling fallback.
@@ -71,6 +72,27 @@ export function registerCallRoutes(app, deps) {
     }
     if (type === "video" && !videoCallsEnabled()) {
       return res.status(403).json({ error: "Video calls are disabled on this server" });
+    }
+    // Permission registry (1.7.0): 'call.voice' / 'call.video' gate who may
+    // start calls (owner always allowed; operator/user configurable). The
+    // instance-level CALL/CALL_VIDEO feature flags stay independent.
+    if (typeof deps.hasPermission === "function") {
+      const callKey = type === "video" ? "call.video" : "call.voice";
+      let allowed = true;
+      try {
+        allowed = await deps.hasPermission(user.role, callKey);
+      } catch {
+        allowed = true; // fail-open on service errors; defaults preserve legacy
+      }
+      if (!allowed) {
+        return res.status(403).json({
+          error:
+            type === "video"
+              ? "You do not have permission to start video calls."
+              : "You do not have permission to start calls.",
+          code: "permission_denied",
+        });
+      }
     }
     const result = await callManager.startCall({ user, chatId, type });
     if (result.error) {
@@ -236,6 +258,26 @@ export function registerCallRoutes(app, deps) {
       }
       if (!String(message.body || "").startsWith("[[call:")) {
         return res.status(400).json({ error: "Not a call entry" });
+      }
+
+      // Permission registry (1.7.0): deleting a call-history entry is gated
+      // per call kind — 'call.history.delete' (voice) vs
+      // 'call.video.history.delete'. Owner always allowed; previously any
+      // member could remove their own copy.
+      const callDeleteKey = callHistoryPermissionKey(message.body);
+      if (callDeleteKey && typeof deps.hasPermission === "function") {
+        let allowed = true;
+        try {
+          allowed = await deps.hasPermission(user.role, callDeleteKey);
+        } catch {
+          allowed = true;
+        }
+        if (!allowed) {
+          return res.status(403).json({
+            error: "You do not have permission to delete call history.",
+            code: "permission_denied",
+          });
+        }
       }
 
       await awaiting(hideMessageForUser?.(message.id, user.id));

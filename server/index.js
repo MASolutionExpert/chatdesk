@@ -13,6 +13,7 @@ import multer from "multer";
 import webpush from "web-push";
 import { registerApiRoutes } from "./api/index.js";
 import { ensureValidVapidKeys } from "./lib/vapid.js";
+import { createPermissionService } from "./lib/permissionService.js";
 import { createSseHub } from "./lib/sse.js";
 import { createWebSocketGateway } from "./lib/websocketGateway.js";
 import { createPresenceTracker } from "./lib/presenceTracker.js";
@@ -41,6 +42,7 @@ import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readDbConfig, parseEnv } from "./settings/env.js";
 import { createPostgresMaintenance } from "./lib/postgresMaintenance.js";
 import { dbKnex } from "./db/knex.js";
+import { getAll, run } from "./db.js";
 import {
   addAllEligibleChatMembers,
   addChatMember,
@@ -1294,6 +1296,21 @@ if (isProduction) {
   app.use("/api/login", authLimiter);
   app.use("/api/register", authLimiter);
 }
+
+// ── Configurable permission system (1.7.0) ────────────────────────────────
+// Registry-driven role permissions: the registry lives in lib/permissions.js,
+// this service resolves effective allowances from the role_permissions
+// override table (migration 048) and exposes them to every route through
+// deps. The instance owner always has every permission (service-level bypass).
+const permissionService = createPermissionService({
+  getAll,
+  run,
+  knex: dbKnex,
+});
+apiDeps.permissionsService = permissionService;
+apiDeps.hasPermission = (role, permissionKey) =>
+  permissionService.isAllowed(role, permissionKey);
+apiDeps.getAllowedPermissions = (role) => permissionService.getAllowedKeys(role);
 
 registerApiRoutes(app, apiDeps);
 

@@ -21,7 +21,23 @@ function registerAuthRoutes(app, deps) {
     updateLastSeen,
     getSessionFromRequest,
     hasAnyUser,
+    // Configurable permission system (1.7.0): /api/me, /api/login and
+    // /api/register embed the caller's allowed registry keys so the client
+    // can hide gated UI. Server-side routes always re-check server-side.
+    getAllowedPermissions,
   } = deps;
+
+  // Returns the permission array for the response, or undefined when the
+  // permission service is not wired (keeps older dep stubs compatible).
+  const permissionsForRole = async (role) => {
+    if (typeof getAllowedPermissions !== "function") return undefined;
+    try {
+      const keys = await getAllowedPermissions(role);
+      return Array.isArray(keys) ? keys : undefined;
+    } catch {
+      return undefined;
+    }
+  };
 
   app.post("/api/register", async (req, res) => {
     if (!getSetting("SIGN_UP")) {
@@ -121,6 +137,7 @@ function registerAuthRoutes(app, deps) {
       color: assignedColor,
       status: "online",
       role: firstUser ? "owner" : "user",
+      permissions: await permissionsForRole(firstUser ? "owner" : "user"),
     });
   });
 
@@ -154,6 +171,8 @@ function registerAuthRoutes(app, deps) {
     await createSession(user.id, token);
     setSessionCookie(req, res, token);
 
+    const role = user.role || "user";
+
     return res.json({
       id: user.id,
       username: user.username,
@@ -161,7 +180,8 @@ function registerAuthRoutes(app, deps) {
       avatarUrl: ensureAvatarExists(user.id, user.avatar_url) || null,
       color: user.color || USER_COLORS[0],
       status: user.status || "online",
-      role: user.role || "user",
+      role,
+      permissions: await permissionsForRole(role),
     });
   });
 
@@ -172,6 +192,8 @@ function registerAuthRoutes(app, deps) {
       return res.status(401).json({ error: "Not authenticated." });
     }
 
+    const role = session.role || "user";
+
     res.json({
       id: session.id,
       username: session.username,
@@ -179,8 +201,11 @@ function registerAuthRoutes(app, deps) {
       avatarUrl: ensureAvatarExists(session.id, session.avatar_url) || null,
       color: session.color || USER_COLORS[0],
       status: session.status || "online",
-      role: session.role || "user",
+      role,
       verified: Boolean(session.verified),
+      // Configurable permission system (1.7.0): allowed registry keys for
+      // this role. The owner receives the full registry (service bypass).
+      permissions: await permissionsForRole(role),
       // Owner-impersonation stamp (migration 046): present only when this
       // session was minted through the admin panel's "login as user". Lets
       // the client render the monitoring banner + "return to admin" action.

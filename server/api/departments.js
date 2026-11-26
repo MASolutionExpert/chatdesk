@@ -51,7 +51,27 @@ function registerDepartmentRoutes(app, deps) {
     listStaffReferCandidates,
     getUserLanguage,
     writeAdminAuditLog,
+    // Configurable permission system (1.7.0): registry-driven role checks.
+    hasPermission,
   } = deps;
+
+  // Permission gate helper: denies with 403 when the actor's account role
+  // lacks the registry permission (owner short-circuits to true). Falls
+  // open only when the permission service itself is not wired.
+  async function requirePermission(res, role, permissionKey, message) {
+    if (typeof hasPermission !== "function") return true;
+    let allowed = true;
+    try {
+      allowed = await hasPermission(role, permissionKey);
+    } catch {
+      allowed = true; // fail-open on service errors; defaults preserve legacy behaviour
+    }
+    if (!allowed) {
+      res.status(403).json({ error: message, code: "permission_denied" });
+      return false;
+    }
+    return true;
+  }
 
   const awaitMaybe = async (value) => await value;
 
@@ -76,6 +96,24 @@ function registerDepartmentRoutes(app, deps) {
         return res.status(400).json({ error: "Creator is required." });
       }
       if (!requireSessionUsernameMatch(res, session, creator)) return;
+
+      const rawCreator = findUserByUsername(String(creator).toLowerCase());
+      const creatorUser = rawCreator && typeof rawCreator.then === "function" ? await rawCreator : rawCreator;
+      if (!creatorUser) {
+        return res.status(404).json({ error: "User not found." });
+      }
+      // Permission registry (1.7.0): 'ticket.create' gates who may open
+      // support tickets (owner always allowed; operator/user configurable).
+      if (
+        !(await requirePermission(
+          res,
+          creatorUser.role,
+          "ticket.create",
+          "You do not have permission to create tickets.",
+        ))
+      ) {
+        return;
+      }
 
       const department = await awaitMaybe(getDepartmentById(departmentId));
       if (!department || !department.active) {
@@ -260,6 +298,19 @@ function registerDepartmentRoutes(app, deps) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
+    // Permission registry (1.7.0): 'ticket.close' gates both close and
+    // reopen (owner always allowed; operator/user configurable).
+    if (
+      !(await requirePermission(
+        res,
+        user.role,
+        "ticket.close",
+        "You do not have permission to close or reopen tickets.",
+      ))
+    ) {
+      return;
+    }
+
     const ticket = await awaitMaybe(getTicketByChatId(chatId));
     const wasClosed = ticket ? ticket.status === "closed" : false;
     const target = nextStatus;
@@ -383,7 +434,19 @@ function registerDepartmentRoutes(app, deps) {
         return res.status(404).json({ error: "User not found." });
       }
       if (!isStaffRole(actor.role)) {
-        return res.status(403).json({ error: "Only staff can refer tickets." });
+        // Permission registry (1.7.0): 'ticket.refer' replaces the bare
+        // staff-role check — operators carry it by default, the owner
+        // always does, and admins can grant it to the user role.
+        if (
+          !(await requirePermission(
+            res,
+            actor.role,
+            "ticket.refer",
+            "You do not have permission to refer tickets.",
+          ))
+        ) {
+          return;
+        }
       }
 
       const rawChat = findChatById(req.params.chatId);
@@ -456,7 +519,19 @@ function registerDepartmentRoutes(app, deps) {
         return res.status(404).json({ error: "User not found." });
       }
       if (!isStaffRole(actor.role)) {
-        return res.status(403).json({ error: "Only staff can refer tickets." });
+        // Permission registry (1.7.0): 'ticket.refer' replaces the bare
+        // staff-role check — operators carry it by default, the owner
+        // always does, and admins can grant it to the user role.
+        if (
+          !(await requirePermission(
+            res,
+            actor.role,
+            "ticket.refer",
+            "You do not have permission to refer tickets.",
+          ))
+        ) {
+          return;
+        }
       }
 
       const rawChat = findChatById(req.params.chatId);
