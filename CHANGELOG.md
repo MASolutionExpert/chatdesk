@@ -2,6 +2,30 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.1
+
+### Added
+
+- 🔐 **Admin Panel → Permissions: a full role × permission management system, rebuilt from the roots.** Every previously hard-coded role check in ChatDesk is now a configurable matrix. The owner decides who may do what — per role, with a switch for each of the 22 registry permissions, grouped into **Tickets / Direct messages / Calls / Groups & channels**:
+  - **Tickets**: create tickets, close & reopen, refer, delete tickets, delete any message in tickets, edit messages in tickets.
+  - **Direct messages**: send DMs, delete DM threads, delete own DM messages, delete any DM message, edit DM messages.
+  - **Calls**: voice calls, video calls, delete voice-call entries, delete video-call entries.
+  - **Groups & channels**: create groups, create channels, leave groups & channels, delete groups, delete channels, delete any message in groups, edit messages in groups.
+  - The **owner always has every permission** (locked "Always full" column — cannot be restricted, not even by accident). **Operator** and **User** are switch-configurable; a dot marks custom overrides and a per-cell reset restores the built-in defaults. Changes apply **immediately** (no restart) and every change is audited (`permission.update`).
+  - **Defaults reproduce today's behaviour exactly** — out of the box nothing changes: referral stays staff-only, message deletion stays owner-only, moderators stay the only editors. Everything else is now simply configurable.
+  - **Extensible from the foundation**: the registry (server `lib/permissions.js`) is the single source of truth — labels, groups and per-role defaults — while the database stores only admin overrides (migration 048, override-or-default). Future versions can add new permissions **without any database migration**: they appear in the matrix automatically with their built-in defaults, and unknown permission keys resolve to deny (fail-closed) on old servers, so older clients never break.
+  - **Enforced server-side everywhere**: ticket create/close/refer, DM creation and every DM message/file send, group & channel creation, leaving, group/channel/ticket/DM-thread deletion, per-scope message editing and deletion (delete-any + author-own), voice/video call start, and call-history deletion per call kind — all route through one permission service (cached per role, invalidated on write). `/api/me`, `/api/login` and `/api/register` now embed the caller's allowed permission keys so the client can hide gated UI, while the server remains the sole authority.
+
+**Tests:** 147 server files / 1422 tests green (49 new: registry integrity + defaults parity, migration 048 + service on real SQLite, admin API CRUD + audit, route gates for every new permission key); client unit 443 green (incl. the client-mirror drift test that imports the server registry to prove the two never diverge); 4 new browser tests for the matrix (render, toggle→PUT, override dot + reset→null, failed-PUT revert); ESLint clean on both sides. Docs: bilingual Permissions-tab guide in `docs/Admin-Panel.md` + `docs/fa/Admin-Panel.md`.
+
+**خلاصهٔ فارسی:**
+
+- 🔐 **پنل مدیریت → «دسترسی‌ها»: سامانهٔ کامل مدیریت دسترسی نقش × دسترسی، ساخته‌شده از پایه و ریشه.** هر بررسی نقشِ سخت‌کدشدهٔ قبلی حالا یک ماتریس قابل تنظیم است؛ مالک تعیین می‌کند هر نقش چه کاری می‌تواند بکند — با یک کلید خاموش/روشن برای هر یک از ۲۲ دسترسیِ رجیستری، در چهار گروه **تیکت‌ها / پیام‌رسانی / تماس‌ها / گروه‌ها و کانال‌ها**: ساخت/بستن/ارجاع/حذف تیکت، حذف و ویرایش هر پیام در تیکت، ارسال پیام مسنجری و حذف ترد و پیام‌های خود/هر پیام در مسنجری، تماس صوتی و تصویری و حذف ورودی‌های آن‌ها، ساخت گروه و کانال، ترک گروه و کانال، حذف گروه و کانال، و حذف/ویرایش هر پیام در گروه.
+  - **مالک همیشه همهٔ دسترسی‌ها را دارد** (ستون قفل‌شدهٔ «همیشه کامل» — قابل محدودکردن نیست). نقش‌های **اپراتور** و **کاربر** با کلید تنظیم می‌شوند؛ نقطهٔ کنار کلید یعنی مقدار سفارشی و دکمهٔ بازنشانیِ هر خانه به پیش‌فرض برمی‌گرداند. تغییرها بلافاصله اعمال می‌شوند (بدون ری‌استارت) و در گزارش‌ها ثبت می‌شوند (`permission.update`).
+  - **پیش‌فرض‌ها دقیقاً رفتار فعلی را بازسازی می‌کنند** — از اول چیزی عوض نمی‌شود: ارجاع فقط برای کارمندان، حذف پیام فقط مالک، ویرایش فقط میدرها. حالا همهٔ این‌ها صرفاً قابل تنظیم‌اند.
+  - **توسعه‌پذیر از پایه و ریشه:** رجیستری (`server/lib/permissions.js`) تنها منبع حقیقت است و پایگاه‌داده فقط مقدارهای سفارشی را نگه می‌دارد (مهاجرت ۰۴۸، «سفارشی یا پیش‌فرض»). نسخه‌های آینده می‌توانند دسترسی جدید را **بدون هیچ مهاجرتِ پایگاه‌داده** اضافه کنند — به‌طور خودکار با پیش‌فرض‌هایش در ماتریس ظاهر می‌شود و کلیدهای ناشناخته روی سرورهای قدیمی به «رد» تفسیر می‌شوند (fail-closed) تا نسخه‌های قدیمی نشکنند.
+  - **اجرا در سرور، همه‌جا:** ساخت/بستن/ارجاع تیکت، ساخت DM و ارسال هر پیام/فایل مسنجری، ساخت گروه و کانال، ترک، حذف گروه/کانال/تیکت/ترد مسنجری، ویرایش و حذف پیام به تفکیک محدوده (حذف هر پیام + حذف پیام خود)، شروع تماس صوتی/تصویری و حذف تاریخچهٔ تماس به تفکیک نوع — همه از یک سرویس دسترسی واحد عبور می‌کنند (کش per-role با بی‌اعتبارسازی فوری). `/api/me` و ورود و ثبت‌نام حالا کلیدهای دسترسی مجاز را هم برمی‌گردانند تا رابط کاربری دکمه‌های gated را پنهان کند؛ مرجع نهایی همچنان سرور است.
+
 ## 1.6.0-dev.5
 
 ### Fixed
