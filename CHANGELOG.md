@@ -2,6 +2,28 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.2
+
+### Added
+
+- 🎨 **Admin Panel → Personalization («شخصی‌سازی»): a new owner tab — between Permissions and Logs — that rebrands the entry page and the About dialog from the roots.**
+  - **Organization logo upload, any image format**: upload PNG/JPEG/WebP/GIF/SVG/BMP… and the browser converts it (canvas, centered cover-crop) into a full set of PNG icons — favicon (16/32), apple-touch icon (180), PWA app icon (192/512). With a custom logo the server serves a **dynamic `/manifest.webmanifest`** (organization name + the uploaded icons) and `/favicon.ico`, so installed phones and browser tabs show the organization's own mark. Files live under `DATA_DIR/branding/`; the server gained **zero native image dependencies** — no sharp, nothing to install.
+  - **Entry page, fully yours**: the login screen shows the uploaded logo **iOS-style — flat with rounded corners** — and both the wordmark (default `ChatDesk`) and an editable sentence below it (e.g. the organization name) are configurable, so the first page is completely the organization's.
+  - **About dialog, editable**: the version stays on top (never editable). Below it, the fixed GitHub/Docker icons are replaced by a **configurable link list** (up to 8 entries; each is an icon — Website globe / GitHub / Docker / Telegram / Email / Railway / ChatDesk — plus its URL, opening in a new tab). The proprietary-software sentence is editable (empty = built-in default), and the **copyright line moved to the very bottom** of the dialog and is editable too (renders as `© <year> <name>`, optional link).
+  - **Built from the foundation, extensible**: the config is a validated registry (server `lib/branding.js`) persisted as one JSON row in the existing `app_settings` KV store — **no database migration** — and unknown/missing fields always fall back to defaults, so future options ship without breaking anything. Defaults reproduce the previous About dialog exactly, so unpersonalized installs look unchanged. Every change is audited (`branding.update`, `branding.logo`).
+  - **API surface**: owner-gated `GET/PUT /api/admin/branding`, `POST/DELETE /api/admin/branding/logo` (multipart, PNG-signature validated), public `GET /api/branding` + `/api/branding/logo.png` + `/api/branding/icon-<n>.png`. The admin tab uploads, previews, resets; the About panel and the entry page consume the public endpoint (also swapping the favicon link tags live).
+
+**Tests:** 149 server files / 1449 tests green (27 new: patch normalization, PNG-signature guard, config merge/corruption fallback, logo save/reset on a real temp dir, manifest builder, owner gating, public icon serving, audit entries); client unit 443 green; production client build verified; ESLint clean. Docs: bilingual Personalization-tab guide in `docs/Admin-Panel.md` + `docs/fa/Admin-Panel.md`.
+
+**خلاصهٔ فارسی:**
+
+- 🎨 **پنل مدیریت → «شخصی‌سازی»: تب جدید مالک — بالای گزارش‌ها و زیر دسترسی‌ها — که صفحهٔ ورود و پنجرهٔ درباره را از پایه و ریشه برندسازی می‌کند.**
+  - **آپلود لوگوی سازمان با هر فرمت تصویری**: هر عکسی (PNG/JPEG/WebP/GIF/SVG/BMP…) آپلود کنید و مرورگر آن را (با بوم، برش مرکزی) به مجموعهٔ کامل آیکون‌های PNG تبدیل می‌کند — favicon (۱۶/۳۲)، آیکون لمسی اپل (۱۸۰)، آیکون اپ PWA (۱۹۲/۵۱۲). با وجود لوگوی سفارشی، سرور **`/manifest.webmanifest` پویا** (نام سازمان + آیکون‌های آپلودشده) و `/favicon.ico` را سرو می‌کند تا گوشی‌های نصب‌شده و تب مرورگر نشانِ خودِ سازمان را نشان دهند. فایل‌ها در `DATA_DIR/branding/` نگه‌داری می‌شوند و سرور **هیچ وابستگی بومی جدیدی برای تصویر ندارد**.
+  - **صفحهٔ ورود کاملاً شماست**: صفحهٔ ورود لوگوی آپلودشده را **به سبک آیکون اپ‌های iOS — فلت با گوشه‌های گرد** نشان می‌دهد و هم نام برنامه (پیش‌فرض `ChatDesk`) و هم جملهٔ زیر آن (مثلاً نام سازمان) قابل ویرایش‌اند تا صفحهٔ اول کاملاً اختصاصی شود.
+  - **پنجرهٔ درباره، قابل ویرایش**: نسخه بالای پنجره می‌ماند و هرگز قابل ویرایش نیست. زیر آن، دو آیکون ثابت گیت‌هاب/داکر با **فهرست لینک قابل تنظیم** جایگزین شده (تا ۸ مورد؛ هر ردیف یک آیکون — وب‌سایت / گیت‌هاب / داکر / تلگرام / ایمیل / ریلی / چت‌دسک — به‌همراه نشانی، بازشو در تب جدید). جملهٔ نرم‌افزار اختصاصی قابل ویرایش است (خالی = جملهٔ پیش‌فرض) و **خط کپی‌رایت به پایین‌ترین بخش پنجره منتقل شده** و آن هم قابل ویرایش است (`© <سال> <نام>` با لینک اختیاری).
+  - **ساخته‌شده از پایه و ریشه، توسعه‌پذیر**: پیکربندی یک رجیستری اعتبارسنجی‌شده (`server/lib/branding.js`) است که به‌صورت یک ردیف JSON در همان جدول `app_settings` ذخیره می‌شود — **بدون مهاجرت پایگاه‌داده** — و فیلدهای ناشناخته/غایب همیشه به پیش‌فرض برمی‌گردند تا گزینه‌های آینده بدون شکستن چیزی اضافه شوند. پیش‌فرض‌ها دقیقاً همان پنجرهٔ دربارهٔ قبلی را بازسازی می‌کنند. هر تغییر در گزارش‌ها ثبت می‌شود (`branding.update`، `branding.logo`).
+  - **سطح API**: نقاط پایانی مالک `GET/PUT /api/admin/branding` و `POST/DELETE /api/admin/branding/logo` (multipart با اعتبارسنجی امضای PNG)، و نقاط پایانی عمومی `GET /api/branding` + `/api/branding/logo.png` + `/api/branding/icon-<n>.png`. تب مدیریت آپلود/پیش‌نمایش/بازنشانی را انجام می‌دهد؛ پنجرهٔ درباره و صفحهٔ ورود از نقطهٔ عمومی مصرف می‌کنند (و لینک‌های favicon را هم زنده عوض می‌کنند).
+
 ## 1.7.0-dev.1
 
 ### Added

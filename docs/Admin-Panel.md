@@ -340,6 +340,19 @@ The **Permissions** tab turns every previously hard-coded role check into a conf
 
 The server enforces every gate regardless of what the client renders — the UI (buttons, menus) merely stays consistent with it.
 
+## Personalization Tab (1.7.0-dev.2)
+
+The **Personalization** tab (owner panel, between **Permissions** and **Logs**) customizes the entry page and the About dialog — so an organization can put its own name, logo and links on the product.
+
+- **Entry page**: upload the organization logo in **any image format** (PNG/JPEG/WebP/GIF/SVG/BMP…). The browser converts it to a set of PNG icons that become the favicon, the apple-touch icon, the PWA app icon on installed phones, and the rounded, app-style logo on the login page. The app title (default `ChatDesk`) and an optional sentence below the logo (e.g. the organization name) are editable text fields.
+- **About dialog**: the version always stays on top (never editable). Below it:
+  - **Links** — the fixed GitHub/Docker icons are replaced by a configurable list (up to 8). Each row is an icon (`Website` globe / GitHub / Docker / Telegram / Email / Railway / ChatDesk) plus its URL; the entry opens in a new tab.
+  - **Software sentence** — the proprietary-software line is editable (empty = the built-in default sentence).
+  - **Copyright line** — name and optional URL; it renders as `© <year> <name>` and always sits at the very bottom of the dialog.
+- **Storage & endpoints**: the configuration is one JSON row in the existing `app_settings` KV store (`branding.config`) — **no database migration** — and future fields extend without code breakage. Logo files live under `DATA_DIR/branding/` and are served publicly from `/api/branding/*`; with a custom logo the server also serves a dynamic `/manifest.webmanifest` (org name + uploaded icons) and `/favicon.ico`.
+- **Unpersonalized installs look exactly as before** — the registry defaults reproduce the previous GitHub/Docker links and the `@MASolutionExpert` copyright.
+- Every change is audited (`branding.update`, `branding.logo`).
+
 ## Deletion Policy (owner-only)
 
 ChatDesk treats deletion as a destructive, centralized capability of the organizational owner. Only the instance owner (`role: owner`) may delete:

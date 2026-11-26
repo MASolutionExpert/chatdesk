@@ -12,6 +12,7 @@ import { registerCallRoutes } from "./calls.js";
 import { registerRemoteChannelTickRoutes } from "./remoteChannelTick.js";
 import { registerRemoteMirrorRoutes } from "./remoteMirror.js";
 import { registerAdminPanelRoutes } from "./adminPanel.js";
+import { registerBrandingRoutes } from "./branding.js";
 import { registerDepartmentRoutes } from "./departments.js";
 import { registerAdminRemoteChannelRoutes } from "./adminRemoteChannel.js";
 import { registerRemoteUploadRoutes } from "./uploadsRemote.js";
@@ -31,6 +32,7 @@ function registerApiRoutes(app, deps) {
   registerPushRoutes(app, deps);
   registerCallRoutes(app, deps);
   registerAdminPanelRoutes(app, deps);
+  registerBrandingRoutes(app, deps);
   registerDepartmentRoutes(app, deps);
   registerAdminRemoteChannelRoutes(app, deps);
   registerAdminRoutes(app, deps);

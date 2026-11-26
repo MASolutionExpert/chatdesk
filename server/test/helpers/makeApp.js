@@ -8,12 +8,16 @@
 
 import express from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import bcrypt from "bcryptjs";
 import { registerApiRoutes } from "../../api/index.js";
 import { createSessionHelpers } from "../../lib/sessions.js";
 import { USER_COLORS } from "../../settings/colors.js";
 import { createStorageProvider } from "../../lib/storage/index.js";
 import { generateUuid } from "../../lib/uuidUtils.js";
+import { createBrandingService } from "../../lib/branding.js";
 import {
   ALL_PERMISSION_KEYS,
   CONFIGURABLE_ROLES,
@@ -547,6 +551,29 @@ export function makeApp(overrides = {}) {
     validateSetting: () => ({ valid: true }),
     SETTING_DEFS: [],
     buildTimestampSchedule: () => [],
+    // ── Branding / personalization (1.7.0-dev.2) ──
+    // Real filesystem service over an in-memory settings store and a
+    // throw-away temp dir, so branding route tests run hermetically.
+    ...(() => {
+      const brandingStore = new Map();
+      let brandingDir = null;
+      try {
+        brandingDir = fs.mkdtempSync(path.join(os.tmpdir(), "chatdesk-branding-"));
+      } catch {
+        brandingDir = null;
+      }
+      return {
+        brandingService: createBrandingService({
+          dbGetSetting: (key) => brandingStore.get(key) ?? null,
+          dbSetSetting: (key, value) => {
+            brandingStore.set(key, String(value));
+          },
+          fs,
+          path,
+          brandingDir,
+        }),
+      };
+    })(),
     setUserRole: () => {},
     normalizeUiLanguage: (v) => (["fa", "en"].includes(v) ? v : null),
     getUserLanguage: () => "fa",

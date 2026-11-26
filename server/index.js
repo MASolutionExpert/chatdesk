@@ -14,6 +14,7 @@ import webpush from "web-push";
 import { registerApiRoutes } from "./api/index.js";
 import { ensureValidVapidKeys } from "./lib/vapid.js";
 import { createPermissionService } from "./lib/permissionService.js";
+import { createBrandingService } from "./lib/branding.js";
 import { createSseHub } from "./lib/sse.js";
 import { createWebSocketGateway } from "./lib/websocketGateway.js";
 import { createPresenceTracker } from "./lib/presenceTracker.js";
@@ -1312,10 +1313,49 @@ apiDeps.hasPermission = (role, permissionKey) =>
   permissionService.isAllowed(role, permissionKey);
 apiDeps.getAllowedPermissions = (role) => permissionService.getAllowedKeys(role);
 
+// ── Branding / personalization (1.7.0-dev.2) ────────────────────────────
+// Owner-configurable About dialog + entry page (logo, title, tagline).
+// Config lives in the app_settings KV store; logo files under DATA_DIR.
+const brandingService = createBrandingService({
+  dbGetSetting,
+  dbSetSetting,
+  fs,
+  path,
+  brandingDir: path.join(dataDir, "branding"),
+});
+apiDeps.brandingService = brandingService;
+
 registerApiRoutes(app, apiDeps);
 
 if (isProduction) {
   app.use(staticLimiter);
+
+  // Dynamic branding overrides for the two root-level files the browser asks
+  // for before any JS runs. Without a custom logo both fall through to the
+  // bundled static files in client/dist.
+  app.get("/manifest.webmanifest", async (req, res, next) => {
+    try {
+      const manifest = await brandingService.buildManifest();
+      if (!manifest) return next();
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Content-Type", "application/manifest+json");
+      res.json(manifest);
+    } catch {
+      next();
+    }
+  });
+
+  app.get("/favicon.ico", (req, res, next) => {
+    try {
+      const icon = brandingService.readIcon(32);
+      if (!icon) return next();
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      res.setHeader("Content-Type", "image/png");
+      res.send(icon);
+    } catch {
+      next();
+    }
+  });
 
   const clientDist = path.resolve(serverDir, "..", "client", "dist");
   const setStaticCacheHeaders = (res, filePath) => {

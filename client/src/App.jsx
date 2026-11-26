@@ -3,6 +3,13 @@ import { createPortal } from 'react-dom'
 import logo from './assets/chatdesk-logo.svg'
 import { APP_CONFIG, setMessageMaxChars } from './settings/appConfig.js'
 import { fetchAppInfo } from './api/appMetaApi.js'
+import {
+  loadBranding,
+  brandingLoginTitle,
+  brandingLoginTagline,
+  brandingLogoUrl,
+  getCachedBranding,
+} from './utils/branding.js'
 import { setNameLimits } from './utils/nameLimits.js'
 import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
@@ -66,7 +73,11 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
       style={{ backgroundColor: themeColor }}
     >
       <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
-        <img src={logo} alt={translateKey('auth.app.logoAlt')} className="h-10 w-10 animate-pulse" />
+        <img
+          src={brandingLogoUrl(getCachedBranding(), logo)}
+          alt={translateKey('auth.app.logoAlt')}
+          className="h-10 w-10 animate-pulse"
+        />
         <p className="text-xs font-semibold tracking-wide">
           {translateKey('auth.app.loading', { dots: '.'.repeat(dots) })}
         </p>
@@ -183,6 +194,17 @@ export default function App() {
   const [accountCreationEnabled, setAccountCreationEnabled] = useState(
     APP_CONFIG.accountCreationEnabled,
   )
+  // Owner-configurable entry page (logo / title / tagline) — 1.7.0-dev.2.
+  const [branding, setBranding] = useState(getCachedBranding())
+  useEffect(() => {
+    let isMounted = true
+    loadBranding().then((payload) => {
+      if (isMounted && payload) setBranding(payload)
+    })
+    return () => {
+      isMounted = false
+    }
+  }, [])
   const [adminPanelEnabled, setAdminPanelEnabled] = useState(true)
   const isStandaloneDisplay =
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
@@ -1044,12 +1066,30 @@ export default function App() {
         >
           {isAuthRoute ? (
             <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
-              <div className="flex items-center gap-1 text-black dark:text-white">
-                <div className="flex h-8 w-8 items-center justify-center sm:h-9 sm:w-9">
-                  <img src={logo} alt={translateKey('auth.app.logoAlt')} className="h-8 w-8" />
+              <div className="flex flex-col items-center gap-3 text-black dark:text-white">
+                <div className="flex items-center justify-center">
+                  <img
+                    src={brandingLogoUrl(branding, logo)}
+                    alt={translateKey('auth.app.logoAlt')}
+                    className={
+                      branding?.logo
+                        ? 'h-16 w-16 rounded-[22.5%] object-cover shadow-sm sm:h-20 sm:w-20'
+                        : 'h-8 w-8 sm:h-9 sm:w-9'
+                    }
+                  />
                 </div>
                 <div>
-                  <p className="text-xl font-bold tracking-tight sm:text-2xl">ChatDesk</p>
+                  <p className="text-xl font-bold tracking-tight sm:text-2xl">
+                    {brandingLoginTitle(branding)}
+                  </p>
+                  {brandingLoginTagline(branding) ? (
+                    <p
+                      className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400"
+                      dir="auto"
+                    >
+                      {brandingLoginTagline(branding)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </header>
