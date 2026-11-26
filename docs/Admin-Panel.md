@@ -329,6 +329,17 @@ Danger Zone actions cannot be undone. Always create a backup before proceeding.
 
 :::
 
+## Permissions Tab (1.7.0)
+
+The **Permissions** tab turns every previously hard-coded role check into a configurable matrix — the owner decides who may do what, per role.
+
+- **Rows**: the permission registry (22 entries in 1.7.0) grouped into **Tickets / Direct messages / Calls / Groups & channels** — from creating and closing tickets, referring them, sending direct messages, voice/video calls, to creating, leaving and deleting groups & channels, and deleting or editing messages per scope.
+- **Columns**: **Operator** and **User**, each with an on/off switch. The **Owner** column is locked ("Always full") — the instance owner always has every permission and cannot be restricted.
+- **Custom values**: a dot marks a value that differs from the built-in default; the circular-arrow button restores the default. Changes apply **immediately** (no restart) and are recorded in the audit log (`permission.update`).
+- **Extensible by design**: the registry (server `lib/permissions.js`) is the single source of truth and the database stores only overrides — future ChatDesk versions can add new permissions **without any database migration**; they appear in this matrix automatically with their built-in defaults.
+
+The server enforces every gate regardless of what the client renders — the UI (buttons, menus) merely stays consistent with it.
+
 ## Deletion Policy (owner-only)
 
 ChatDesk treats deletion as a destructive, centralized capability of the organizational owner. Only the instance owner (`role: owner`) may delete:
@@ -339,6 +350,10 @@ ChatDesk treats deletion as a destructive, centralized capability of the organiz
 | DM threads & support tickets | Chat list → Delete thread | `POST /api/chats/hide` — DM-type chats are owner-only; group/channel hide stays available to members as leave-and-cleanup |
 | Any chat/ticket (admin panel) | Chats tab → Delete | `DELETE /api/admin/chats/:id` — `403 Owner access required` for admins |
 | All message history (admin panel) | Actions tab → Danger zone → Clear all messages | `POST /api/admin/maintenance/clear-messages` — owner only |
+
+:::tip
+Since 1.7.0 all of the above is **configurable** from the Permissions tab (defaults below still hold: only the owner carries these permissions out of the box). The endpoints enforce the role's configured permissions instead of a bare role check.
+:::
 
 Not covered (unchanged): group/channel deletion by their chat owner (password-confirmed, `POST /api/chats/group/:chatId/delete`), user account deletion in the admin panel, and server-side retention/maintenance tooling. Every owner deletion is recorded in the audit log (`message.delete.*`, `thread.delete`, `chat.delete`, `db.clear_messages`).
 
