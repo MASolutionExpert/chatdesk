@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.7.0-dev.7
+# chatdesk-deploy-version: 1.7.0-dev.8
 
 set -uo pipefail
 

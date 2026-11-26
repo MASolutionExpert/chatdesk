@@ -642,3 +642,96 @@ describe("aggregateSupportReport — UUID id shapes (migration 036 production re
     expect(carol.openTickets).toBe(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Operator-first attribution (1.7.0-dev.8): a ticket belongs to its
+// customer↔operator pair; the department is only the routing entry. When a
+// department is hard-deleted, its tickets follow the operator's CURRENT
+// department — and when that operator is detached too, they land in a
+// trailing id:null bucket so no history is ever erased from the reports.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("aggregateSupportReport — operator-first attribution (1.7.0-dev.8)", () => {
+  const ORPHAN_DEPT_ID = 99; // not in DEPTS → a hard-deleted department
+
+  it("re-attributes a chat+ticket whose department was deleted to the operator's CURRENT department", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          { id: "c-orphan-1", department_id: ORPHAN_DEPT_ID, created_at: "2025-06-10 09:00:00" },
+        ],
+        tickets: [
+          {
+            chat_id: "c-orphan-1",
+            department_id: ORPHAN_DEPT_ID,
+            operator_id: "10",
+            status: "open",
+            created_at: "2025-06-10 09:00:00",
+            closed_at: null,
+          },
+        ],
+      })
+    );
+    const billing = report.departments.find((d) => d.id === 1);
+    expect(billing.totals.conversations).toBe(1);
+    expect(billing.totals.ticketsOpened).toBe(1);
+    expect(billing.totals.openTickets).toBe(1);
+    const bob = billing.operators.find((o) => o.username === "bob");
+    expect(bob.openTickets).toBe(1);
+    // The operator carries the orphan into their live department — no bucket.
+    expect(report.departments.find((d) => d.id === null)).toBeUndefined();
+  });
+
+  it("moves fully-orphaned tickets (department gone, operator detached) into a trailing id:null bucket", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        chats: [
+          { id: "c-orphan-2", department_id: ORPHAN_DEPT_ID, created_at: "2025-06-10 09:00:00" },
+        ],
+        tickets: [
+          {
+            chat_id: "c-orphan-2",
+            department_id: ORPHAN_DEPT_ID,
+            operator_id: "13",
+            status: "open",
+            created_at: "2025-06-10 09:00:00",
+            closed_at: null,
+          },
+        ],
+        operators: [
+          ...OPERATORS,
+          { id: 13, username: "erin", nickname: "Erin", color: "#111111", role: "operator", department_id: null, banned: 0 },
+        ],
+      })
+    );
+    const bucket = report.departments.find((d) => d.id === null);
+    expect(bucket).toBeTruthy();
+    expect(bucket.totals.conversations).toBe(1);
+    expect(bucket.totals.ticketsOpened).toBe(1);
+    expect(bucket.operators.map((o) => o.username)).toEqual(["erin"]);
+    // The bucket always sorts last.
+    expect(report.departments[report.departments.length - 1].id).toBeNull();
+  });
+
+  it("keeps live-department tickets attributed to their recorded department even when the operator moved", () => {
+    const report = aggregateSupportReport(
+      baseInput({
+        tickets: [
+          {
+            chat_id: "c-live-1",
+            department_id: 1,
+            operator_id: "10",
+            status: "open",
+            created_at: "2025-06-10 09:00:00",
+            closed_at: null,
+          },
+        ],
+        operators: OPERATORS.map((op) =>
+          op.id === 10 ? { ...op, department_id: 2 } : op
+        ),
+      })
+    );
+    expect(report.departments.find((d) => d.id === 1).totals.ticketsOpened).toBe(1);
+    expect(report.departments.find((d) => d.id === 2).totals.ticketsOpened).toBe(0);
+    expect(report.departments.find((d) => d.id === null)).toBeUndefined();
+  });
+});

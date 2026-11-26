@@ -2,6 +2,28 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.8
+
+### Changed
+
+- 🧭 **Tickets now belong to the operator, not the department — departments are pure grouping.** Architecture change across the whole helpdesk: a chat/ticket's identity in the backend and database is its customer↔operator pair (chat members + the ticket row's `operator_id`); the department is only the routing entry that grouped the operators, never part of the identity. Concretely:
+  - **Ticket identity = the support channel.** `isTicketThread` (support endpoints, chat deletion policy) and the message-permission scope (server + client mirror) no longer require `department_id` — a ticket stays closable/reopenable/referable and its messaging permissions stay intact after its department is hard-deleted (or without one at all).
+  - **Thread reuse keys on the pair.** A repeated support request from the same customer to the same operator reuses the existing thread even when it entered through a different (or a since-deleted) department; the recorded department is then re-tagged to the new entry point (`setTicketDepartmentByChatId`).
+  - **Reports follow the operator.** The performance report re-attributes chats/tickets whose department was deleted to the operator's CURRENT department (departments group operators). Tickets of fully detached operators land in a trailing "Removed departments" bucket (`id: null`) with the same metric definitions — no history is ever erased. The drill-down of a department also includes the orphaned tickets its current operators carry. The admin overview counts orphaned chats the same way and appends the translated "Removed departments" card only when it is non-empty.
+
+**Tests:** server 152 files / 1466 green — including a new real-DB integration suite (`supportOperatorFirst`): ticket alive + operator-anchored after deletion, report/overview re-attribution, removed-departments bucket, thread re-tagging; plus new pure-aggregator cases. Client unit 42 files / 447 green; ESLint clean.
+
+**خلاصهٔ فارسی:**
+
+### تغییرات
+
+- 🧭 **تیکت‌ها حالا متعلق به اپراتور هستند، نه دپارتمان — دپارتمان فقط گروه‌بندی است.** تغییر معماری در کل میز خدمت: هویت چت/تیکت در بک‌اند و دیتابیس، جفتِ مشتری↔اپراتور است (اعضای چت + `operator_id` ردیف تیکت)؛ دپارتمان فقط ورودیِ مسیریابی است که اپراتورها را گروه می‌کند و هیچ‌گاه بخشی از هویت نیست. به‌طور مشخص:
+  - **هویت تیکت = کانال support.** `isTicketThread` و محدودهٔ مجوز پیام (سرور + آینهٔ کلاینت) دیگر `department_id` را لازم ندارند — تیکت پس از حذف کامل دپارتمانش (یا اصلاً بدون دپارتمان) همچنان قابل بستن/بازکردن/ارجاع است و مجوزهای پیامش سالم می‌ماند.
+  - **استفادهٔ مجدد از ترد بر اساس جفت کاربر.** درخواست مجدد پشتیبانی از همان مشتری به همان اپراتور، ترد موجود را حتی از مسیر دپارتمان متفاوت (یا حذف‌شده) بازاستفاده می‌کند و دپارتمان ثبت‌شده به نقطهٔ ورود جدید برچسب می‌خورد (`setTicketDepartmentByChatId`).
+  - **گزارش‌ها دنبال اپراتور می‌روند.** گزارش عملکرد، چت/تیکت‌هایی که دپارتمان‌شان حذف شده را به دپارتمانِ فعلی اپراتور نسبت می‌دهد (دپارتمان فقط اپراتورها را گروه می‌کند). تیکت‌های اپراتورهای کاملاً بدون دپارتمان به سطل انتهایی «دپارتمان‌های حذف‌شده» (`id: null`) با همان تعاریف متریک می‌روند — هیچ تاریخچه‌ای پاک نمی‌شود. گزارش تفصیلی هر دپارتمان هم تیکت‌های يتیمِ اپراتورهای فعلی‌اش را شامل می‌شود. نمای کلی مدیریت هم چت‌های يتیم را همان‌طور می‌شمارد و کارت ترجمه‌شدهٔ «دپارتمان‌های حذف‌شده» را فقط وقتی غیرخالی است اضافه می‌کند.
+
+**آزمون‌ها:** سرور ۱۵۲ فایل / ۱۴۶۶ سبز — شامل سوئیت یکپارچهٔ جدید روی دیتابیس واقعی (`supportOperatorFirst`): زنده ماندن تیکت و سنجاق بودن به اپراتور پس از حذف، بازنسبت گزارش/نمای کلی، سطل دپارتمان‌های حذف‌شده، برچسب‌خوردن مجدد ترد؛ به‌علاوه موارد جدید در تست‌های تجمیعگر. یونیت کلاینت ۴۲ فایل / ۴۴۷ سبز؛ ESLint پاک.
+
 ## 1.7.0-dev.7
 
 ### Added

@@ -100,16 +100,16 @@ function registerChatRoutes(app, deps) {
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
 
-  // Ticket threads (migration 045): support-channel chats with a department —
-  // in their classic DM shape AND in the referred support-group shape (a
-  // referred ticket is converted from a DM into a private support group but
-  // keeps its support identity). Tickets are protected thread-objects: their
-  // deletion stays owner-only and their customer can never be dropped.
+  // Ticket threads (migration 045): support-channel chats — in their classic
+  // DM shape AND in the referred support-group shape (a referred ticket is
+  // converted from a DM into a private support group but keeps its support
+  // identity). The department is NOT part of the identity (1.7.0-dev.8): the
+  // thread belongs to its customer↔operator pair, so tickets stay protected
+  // thread-objects even after their department was hard-deleted.
   const isTicketThread = (chat) =>
     Boolean(
       chat &&
-        String(chat.channel || "direct") === "support" &&
-        chat.department_id,
+        String(chat.channel || "direct") === "support",
     );
 
   // Deletion policy note: thread/message deletion is owner-only (see the

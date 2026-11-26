@@ -89,6 +89,10 @@ describe("channel separation at the API layer (direct vs support)", () => {
           calls.markChatDepartment.push({ chatId, departmentId });
           return true;
         },
+        // 1.7.0-dev.8: the reused thread is re-tagged only when its recorded
+        // department differs from the request's entry department.
+        getChatDepartmentId: (chatId) => (chatId === supportChatId ? deptId : null),
+        setTicketDepartmentByChatId: () => true,
         getDepartmentById: (id) =>
           Number(id) === deptId
             ? { id: deptId, name: "Billing", description: "", active: 1 }
@@ -169,10 +173,9 @@ describe("channel separation at the API layer (direct vs support)", () => {
     const lookup = calls.findDmChat[0];
     expect(lookup.u1).toBe(aliceId);
     expect(lookup.u2).toBe(bobId);
-    expect(lookup.options).toEqual({
-      channel: "support",
-      departmentId: deptId,
-    });
+    // 1.7.0-dev.8: reuse keys on the customer↔operator pair — the department
+    // is the routing entry, not the thread identity.
+    expect(lookup.options).toEqual({ channel: "support" });
 
     // Reuse path: no new chat is created and no department re-tagging happens.
     expect(calls.createChat).toHaveLength(0);

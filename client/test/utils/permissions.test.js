@@ -68,9 +68,14 @@ describe("hasPermission", () => {
 describe("chat scope mapping (mirror of the server registry helpers)", () => {
   test("messenger DMs vs support tickets", () => {
     expect(chatMessageScope({ type: "dm", channel: "direct" })).toBe("dm");
-    expect(chatMessageScope({ type: "dm", channel: "support", department_id: null })).toBe("dm");
+    // 1.7.0-dev.8: the department is NOT the ticket identity — the thread
+    // belongs to its customer↔operator pair, so a support-channel DM stays a
+    // ticket even after its department was hard-deleted (null/dangling id).
+    expect(chatMessageScope({ type: "dm", channel: "support", department_id: null })).toBe("ticket");
+    expect(chatMessageScope({ type: "dm", channel: "support" })).toBe("ticket");
     expect(chatMessageScope({ type: "dm", channel: "support", department_id: "d1" })).toBe("ticket");
     expect(chatMessageScope({ type: "group", channel: "support", department_id: "d1" })).toBe("ticket");
+    expect(chatMessageScope({ type: "group", channel: "support", department_id: null })).toBe("ticket");
     expect(chatMessageScope({ type: "group" })).toBe("group");
     expect(chatMessageScope({ type: "channel" })).toBe("group");
   });

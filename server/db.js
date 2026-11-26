@@ -5584,6 +5584,24 @@ export function setTicketOperatorByChatId(chatId, operatorId) {
   return true;
 }
 
+// Re-tag which department a ticket entered through (1.7.0-dev.8). The
+// department is NOT the ticket's identity — the operator is — so when a
+// customer↔operator thread is reused through a different department entry
+// (or after the original department was deleted), the label follows the
+// new entry point while the thread itself is untouched.
+export function setTicketDepartmentByChatId(chatId, departmentId) {
+  if (!chatId || !departmentId) {
+    return isPostgresMode() ? Promise.resolve(false) : false;
+  }
+  const res = run(
+    dbKnex("tickets")
+      .where({ chat_id: String(chatId) })
+      .update({ department_id: Number(departmentId) })
+  );
+  if (res && typeof res.then === "function") return res.then(() => true);
+  return true;
+}
+
 // ─── Ticket referral: dm support thread → shared support group ─────────────
 //
 // A referred ticket is shared between several operators: the support thread
@@ -5721,7 +5739,11 @@ export async function getSupportOverview() {
     dbKnex("chats as c")
       .leftJoin("departments as d", "d.id", "c.department_id")
       .leftJoin("tickets as t", "t.chat_id", "c.id")
-      .whereNotNull("c.department_id")
+      // Ticket identity is the support channel; department_id stays as an
+      // inclusive fallback for legacy rows predating migration 044.
+      .where((builder) => {
+        builder.where("c.channel", "support").orWhereNotNull("c.department_id");
+      })
       // Referred tickets are private support GROUPS — keep them in the
       // department workload overview next to the classic DM-shaped tickets.
       .whereIn("c.type", ["dm", "group"])
@@ -5789,9 +5811,44 @@ export async function getSupportOverview() {
     if (entry) entry.operators = Number(r.cnt || 0);
   }
 
+  // Operator-first attribution (1.7.0-dev.8): chats whose recorded department
+  // was hard-deleted follow their ticket operator into the operator's CURRENT
+  // department; when that operator is detached too, they land in the removed-
+  // departments card (id: null — the client renders a translated label).
+  const operatorDeptByUsername = new Map();
+  const staffRows = await getAll(
+    dbKnex("users")
+      .whereIn("role", SUPPORT_ROLES)
+      .whereNotNull("department_id")
+      .select("username", "department_id")
+  );
+  for (const r of staffRows || []) {
+    operatorDeptByUsername.set(String(r.username), Number(r.department_id));
+  }
+
+  const removedCard = {
+    id: null,
+    name: null,
+    active: true,
+    chats: 0,
+    open: 0,
+    messages: 0,
+    operators: 0,
+  };
+
   const decryptedChats = [];
   for (const row of chatRows || []) {
-    const entry = byDepartment.get(Number(row.department_id));
+    let entry = byDepartment.get(Number(row.department_id));
+    if (!entry) {
+      // Recorded department is gone — follow the operator.
+      const operatorDeptId = row.operator_username
+        ? operatorDeptByUsername.get(String(row.operator_username))
+        : null;
+      entry = operatorDeptId !== undefined && operatorDeptId !== null
+        ? byDepartment.get(operatorDeptId)
+        : null;
+      if (!entry) entry = removedCard;
+    }
     if (entry) {
       entry.chats += 1;
       entry.messages += Number(row.message_count || 0);
@@ -5833,8 +5890,11 @@ export async function getSupportOverview() {
     });
   }
 
+  const deptCards = Array.from(byDepartment.values());
+  if (removedCard.chats > 0) deptCards.push(removedCard);
+
   return {
-    departments: Array.from(byDepartment.values()),
+    departments: deptCards,
     chats: decryptedChats,
   };
 }
@@ -5859,21 +5919,69 @@ export async function getSupportReport({ departmentId = null, from = null, to = 
     return { range: { from: from || null, to: to || null }, departments: [] };
   }
 
-  // Staff users assigned to any department (the reportable operator pool).
+  // Staff users assigned to any department (the reportable operator pool) —
+  // plus DETACHED staff (department deleted / reassigned): the operator-first
+  // attribution needs their current department to carry orphaned tickets.
   const operatorRows = await getAll(
     dbKnex("users")
       .select("id", "username", "nickname", "color", "role", "department_id", "banned")
-      .whereNotNull("department_id")
       .whereIn("role", SUPPORT_ROLES)
   );
 
   // Support chats (any age) — the range filter is applied by the aggregator.
-  // Referred tickets are private support GROUPS and stay part of the report.
+  // Identity is the support CHANNEL; department_id stays as an inclusive
+  // fallback for legacy rows predating migration 044. Referred tickets are
+  // private support GROUPS and stay part of the report.
   const chatQb = dbKnex("chats as c")
-    .whereNotNull("c.department_id")
     .whereIn("c.type", ["dm", "group"])
+    .where((builder) => {
+      builder.where("c.channel", "support").orWhereNotNull("c.department_id");
+    })
     .select("c.id", "c.department_id", "c.created_at");
-  if (departmentId) chatQb.andWhere("c.department_id", Number(departmentId));
+
+  const ticketQb = dbKnex("tickets").select(
+    "chat_id",
+    "department_id",
+    "operator_id",
+    "status",
+    "created_at",
+    "closed_at"
+  );
+
+  if (departmentId) {
+    // Drill-down of one department: besides the rows recorded against it,
+    // include the ORPHANED rows (recorded department no longer exists) that
+    // the operator-first attribution re-assigns to this department — i.e.
+    // rows whose ticket operator currently sits in this department.
+    const liveIds = (deptList || []).map((d) => Number(d.id));
+    const staffRows = await getAll(
+      dbKnex("users")
+        .select("id")
+        .whereIn("role", SUPPORT_ROLES)
+        .where({ department_id: Number(departmentId) })
+    );
+    const staffIds = (staffRows || []).map((r) => String(r.id));
+
+    const orphanTicketChatIds = dbKnex("tickets")
+      .select("chat_id")
+      .whereNotIn("department_id", liveIds.length ? liveIds : [-1])
+      .whereIn("operator_id", staffIds.length ? staffIds : ["__none__"]);
+
+    chatQb.andWhere((builder) => {
+      builder
+        .where("c.department_id", Number(departmentId))
+        .orWhereIn("c.id", orphanTicketChatIds);
+    });
+    ticketQb.andWhere((builder) => {
+      builder
+        .where("department_id", Number(departmentId))
+        .orWhere((orBuilder) => {
+          orBuilder
+            .whereNotIn("department_id", liveIds.length ? liveIds : [-1])
+            .whereIn("operator_id", staffIds.length ? staffIds : ["__none__"]);
+        });
+    });
+  }
   const chatRows = await getAll(chatQb);
 
   // Full message history of the involved chats (aggregator applies ranges).
@@ -5888,15 +5996,6 @@ export async function getSupportReport({ departmentId = null, from = null, to = 
       )
     : [];
 
-  const ticketQb = dbKnex("tickets").select(
-    "chat_id",
-    "department_id",
-    "operator_id",
-    "status",
-    "created_at",
-    "closed_at"
-  );
-  if (departmentId) ticketQb.where("department_id", Number(departmentId));
   const ticketRows = await getAll(ticketQb);
 
   const roleRows = await getAll(dbKnex("users").select("id", "role"));

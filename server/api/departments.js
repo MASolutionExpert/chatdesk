@@ -30,6 +30,8 @@ function registerDepartmentRoutes(app, deps) {
     addChatMember,
     createMessage,
     markChatDepartment,
+    getChatDepartmentId,
+    setTicketDepartmentByChatId,
     unhideChat,
     findUserByUsername,
     emitChatEvent,
@@ -148,21 +150,26 @@ function registerDepartmentRoutes(app, deps) {
         });
       }
 
-      // Reuse only an existing SUPPORT thread for the same department between
-      // this customer and this operator. A direct (messenger) chat between the
+      // Reuse only an existing SUPPORT thread for the same customer↔operator
+      // pair — the thread belongs to the OPERATOR, not to the department
+      // (1.7.0-dev.8). If the pair previously talked through another (or a
+      // since-deleted) department, the same thread is reused and re-tagged
+      // with the new entry department. A direct (messenger) chat between the
       // pair is deliberately left alone — direct and support conversations
       // must stay separate, distinguishable threads.
       let chatId = await awaitMaybe(
-        findDmChat(customer.id, operator.id, {
-          channel: "support",
-          departmentId: department.id,
-        })
+        findDmChat(customer.id, operator.id, { channel: "support" }),
       );
       let reused = false;
       if (chatId) {
         reused = true;
         await awaitMaybe(unhideChat(customer.id, chatId));
         await awaitMaybe(unhideChat(operator.id, chatId));
+        const existingDeptId = await awaitMaybe(getChatDepartmentId(chatId));
+        if (Number(existingDeptId) !== Number(department.id)) {
+          await awaitMaybe(markChatDepartment(chatId, department.id));
+          await awaitMaybe(setTicketDepartmentByChatId(chatId, department.id));
+        }
       }
 
       if (!reused) {
@@ -283,8 +290,10 @@ function registerDepartmentRoutes(app, deps) {
     if (!chat) {
       return res.status(404).json({ error: "Chat not found." });
     }
-    // Ticket domain only: a messenger (direct) chat has no lifecycle.
-    if (String(chat.channel || "direct") !== "support" || !chat.department_id) {
+    // Ticket domain only: a messenger (direct) chat has no lifecycle. The
+    // department is NOT part of the identity — tickets stay closable/reopenable
+    // after their department was deleted.
+    if (String(chat.channel || "direct") !== "support") {
       return res.status(400).json({
         error: "Only support conversations have a ticket lifecycle.",
         code: "not_a_ticket",
@@ -373,10 +382,14 @@ function registerDepartmentRoutes(app, deps) {
   }
 
   function isTicketThread(chat) {
+    // Ticket identity is the support CHANNEL, not the department: the thread
+    // belongs to its customer↔operator pair (chat members + the ticket row's
+    // operator_id). The department is only the routing entry that grouped the
+    // operators — a ticket stays a ticket even after its department was hard-
+    // deleted (dangling department_id) or was created without one.
     return (
       chat &&
       String(chat.channel || "direct") === "support" &&
-      chat.department_id &&
       ["dm", "group"].includes(String(chat.type || "").toLowerCase())
     );
   }

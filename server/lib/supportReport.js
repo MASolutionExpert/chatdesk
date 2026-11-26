@@ -166,15 +166,54 @@ export function aggregateSupportReport({
   const isStaffAuthor = (userId) =>
     STAFF_ROLES.has(roleByUser.get(String(userId)) || "user");
 
+  // ── Operator-first department resolution (1.7.0-dev.8) ────────────────────
+  // A ticket belongs to its customer↔operator pair; the department is only
+  // the routing entry that grouped the operators. The department a chat or
+  // ticket is REPORTED under is therefore resolved in order:
+  //   1. its recorded department — while that department still exists;
+  //   2. the CURRENT department of the ticket's operator (departments group
+  //      operators, so the operator carries the orphaned ticket into their
+  //      new department's report);
+  //   3. otherwise null → the "removed departments" bucket (id: null), so
+  //      deleting a department never erases its tickets from the history.
+  const liveDeptIds = new Set(departments.map((dept) => Number(dept.id)));
+  const operatorById = new Map(
+    (operators || []).map((op) => [String(op.id), op])
+  );
+
+  // ── Index tickets per chat ────────────────────────────────────────────────
+  const ticketByChat = new Map();
+  for (const ticket of tickets || []) {
+    if (ticket.chat_id !== null && ticket.chat_id !== undefined) {
+      ticketByChat.set(String(ticket.chat_id), ticket); // chat ids are UUIDs
+    }
+  }
+
+  const liveDept = (deptId) => (liveDeptIds.has(Number(deptId)) ? Number(deptId) : null);
+  const effectiveDeptOfChat = (chat) => {
+    const direct = liveDept(chat.department_id);
+    if (direct !== null) return direct;
+    const ticket = ticketByChat.get(String(chat.id));
+    const operator = ticket ? operatorById.get(String(ticket.operator_id)) : null;
+    return liveDept(operator?.department_id);
+  };
+  const effectiveDeptOfTicket = (ticket) => {
+    const direct = liveDept(ticket.department_id);
+    if (direct !== null) return direct;
+    const operator = operatorById.get(String(ticket.operator_id));
+    return liveDept(operator?.department_id);
+  };
+
   // ── Index chats per department ────────────────────────────────────────────
   const chatsByDept = new Map();
   for (const dept of departments) {
     chatsByDept.set(Number(dept.id), []);
   }
+  const orphanChats = []; // department gone AND operator has no live department
   for (const chat of chats) {
-    const deptId = Number(chat.department_id);
-    if (!chatsByDept.has(deptId)) continue;
-    chatsByDept.get(deptId).push(chat);
+    const deptId = effectiveDeptOfChat(chat);
+    if (deptId === null) orphanChats.push(chat);
+    else chatsByDept.get(deptId).push(chat);
   }
 
   // ── Index messages per chat (full history) ────────────────────────────────
@@ -192,15 +231,19 @@ export function aggregateSupportReport({
     });
   }
 
-  // ── Index tickets per chat & per department ───────────────────────────────
-  const ticketByChat = new Map();
+  // ── Index tickets per department (effective attribution) ──────────────────
+  const ticketsByDept = new Map();
+  for (const dept of departments) {
+    ticketsByDept.set(Number(dept.id), []);
+  }
+  const orphanTickets = [];
   for (const ticket of tickets || []) {
-    if (ticket.chat_id !== null && ticket.chat_id !== undefined) {
-      ticketByChat.set(String(ticket.chat_id), ticket); // chat ids are UUIDs
-    }
+    const deptId = effectiveDeptOfTicket(ticket);
+    if (deptId === null) orphanTickets.push(ticket);
+    else ticketsByDept.get(deptId).push(ticket);
   }
 
-  // ── Operators per department ──────────────────────────────────────────────
+  // ── Operators per department (current assignment = the roster) ────────────
   const operatorsByDept = new Map();
   for (const op of operators || []) {
     if (op.department_id === null || op.department_id === undefined) continue;
@@ -214,11 +257,10 @@ export function aggregateSupportReport({
     list.sort((a, b) => String(a.username).localeCompare(String(b.username)));
   }
 
-  const departmentReports = [];
-  for (const dept of departments) {
-    const deptId = Number(dept.id);
-    const deptChats = chatsByDept.get(deptId) || [];
-
+  // ── Per-department report builder ─────────────────────────────────────────
+  // Shared by the live departments AND the "removed departments" bucket, so
+  // orphaned tickets are measured with exactly the same metric definitions.
+  const buildDeptReport = ({ deptId, name, color, active, deptChats, roster, deptTickets }) => {
     const totals = {
       conversations: 0,
       messages: 0,
@@ -236,7 +278,7 @@ export function aggregateSupportReport({
     // Number() would map EVERY operator to NaN, collapsing the roster into a
     // single "last operator wins" entry (the regression this guards against).
     const operatorEntries = new Map(
-      (operatorsByDept.get(deptId) || []).map((op) => [String(op.id), newOperatorEntry(op)])
+      (roster || []).map((op) => [String(op.id), newOperatorEntry(op)])
     );
     const entryFor = (userId) =>
       operatorEntries.get(String(userId)) || null;
@@ -348,10 +390,8 @@ export function aggregateSupportReport({
       }
     }
 
-    // ── Tickets ─────────────────────────────────────────────────────────────
-    for (const ticket of tickets || []) {
-      const ticketDept = Number(ticket.department_id);
-      if (ticketDept !== deptId) continue;
+    // ── Tickets (effective attribution — pre-bucketed by the caller) ────────
+    for (const ticket of deptTickets || []) {
       const openedAt = parseTime(ticket.created_at);
       const closedAt = parseTime(ticket.closed_at);
       const openedInRange = inRange(openedAt, range);
@@ -388,18 +428,75 @@ export function aggregateSupportReport({
       return rest;
     });
 
-    departmentReports.push({
+    return {
       id: deptId,
-      name: dept.name,
-      color: dept.color || null,
-      active: Boolean(Number(dept.active ?? 1)),
+      name,
+      color,
+      active,
       operatorCount: operatorList.length,
       totals,
       operators: operatorList,
-    });
+    };
+  };
+
+  const departmentReports = [];
+  for (const dept of departments) {
+    const deptId = Number(dept.id);
+    departmentReports.push(
+      buildDeptReport({
+        deptId,
+        name: dept.name,
+        color: dept.color || null,
+        active: Boolean(Number(dept.active ?? 1)),
+        deptChats: chatsByDept.get(deptId) || [],
+        roster: operatorsByDept.get(deptId) || [],
+        deptTickets: ticketsByDept.get(deptId) || [],
+      })
+    );
   }
 
-  departmentReports.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  // Live departments sort by name; the removed-departments bucket (id: null,
+  // name: null — the client renders a translated label) always sorts last.
+  departmentReports.sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+
+  if (orphanChats.length || orphanTickets.length) {
+    // Roster of the bucket: every staff member who owns an orphaned ticket
+    // (or first-replied in an orphaned chat) and currently sits in NO live
+    // department. Operators that moved to a live department never land here —
+    // their tickets were already re-attributed to that department above.
+    const orphanOperatorIds = new Set();
+    for (const ticket of orphanTickets) {
+      if (ticket.operator_id !== null && ticket.operator_id !== undefined) {
+        orphanOperatorIds.add(String(ticket.operator_id));
+      }
+    }
+    for (const chat of orphanChats) {
+      const ticket = ticketByChat.get(String(chat.id));
+      if (ticket && ticket.operator_id !== null && ticket.operator_id !== undefined) {
+        orphanOperatorIds.add(String(ticket.operator_id));
+        continue;
+      }
+      const msgs = messagesByChat.get(String(chat.id)) || [];
+      const firstStaffReply = msgs.find((m) => isStaffAuthor(m.user_id));
+      if (firstStaffReply) orphanOperatorIds.add(String(firstStaffReply.user_id));
+    }
+    const orphanRoster = Array.from(orphanOperatorIds)
+      .map((id) => operatorById.get(id))
+      .filter((op) => op && liveDept(op.department_id) === null)
+      .sort((a, b) => String(a.username).localeCompare(String(b.username)));
+
+    departmentReports.push(
+      buildDeptReport({
+        deptId: null,
+        name: null,
+        color: null,
+        active: true,
+        deptChats: orphanChats,
+        roster: orphanRoster,
+        deptTickets: orphanTickets,
+      })
+    );
+  }
 
   return {
     range: {

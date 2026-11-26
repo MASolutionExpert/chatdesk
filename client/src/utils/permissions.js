@@ -46,18 +46,18 @@ export function canUseFeature(user, permissionKey) {
 /**
  * Map a chat object to its message-permission scope:
  * 'dm' | 'ticket' | 'group'. Support threads count as tickets even after a
- * referral converts them to groups.
+ * referral converts them to groups — and after their department was
+ * hard-deleted: the ticket belongs to its customer↔operator pair, the
+ * department is only the routing entry (mirrors the server's scope logic).
  */
 export function chatMessageScope(chat) {
   const type = String(chat?.type || "").toLowerCase();
+  const channel = String(chat?.channel || "direct").toLowerCase();
   if (type === "dm") {
-    const channel = String(chat?.channel || "direct").toLowerCase();
-    const hasDepartment = Boolean(chat?.department_id);
-    return channel === "support" && hasDepartment ? "ticket" : "dm";
+    return channel === "support" ? "ticket" : "dm";
   }
   if (
-    String(chat?.channel || "direct").toLowerCase() === "support" &&
-    chat?.department_id &&
+    channel === "support" &&
     (type === "group" || type === "channel")
   ) {
     return "ticket"; // referred support group

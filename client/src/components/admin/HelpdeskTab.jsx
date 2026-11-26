@@ -229,16 +229,27 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                   className="rounded-2xl border border-emerald-100/70 bg-white/70 p-3 transition hover:border-emerald-300 dark:border-emerald-500/20 dark:bg-slate-900/50 dark:hover:border-emerald-500/40"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedDept({ id: Number(d.id), name: d.name })}
-                      className="min-w-0 flex-1 truncate text-start text-sm font-semibold text-emerald-700 underline-offset-4 transition hover:underline dark:text-emerald-300"
-                      dir="auto"
-                      title={t("admin.helpdesk.report.openTitle", { name: d.name })}
-                      aria-label={t("admin.helpdesk.report.openTitle", { name: d.name })}
-                    >
-                      {d.name}
-                    </button>
+                    {d.id === null || d.id === undefined ? (
+                      // Removed-departments bucket: history of hard-deleted
+                      // departments — statistics only, no drill-down.
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-600 dark:text-slate-300"
+                        dir="auto"
+                      >
+                        {t("admin.helpdesk.removedDepartment")}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDept({ id: Number(d.id), name: d.name })}
+                        className="min-w-0 flex-1 truncate text-start text-sm font-semibold text-emerald-700 underline-offset-4 transition hover:underline dark:text-emerald-300"
+                        dir="auto"
+                        title={t("admin.helpdesk.report.openTitle", { name: d.name })}
+                        aria-label={t("admin.helpdesk.report.openTitle", { name: d.name })}
+                      >
+                        {d.name}
+                      </button>
+                    )}
                     {!d.active ? (
                       <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                         {t("admin.helpdesk.inactive")}
