@@ -342,7 +342,7 @@ export default function AdminGroupModal({ mode, chat, initialType = "group", onC
       });
     } else {
       const fd = new FormData();
-      fd.append("avatar", file);
+      fd.append("avatar", s3Upload.compressedFile || file);
       await apiFetch(`/api/admin/chats/${chatId}/avatar`, { method: "POST", body: fd });
     }
   }, []);

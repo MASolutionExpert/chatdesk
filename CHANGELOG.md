@@ -2,6 +2,38 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.4
+
+### Added
+
+- 🗜️ **Telegram-style media compression — media uploads no longer hit the server at full camera size.** Until now every image went up as the raw original bytes: a 12 MP phone photo at ~4 MB bloated messages, upload bandwidth and the server disk. Now:
+  - **Images compress in the browser before upload** (both storage drivers): downscaled to a 2560px box (never upscaled) and re-encoded to WebP at quality 0.82 (JPEG fallback where a browser can't encode WebP — verified by magic-byte sniffing, since Safari silently returns PNG). Camera photos drop to a small fraction of their size with no visible quality loss, and the sender's upload gets lighter too.
+  - **Safety rules, enforced**: GIF/SVG are never re-encoded (animation/vectors would break); transparency is never destroyed (a PNG/WebP with alpha keeps its original bytes when true WebP encoding is unavailable); documents the user explicitly sends as files are untouched; and the compressed result is only used when it actually saves bytes (≥5% smaller) — already-tiny images pass through unchanged.
+  - **Videos compress server-side** (Media Worker): the transcode standard moved from `ultrafast` to the H.264 `veryfast` preset at the same CRF 23 (far better compression per quality) and gained a 1920×1920 downscale box — aspect preserved, never upscaled, even dimensions — so 4K phone recordings stop dominating storage. The raw upload is still deleted after a successful transcode.
+  - **Avatars** (user / group / channel, presigned and multipart paths) are re-encoded in the browser to ≤1024px WebP/JPEG.
+  - Failure-tolerant by design: any decode/encode hiccup uploads the original bytes; nothing blocks sending.
+
+### Fixed
+
+- 🧹 **Storage hygiene: local orphan sweep.** Multipart uploads land in `DATA_DIR/uploads/messages/` as their final storage location, so a crashed request or a server kill between multer's write and the DB insert left a stray file that nothing ever removed. A new `pruneOrphanLocalUploadFiles` sweep (runs at boot and on every cleanup tick) deletes unreferenced files older than 24h — over-inclusive reference matching (stored_name, storage_key, thumb_storage_key) and a bail-out when the DB cannot be consulted, so live data is never at risk.
+
+**Tests:** server 150 files / 1458 green (4 new orphan-sweep tests on a real temp dir); worker 6 files / 36 green (transcode-command standard test); client unit 42 files / 447 green + 3 real-browser Chromium compression tests (canvas pipeline: 3200×2400 noisy PNG → 2560×1920 WebP, no-gain guard, GIF/SVG pass-through); ESLint clean.
+
+**خلاصهٔ فارسی:**
+
+### افزودن
+
+- 🗜️ **فشرده‌سازی رسانه به سبک تلگرام — دیگر مدیا با حجم کامل دوربین روی سرور نمی‌رود.** تا امروز هر عکس با همان بایت‌های خام اصلی آپلود می‌شد؛ یک عکس ۱۲ مگاپیکسلی حدود ۴ مگابایت، هم پیام‌ها را سنگین می‌کرد هم پهنای باند و دیسک سرور را پر می‌کرد. حالا:
+  - **تصاویر در مرورگر و قبل از آپلود فشرده می‌شوند** (برای هر دو درایور ذخیره‌سازی): کوچک‌سازی تا کادر ۲۵۶۰ پیکسل (بدون بزرگ‌نمایی) و کدگذاری مجدد به WebP با کیفیت ۰٫۸۲ (در مرورگرهایی که WebP نمی‌سازند JPEG — با بواسیدن بایت‌های خروجی تشخیص داده می‌شود، چون سافاری بی‌سروصدا PNG تحویل می‌دهد). حجم عکس‌های دوربین به کسری از حجم اصلی می‌رسد بدون افت محسوس کیفیت، و آپلود فرستنده هم سبک‌تر می‌شود.
+  - **قواعد ایمنی، تضمین‌شده**: GIF و SVG هرگز بازکدگذاری نمی‌شوند؛ شفافیت هرگز از بین نمی‌رود (PNG/WebP دارای آلفا در نبود WebPِ واقعی با بایت‌های اصلی می‌رود)؛ سندهایی که کاربر آگاهانه به‌عنوان فایل می‌فرستد دست‌نخورده‌اند؛ و نتیجهٔ فشرده فقط وقتی به کار می‌رود که واقعاً حجم را کم کند (حداقل ۵٪) — عکس‌های از قبل کوچک بدون تغییر می‌مانند.
+  - **ویدیوها سمت سرور فشرده می‌شوند** (Media Worker): استاندارد ترنسکد از `ultrafast` به پریست `veryfast` در همان CRF 23 منتقل شد (فشرده‌سازی بسیار بهتر در همان کیفیت) و کادر کوچک‌سازی ۱۹۲۰×۱۹۲۰ اضافه شد — حفظ نسبت ابعاد، بدون بزرگ‌نمایی، ابعاد زوج — تا ویدیوهای 4K گوشی دیگر فضای سرور را پر نکنند. فایل خام همچنان بعد از ترنسکد موفق حذف می‌شود.
+  - **آواتارها** (کاربر / گروه / کانال، هم مسیر presigned هم multipart) در مرورگر به WebP/JPEG حداکثر ۱۰۲۴ پیکسل بازکدگذاری می‌شوند.
+  - از پایه در برابر خطا مقاوم: هر خطای رمزگشایی/کدگذاری یعنی بایت‌های اصلی آپلود می‌شوند؛ هیچ‌چیز ارسال پیام را مسدود نمی‌کند.
+
+### رفع اشکال
+
+- 🧹 **بهداشت فضای ذخیره‌سازی: پاکسازی زائد محلی.** آپلودهای multipart مستقیماً در `DATA_DIR/uploads/messages/` به‌عنوان محل نهایی ذخیره‌سازی نوشته می‌شوند؛ بنابراین یک درخواست نیمه‌کاره یا سرورِ کشته‌شده بین نوشتن multer و درج در پایگاه‌داده یک فایل بی‌صاحب باقی می‌گذاشت که تا امروز هیچ‌چیز آن را حذف نمی‌کرد. پاکسازی تازهٔ `pruneOrphanLocalUploadFiles` (اجرای هنگام بوت و در هر تیک پاکسازی) فایل‌های بدون ارجاعِ قدیمی‌تر از ۲۴ ساعت را حذف می‌کند — تطبیق ارجاع‌ها با احتیاطِ بیش‌شماری (stored_name، storage_key، thumb_storage_key) و انصراف کامل وقتی پایگاه‌داده در دسترس نیست، تا هیچ دادهٔ زنده‌ای در خطر نباشد.
+
 ## 1.7.0-dev.3
 
 ### Fixed

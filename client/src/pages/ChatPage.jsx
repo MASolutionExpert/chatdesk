@@ -129,6 +129,7 @@ import {
   uploadAvatarFile,
   prepareFilesForMessage,
 } from "../api/chatApi.js";
+import { compressImageForUpload } from "../utils/mediaCompress.js";
 import { useMessageMaxChars } from "../settings/appConfig.js";
 import {
   MOBILE_CLOSE_ANIMATION_MS,
@@ -5399,10 +5400,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       clearPendingUploads();
     }
 
-    const metadata = await Promise.all(
-      incoming.map((file) => getMediaFileMetadata(file)),
+    // Telegram-style compression: chat images picked as media are re-encoded
+    // in the browser (≤2560px, quality 0.82) before anything is uploaded —
+    // less upload bandwidth, lighter messages, far less server storage.
+    // Videos and documents pass through untouched (videos are transcoded
+    // server-side by the media worker).
+    const prepared = await Promise.all(
+      incoming.map(async (file, index) => {
+        const mime = String(file.type || "");
+        if (uploadType !== "media" || !mime.startsWith("image/")) return file;
+        try {
+          const result = await compressImageForUpload(file);
+          if (!result.compressed) return file;
+          return new File([result.blob], file.name || `image-${index}`, {
+            type: result.mimeType,
+            lastModified: file.lastModified || Date.now(),
+          });
+        } catch {
+          return file;
+        }
+      }),
     );
-    const nextItems = incoming.map((file, index) => ({
+
+    const metadata = await Promise.all(
+      prepared.map((file) => getMediaFileMetadata(file)),
+    );
+    const nextItems = prepared.map((file, index) => ({
       id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       file,
       name: file.name,
@@ -5869,7 +5892,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           avatarUrlToSave = uploadData.avatarUrl || s3Upload.avatarUrl;
         } else {
           const payload = new FormData();
-          payload.append("avatar", pendingAvatarFile.file);
+          payload.append("avatar", s3Upload.compressedFile || pendingAvatarFile.file);
           payload.append("currentUsername", user.username);
           const uploadRes = await uploadAvatar(payload);
           const uploadData = await uploadRes.json();
@@ -6638,7 +6661,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         } else {
           const form = new FormData();
           form.append("username", user.username);
-          form.append("avatar", pendingGroupAvatarFile.file);
+          form.append("avatar", s3Upload.compressedFile || pendingGroupAvatarFile.file);
           avatarRes = await uploadGroupAvatar(nextChatId, form);
         }
         const avatarData = await avatarRes.json();

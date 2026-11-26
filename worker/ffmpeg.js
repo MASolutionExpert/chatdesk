@@ -19,30 +19,42 @@ const runBin = (bin, args = []) =>
     });
   });
 
+// Builds the ffmpeg args for the chat-video transcode.
+//
+// Compression standard (Telegram-like): H.264 high-efficiency preset
+// (`veryfast` — dramatically smaller files than `ultrafast` at the same CRF
+// with negligible extra CPU), constant-quality CRF 23, audio AAC 128k,
+// `+faststart` so playback starts immediately while streaming, and a
+// 1920×1920 downscale box (never upscales; keeps aspect ratio, forces even
+// dimensions for yuv420p) so 4K phone recordings don't dominate storage.
+export const buildTranscodeArgs = ({ inputPath, outputPath }) => [
+  "-hide_banner",
+  "-loglevel",
+  "error",
+  "-y",
+  "-i",
+  inputPath,
+  "-c:v",
+  "libx264",
+  "-preset",
+  "veryfast",
+  "-crf",
+  "23",
+  "-pix_fmt",
+  "yuv420p",
+  "-vf",
+  "scale='min(iw,1920)':'min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+  "-c:a",
+  "aac",
+  "-b:a",
+  "128k",
+  "-movflags",
+  "+faststart",
+  outputPath,
+];
+
 export const transcodeVideo = ({ inputPath, outputPath }) =>
-  runBin("ffmpeg", [
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-y",
-    "-i",
-    inputPath,
-    "-c:v",
-    "libx264",
-    "-preset",
-    "ultrafast",
-    "-crf",
-    "23",
-    "-pix_fmt",
-    "yuv420p",
-    "-c:a",
-    "aac",
-    "-b:a",
-    "128k",
-    "-movflags",
-    "+faststart",
-    outputPath,
-  ]);
+  runBin("ffmpeg", buildTranscodeArgs({ inputPath, outputPath }));
 
 export const faststartVideo = ({ inputPath, outputPath }) =>
   runBin("ffmpeg", [

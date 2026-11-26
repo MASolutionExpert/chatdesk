@@ -712,6 +712,7 @@ const {
   computeExpiryIso,
   pruneOrphanRemoteObjects,
   pruneOrphanAvatarObjects,
+  pruneOrphanLocalUploadFiles,
 } = messageFileJobs;
 
 const inspector = createInspector({ fs, dataDir, adminGetRow, adminGetAll });
@@ -1529,6 +1530,7 @@ async function backfillTextMessageExpiry() {
 try {
   await pruneOrphanRemoteObjects();
   await pruneOrphanAvatarObjects();
+  await pruneOrphanLocalUploadFiles();
   if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
     await backfillMessageFileExpiry();
     await cleanupExpiredMessageFiles();
@@ -1541,6 +1543,7 @@ const expiryCleanupTimer = setInterval(async () => {
   try {
     await pruneOrphanRemoteObjects();
     await pruneOrphanAvatarObjects();
+    await pruneOrphanLocalUploadFiles();
     if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
       await cleanupExpiredMessageFiles();
     }

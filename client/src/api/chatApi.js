@@ -1,4 +1,5 @@
 import { extractMediaPreprocessMetadata } from "../utils/mediaPreprocess.js";
+import { compressImageForUpload } from "../utils/mediaCompress.js";
 
 const API_BASE = "";
 
@@ -653,7 +654,24 @@ export async function presignAvatarUpload(file, options = {}) {
 }
 
 export async function uploadAvatarFile(file, options = {}) {
-  const fileObj = file?.file instanceof Blob ? file.file : file;
+  const rawObj = file?.file instanceof Blob ? file.file : file;
+  // Avatars are display-only: re-encode to a ≤1024px WebP/JPEG so profile
+  // photos stop consuming upload bandwidth and storage at camera resolution.
+  let fileObj = rawObj;
+  try {
+    const compressed = await compressImageForUpload(rawObj, {
+      maxDimension: 1024,
+      quality: 0.85,
+    });
+    if (compressed.compressed) {
+      fileObj = new File([compressed.blob], rawObj?.name || "avatar", {
+        type: compressed.mimeType,
+        lastModified: rawObj?.lastModified || Date.now(),
+      });
+    }
+  } catch {
+    // Compression is best-effort — the original bytes always work.
+  }
   try {
     const presignRes = await presignAvatarUpload(fileObj, options);
     if (
@@ -670,13 +688,17 @@ export async function uploadAvatarFile(file, options = {}) {
         directS3: true,
         avatarUrl: presignRes.avatarUrl,
         storageKey: presignRes.storageKey,
+        compressedFile: fileObj !== rawObj ? fileObj : null,
       };
     }
   } catch {
     // If presigning fails or returns non-s3, fall back gracefully
   }
 
-  return { directS3: false };
+  return {
+    directS3: false,
+    compressedFile: fileObj !== rawObj ? fileObj : null,
+  };
 }
 
 export async function prepareFilesForMessage(files = [], options = {}) {
