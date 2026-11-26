@@ -2,6 +2,24 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.5
+
+### Fixed
+
+- 🪄 **Tapping a member's name or avatar in a group no longer stacks two popups.** On touch devices, tapping a sender's name/avatar opened the full profile popup (good) AND, a split second later, the small context menu ("Open profile / Chat / Remove") on top of it — two layers fighting for attention. Root cause: the swipe-reply wrapper holds pointer capture on the message row, so the surface never saw the touch release; the long-press timer survived as an orphan, fired ~300ms after the tap, and opened the menu over the already-open profile modal. The long-press trigger now watches the release at document level (capture phase), so any pointerup/pointercancel cancels the hold no matter where the browser retargets the event — a tap opens only the profile, a deliberate long-press opens only the menu.
+- 🪄 **Long-press menus no longer flash open and instantly close.** Same capture mechanics in reverse: after the hold menu opened, the browser's synthesized release click landed on the menu's own backdrop and dismissed it within the same gesture. The release click is now swallowed (document-level, one-shot) when it follows a materialized hold, so long-press menus — sender menu and message menu alike — stay open and usable.
+
+**Tests:** client unit 42 files / 447 green; server 150 files / 1458 green; ESLint clean; verified on-device with real touch emulation (Chromium, iPhone profile): quick tap → profile only; 500ms hold → stable menu; menu item → profile; message-bubble hold → message menu intact.
+
+**خلاصهٔ فارسی:**
+
+### رفع اشکال
+
+- 🪄 **لمس نام یا عکس پروفایل یکی در گروه‌ها دیگر دو پاپ‌آپ روی هم باز نمی‌کند.** در دستگاه‌های لمسی، لمس نام/آواتار فرستنده هم پاپ‌آپ کامل پروفایل را باز می‌کرد (خوب) و هم لحظه‌ای بعد منوی کوچک زمینه («باز کردن نمایه / گفتگو / حذف») را روی همان پاپ‌آپ اصلی — دو لایه که توجه را می‌دزدیدند. ریشهٔ ماجرا: پوشش واکنش-با-کشیدن، capture اشاره‌گر را روی ردیف پیام نگه می‌دارد؛ در نتیجه سطحِ منو هرگز رهاشدن لمس را نمی‌دید و تایمر نگه‌داشتنِ بی‌صاحب می‌ماند، حدود ۳۰۰ میلی‌ثانیه بعد از لمس شلیک می‌کرد و منو را روی پاپ‌آپ پروفایلِ از قبل باز می‌انداخت. حالا تریگر نگه‌داشتن، رهاشدن لمس را در سطح سند (فاز capture) نظاره می‌کند؛ هر pointerup/pointercancel تایمر را باطل می‌کند مهم نیست مرورگر رویداد را به کجا بازنشانه می‌گیرد — لمس فقط پروفایل را باز می‌کند و نگه‌داشتنِ عمدی فقط منو را.
+- 🪄 **منوهای لمس-نگه‌داشتن دیگر باز-بستهٔ آنی نمی‌شوند.** همان مکانیک capture به‌صورت معکوس: بعد از باز شدن منو، کلیکِ ساختگیِ مرورگر هنگام رهاکردن انگشت روی پس‌زمینهٔ خود منو می‌نشست و همان لحظه منو را می‌بست. حالا وقتی نگه‌داشتن به منو انجامیده باشد، کلیکِ پس از رهاکردن (یک‌بارمصرف، در سطح سند) بلعیده می‌شود؛ منوهای لمسی — منوی فرستنده و منوی پیام — باز می‌مانند و قابل استفاده‌اند.
+
+**آزمون‌ها:** یونیت کلاینت ۴۲ فایل / ۴۴۷ سبز؛ سرور ۱۵۰ فایل / ۱۴۵۸ سبز؛ ESLint پاک؛ بازبینی روی دستگاه با شبیه‌سازی لمس واقعی (کرومیوم، پروفایل آیفون): لمس سریع ← فقط پروفایل؛ نگه‌داشتن ۵۰۰ms ← منوی پایدار؛ انتخاب آیتم منو ← پروفایل؛ نگه‌داشتن روی حباب پیام ← منوی پیام سالم.
+
 ## 1.7.0-dev.4
 
 ### Added
