@@ -2,6 +2,30 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.7
+
+### Added
+
+- 🗑️ **Departments can now be deleted for real in the admin Helpdesk panel.** The delete button next to every department card permanently removes the department (with a confirmation dialog): the row is gone from the departments list, the customer picker and per-department reports, and every operator assigned to it is detached. Hard delete replaces the old soft-delete that only flipped `active = 0` and left the department as an inactive ghost forever. Ticket conversations opened with the deleted department keep their message history — only the department itself disappears.
+
+### Fixed
+
+- 🎨 **The pause/resume button no longer uses a stray emoji.** The departments card used the raw "⏸"/"▶" text glyphs (rendered as an orange system emoji on many platforms, clashing with the panel). They are now proper Lucide `Pause`/`Play` icons styled exactly like the adjacent edit button (emerald round icon button), with the delete button in rose — a consistent three-button row.
+
+**Tests:** server 151 files / 1460 green (incl. a new real-DB `hardDeleteDepartment` integration suite: row removal, operator detachment, history intact, idempotent not-found); client unit 42 files / 447 green; ESLint clean.
+
+**خلاصهٔ فارسی:**
+
+### افزودن
+
+- 🗑️ **حذف واقعی دپارتمان‌ها در پنل مدیریت، بخش میز خدمت.** دکمهٔ حذف کنار هر دپارتمان آن را برای همیشه پاک می‌کند (با پنجرهٔ تأیید): از فهرست دپارتمان‌ها، انتخاب‌گر مشتری و گزارش‌های هر دپارتمان حذف می‌شود و همهٔ اپراتورهای assigned به آن از آن جدا می‌شوند. حذف کامل جایگزین حذف نرمِ قبلی شد که فقط `active = 0` می‌گذاشت و دپارتمان را برای همیشه به‌شکل روحِ غیرفعال نگه می‌داشت. گفتگوهای تیکتِ باز‌شده با آن دپارتمان تاریخچهٔ پیام‌شان حفظ می‌شود — فقط خود دپارتمان حذف می‌شود.
+
+### رفع اشکال
+
+- 🎨 **دکمهٔ توقف/ادامه دیگر ایموجی سرگردان ندارد.** کارت دپارتمان‌ها از نویسهٔ خام «⏸»/«▶» استفاده می‌کرد که در خیلی از پلتفرم‌ها به شکل ایموجی نارنجی سیستم رندر می‌شد و با ظاهر پنل ناهماهنگ بود. حالا آیکون‌های واقعی Lucide (Pause/Play) با استایل دقیقاً هماهنگ با دکمهٔ ویرایش کناری (دایرهٔ سبز) به‌کار می‌رود و دکمهٔ حذف به رنگ گلبرگی — یک ردیف سه‌دکمه‌ای یکدست.
+
+**آزمون‌ها:** سرور ۱۵۱ فایل / ۱۴۶۰ سبز (شامل سوئیت یکپارچهٔ جدید `hardDeleteDepartment` روی دیتابیس واقعی: حذف ردیف، جدا شدن اپراتورها، سالم ماندن تاریخچه، عدم یافتن در حذف تکراری)؛ یونیت کلاینت ۴۲ فایل / ۴۴۷ سبز؛ ESLint پاک.
+
 ## 1.7.0-dev.6
 
 ### Fixed

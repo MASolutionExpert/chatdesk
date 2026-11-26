@@ -114,6 +114,7 @@ function registerAdminPanelRoutes(app, deps) {
     createDepartment,
     updateDepartment,
     deleteDepartment,
+    hardDeleteDepartment,
     listOperatorsForDepartment,
     setUserDepartment,
     getSupportOverview,
@@ -947,8 +948,10 @@ function registerAdminPanelRoutes(app, deps) {
     res.json({ ok: true, department: fresh });
   });
 
-  // Soft delete: departments are deactivated so historical support chats keep
-  // their department label and reports stay meaningful.
+  // Hard delete (1.7.0-dev.7): the department row is removed outright and
+  // its operators are detached. Historical support chats/tickets keep their
+  // department_id values (message history intact); the deleted department
+  // just disappears from pickers, lists and per-department reports.
   app.delete("/api/admin/departments/:id", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -956,10 +959,13 @@ function registerAdminPanelRoutes(app, deps) {
     if (!Number.isFinite(deptId)) {
       return res.status(400).json({ error: "Invalid department id." });
     }
-    const dept = await resolveMaybePromise(getDepartmentById(deptId));
-    if (!dept) return res.status(404).json({ error: "Department not found." });
-    await resolveMaybePromise(deleteDepartment(deptId));
-    log(session, "department.delete", { targetType: "department", targetLabel: dept.name });
+    const deleted = await resolveMaybePromise(hardDeleteDepartment(deptId));
+    if (!deleted) return res.status(404).json({ error: "Department not found." });
+    log(session, "department.delete", {
+      targetType: "department",
+      targetLabel: deleted.name,
+      details: JSON.stringify({ hard: true, departmentId: deptId }),
+    });
     res.json({ ok: true });
   });
 

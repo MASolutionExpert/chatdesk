@@ -5341,6 +5341,34 @@ export function deleteDepartment(id) {
   return true;
 }
 
+// Hard delete (1.7.0-dev.7) — removes the department row outright and
+// detaches every operator assigned to it. Historical support chats and
+// ticket rows keep their `department_id` values on purpose: the message
+// history stays intact and the reports of REMAINING departments are
+// unaffected, while the deleted department simply disappears from pickers,
+// department lists and per-department reports (its rows no longer match any
+// entry of the live `departments` list the aggregations iterate). No FK
+// constraints exist on the column in either driver, so the dangling id is
+// safe. Returns the deleted department name (null when nothing matched) so
+// the audit log can record what was removed.
+export async function hardDeleteDepartment(id) {
+  const deptId = Number(id);
+  if (!Number.isFinite(deptId) || deptId <= 0) {
+    return null;
+  }
+  const dept = await Promise.resolve(getDepartmentById(deptId));
+  if (!dept) return null;
+
+  // Detach every operator/admin assigned to this department.
+  await Promise.resolve(
+    run(dbKnex("users").where({ department_id: deptId }).update({ department_id: null }))
+  );
+
+  // Remove the row itself.
+  await Promise.resolve(run(dbKnex("departments").where({ id: deptId }).del()));
+  return dept;
+}
+
 function normalizeDepartmentRow(row) {
   if (!row) return null;
   return {

@@ -4,8 +4,11 @@ import {
   Headset,
   LifeBuoy,
   Pencil,
+  Pause,
+  Play,
   Refresh,
   LoaderCircle,
+  Trash2,
 } from "../../icons/lucide.js";
 import {
   api,
@@ -17,6 +20,7 @@ import {
   iconBtn,
 } from "./adminShared.js";
 import { EmptyState, TabToolbar } from "./AdminCommon.jsx";
+import ConfirmModal from "../modals/ConfirmModal.jsx";
 import DepartmentReportView from "./DepartmentReportView.jsx";
 import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 import { hasPersian } from "../../utils/fontUtils.js";
@@ -31,7 +35,9 @@ const DEPARTMENT_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#f43f5e", "#8b5cf6"
  *  1. Reports  — per-department volume / open conversations / operator load;
  *                every department name opens its dedicated performance report
  *                (operators, answered/unanswered, precise time filters).
- *  2. Departments — create, edit, deactivate support departments.
+ *  2. Departments — create, edit, pause/resume and hard-delete support
+ *                departments (delete asks for confirmation; chat history is
+ *                kept, assigned operators are detached).
  */
 const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }, ref) {
   const { t } = useI18n();
@@ -53,6 +59,10 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
   const [editorErr, setEditorErr] = useState("");
   const [saving, setSaving] = useState(false);
   useOverlayBack(Boolean(editorOpen), () => setEditorOpen(false), "sbAdminDeptModal");
+
+  // Department delete confirmation state
+  const [deleting, setDeleting] = useState(null); // department row pending confirmation
+  const [deletingBusy, setDeletingBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -134,6 +144,21 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
       await api.patch(`/api/admin/departments/${dept.id}`, { active: !dept.active });
       await refresh();
     } catch {}
+  }
+
+  async function confirmDeleteDepartment() {
+    if (!deleting || deletingBusy) return;
+    setDeletingBusy(true);
+    try {
+      await api.delete(`/api/admin/departments/${deleting.id}`);
+      setDeleting(null);
+      await refresh();
+      onMutated?.();
+    } catch {
+      setError(t("admin.helpdesk.deleteError"));
+    } finally {
+      setDeletingBusy(false);
+    }
   }
 
   const overviewByDept = new Map(
@@ -288,10 +313,18 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
                       <button
                         type="button"
                         onClick={() => void toggleDepartment(dept)}
-                        className={dept.active ? iconBtn("rose") : iconBtn("slate")}
+                        className={iconBtn("emerald")}
                         aria-label={dept.active ? t("admin.helpdesk.deactivate", { name: dept.name }) : t("admin.helpdesk.activate", { name: dept.name })}
                       >
-                        {dept.active ? "⏸" : "▶"}
+                        {dept.active ? <Pause size={13} /> : <Play size={13} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleting(dept)}
+                        className={iconBtn("rose")}
+                        aria-label={t("admin.helpdesk.deleteDept", { name: dept.name })}
+                      >
+                        <Trash2 size={13} />
                       </button>
                     </div>
                   </div>
@@ -328,6 +361,17 @@ const HelpdeskTab = forwardRef(function HelpdeskTab({ active = true, onMutated }
           <EmptyState message={t("admin.helpdesk.emptyDepartments")} />
         )}
       </section>
+
+      {/* ─── Department delete confirmation ──────────────────────────────── */}
+      <ConfirmModal
+        open={Boolean(deleting)}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => void confirmDeleteDepartment()}
+        busy={deletingBusy}
+        title={t("admin.helpdesk.deleteDepartmentTitle")}
+        message={t("admin.helpdesk.deleteDepartmentMessage", { name: deleting?.name || "" })}
+        confirmLabel={t("admin.helpdesk.deleteDepartmentConfirm")}
+      />
 
       {/* ─── Department create/edit modal ─────────────────────────────────── */}
       {editorOpen ? (
