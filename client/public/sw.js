@@ -1,9 +1,9 @@
-const CACHE_VERSION = "1.0.0";
+const CACHE_VERSION = "1.1.0";
 const CACHE_NAME = `chatdesk-${CACHE_VERSION}`;
 const APP_SHELL = [
   "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
+  "/icons/icon-192.png?v=chatdesk",
+  "/icons/icon-512.png?v=chatdesk",
 ];
 
 const isCacheableAssetPath = (pathname) => {
@@ -149,8 +149,8 @@ self.addEventListener("push", (event) => {
           tag: callTag,
           renotify: true,
           requireInteraction: true,
-          badge: "/icons/icon-192.png",
-          icon: "/icons/icon-192.png",
+          badge: "/icons/icon-192.png?v=chatdesk",
+          icon: "/icons/icon-192.png?v=chatdesk",
         });
       })(),
     );
@@ -166,8 +166,8 @@ self.addEventListener("push", (event) => {
     data,
     tag,
     renotify: true,
-    badge: "/icons/icon-192.png",
-    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png?v=chatdesk",
+    icon: "/icons/icon-192.png?v=chatdesk",
   };
   event.waitUntil(
     (async () => {

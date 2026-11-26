@@ -2,7 +2,7 @@ import { forwardRef } from "react";
 import { Close, Download } from "../../icons/lucide.js";
 
 const InstallBar = forwardRef(function InstallBar(
-  { show, onDismiss, onInstall, iconSrc = "/icons/icon-192.png" },
+  { show, onDismiss, onInstall, iconSrc = "/icons/icon-192.png?v=chatdesk" },
   ref,
 ) {
   if (!show) return null;

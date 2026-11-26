@@ -2,6 +2,26 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.6
+
+### Fixed
+
+- 🎨 **The default PWA/app icon is now ChatDesk everywhere — the old Songbird swan is gone.** Installing the PWA (iOS Safari "Add to Home Screen", Android Chrome install prompt, the in-app install guide, desktop) still produced the old Songbird swan icon, because every bundled static icon under `client/public/icons` (16/32/180/192/512, maskable, circular, favicon.ico) plus `docs/public/favicon.ico` still carried the swan artwork. The whole set is regenerated from the ChatDesk speech-bubble mark: white rounded-square tiles for Android/manifest, a full-bleed white apple-touch icon for iOS (iOS applies its own mask), maskable variants on a brand-green gradient with a white bubble inside the safe zone, and transparent bubble glyphs for 16/32/favicons.
+- 🔁 **Already-cached clients get the new icons immediately, not after a stale-cache limbo.** Two root causes of "old icon persists after deploy" were fixed: (1) the service worker precached the old swan PNGs under a never-bumped cache version — `CACHE_VERSION` is now bumped (1.1.0) so the old cache is deleted and the new art re-precached on update; (2) every static icon URL is now referenced with a `?v=chatdesk` cache-buster (index.html links, web manifest, service worker precache/notification icons, install bar/guide icons) so browsers that still hold a cached swan fetch the fresh bytes instead of reusing them.
+- 🩹 **`/favicon.ico` no longer falls through to the SPA HTML shell.** Default installs had no `favicon.ico` at the client root, so the route missed the static file, hit the catch-all and served `index.html` as the favicon (browsers silently ignored it). A multi-size favicon.ico (16/32/48) now ships at `client/public/favicon.ico` too.
+
+**Tests:** client unit 42 files / 447 green; ESLint clean; every generated PNG verified visually (512 tile, maskable pair, apple-touch 180, 16/32 glyphs) and the ICO structure checked byte-level (3 embedded sizes).
+
+**خلاصهٔ فارسی:**
+
+### رفع اشکال
+
+- 🎨 **آیکون پیش‌فرض PWA و اپ حالا همه‌جا ChatDesk است — قوی قدیمی Songbird حذف شد.** هنگام نصب PWA (روی iOS با سافاری «Add to Home Screen»، نصب کروم در اندروید، راهنمای نصب داخل برنامه و دسکتاپ) هنوز آیکون قوِ قدیمی Songbird نصب می‌شد، چون تمام آیکون‌های استاتیک همراه برنامه در `client/public/icons` (اندازه‌های ۱۶/۳۲/۱۸۰/۱۹۲/۵۱۲، نسخه‌های maskable، دایره‌ای و favicon.ico) به‌علاوه `docs/public/favicon.ico` هنوز همان طرح قدیمی را داشتند. کل این مجموعه از نشان حباب-گفتگوی ChatDesk از نو ساخته شد: کاشی‌های مربع-گوشه‌گرد سفید برای اندروید/منیفست، آیکون apple-touch تمام-صفحه سفید برای iOS (خود iOS گوشه‌ها را گرد می‌کند)، نسخه‌های maskable روی گرادیان سبز برند با حباب سفید داخل محدودهٔ امن، و گلیف حباب شفاف برای ۱۶/۳۲ و فاوآیکون‌ها.
+- 🔁 **کلاینت‌های دارای کش هم بلافاصله آیکون تازه را می‌گیرند، نه بعد از یک دورهٔ کش-کهنه.** دو ریشهٔ «آیکون قدیمی بعد از استقرار هم می‌ماند» بسته شد: (۱) سرویس‌ورکر آیکون‌های قوِ قدیمی را با نسخهٔ کشی که هرگز bump نمی‌شد پیش‌ذخیره می‌کرد — حالا `CACHE_VERSION` bumped شده (۱.۱.۰) تا کش قدیمی حذف و طرح تازه پیش‌ذخیره شود؛ (۲) همهٔ URLهای آیکون استاتیک حالا با `?v=chatdesk` شکستن-کش ارجاع می‌شوند (لینک‌های index.html، وب منیفست، آیکون‌های پیش‌ذخیره/نوتیفیکیشن سرویس‌ورکر و آیکون‌های نوار/راهنمای نصب) تا مرورگرهایی که هنوز قوِ کش‌شده دارند بایت‌های تازه را بگیرند.
+- 🩹 **`/favicon.ico` دیگر به پوستهٔ HTML اسپا ختم نمی‌شود.** در نصب‌های پیش‌فرض هیچ favicon.ico در ریشهٔ کلاینت نبود؛ درخواست به فایل استاتیک نمی‌رسید، به مسیر catch-all می‌افتاد و `index.html` را به‌عنوان فاوآیکون برمی‌گرداند (مرورگرها بی‌صدا نادیده می‌گرفتند). حالا یک favicon.ico چندسایزی (۱۶/۳۲/۴۸) هم در `client/public/favicon.ico` منتشر می‌شود.
+
+**آزمون‌ها:** یونیت کلاینت ۴۲ فایل / ۴۴۷ سبز؛ ESLint پاک؛ همهٔ PNGهای تولیدشده به‌صورت چشمی بازبینی شدند (کاشی ۵۱۲، جفت maskable، apple-touch ۱۸۰، گلیف‌های ۱۶/۳۲) و ساختار ICO در سطح بایت کنترل شد (۳ سایز جاسازی‌شده).
+
 ## 1.7.0-dev.5
 
 ### Fixed

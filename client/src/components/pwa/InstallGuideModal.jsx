@@ -4,7 +4,7 @@ import { useOverlayBack } from "../../hooks/chat/useOverlayBack.js";
 export default function InstallGuideModal({
   open,
   onClose,
-  iconSrc = "/icons/icon-192.png",
+  iconSrc = "/icons/icon-192.png?v=chatdesk",
   isDesktop = false,
 }) {
   // System back closes the guide instead of exiting.

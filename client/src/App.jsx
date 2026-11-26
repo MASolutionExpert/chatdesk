@@ -1199,7 +1199,7 @@ export default function App() {
       <InstallBar
         ref={installBarRef}
         show={showInstallBar}
-        iconSrc="/icons/icon-192.png"
+        iconSrc="/icons/icon-192.png?v=chatdesk"
         onDismiss={() => {
           setShowInstallBanner(false)
           setShowIosInstallBanner(false)
@@ -1232,7 +1232,7 @@ export default function App() {
 
       <InstallGuideModal
         open={showInstallGuide}
-        iconSrc="/icons/icon-192.png"
+        iconSrc="/icons/icon-192.png?v=chatdesk"
         isDesktop={isDesktopViewport}
         onClose={() => setShowInstallGuide(false)}
       />

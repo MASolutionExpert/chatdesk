@@ -388,8 +388,8 @@ export function useChatNotifications({
         if (reg?.showNotification) {
           await reg.showNotification("ChatDesk", {
             body: "Test notification",
-            badge: "/icons/icon-192.png",
-            icon: "/icons/icon-192.png",
+            badge: "/icons/icon-192.png?v=chatdesk",
+            icon: "/icons/icon-192.png?v=chatdesk",
             data: { url: "/" },
           });
         }
