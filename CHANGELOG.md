@@ -2,6 +2,26 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.3
+
+### Fixed
+
+- 🖼️ **Replaced logo no longer sticks — the old logo kept showing after a new upload, even inside the Personalization tab.** Root cause: three stacked cache layers, none invalidated. Every branding icon was served at a **constant URL** (`/api/branding/logo.png`, `icon-<n>.png`) with a `max-age=300` browser cache, the client kept an in-memory branding payload that was **never refreshed** after an upload, and even a refetch hit the same URL so the browser served the previous PNG. Rebuilt from the root:
+  - **Cache-busted versioned URLs**: every branding URL now carries `?v=<upload-timestamp>` (file-mtime fallback if the setting is lost) — a re-upload produces brand-new URLs, so no cache layer anywhere can shadow the new logo. Versioned requests are served `immutable`; unversioned requests revalidate (`no-cache`) instead of trusting stale copies. The **PWA manifest icons** are versioned too, so installed phones pick up the new art.
+  - **Live propagation**: the shared client branding cache is force-refreshed after every save/upload/reset, and the entry page now **subscribes** to branding changes — logo, favicon and wordmark update instantly, no reload, no "wait a moment".
+  - **Entry-page logo is twice as large** on the login screen (iOS-style flat rounded corners unchanged) so the organization mark reads properly.
+  - **The «©2026» token is now editable**: a new *Copyright year* field in the Personalization tab replaces the year element of the bottom copyright line (empty = current year, as before).
+
+**Tests:** 149 server files / 1454 tests green (5 new: fresh-versioned-URLs on re-upload, mtime fallback, immutable/no-cache cache-control, copyright-year round-trip; URL assertions cache-bust-aware); client unit 443 green; ESLint clean.
+
+**خلاصهٔ فارسی:**
+
+- 🖼️ **رفع باگ چسبیدن لوگوی قدیمی — بعد از آپلود لوگوی جدید، همان لوگوی قبلی نشان داده می‌شد؛ حتی در خود صفحهٔ «شخصی‌سازی».** ریشهٔ مشکل: سه لایهٔ انبار موازی که هیچ‌کدام باطل نمی‌شدند — همهٔ آیکون‌ها با **نشانی ثابت** سرو می‌شدند (`max-age=300` در مرورگر)، حافظهٔ برنامگی سمت کلاینت بعد از آپلود **هرگز تازه نمی‌شد**، و حتی با واکشی دوباره، نشانی همان بود و مرورگر همان PNG قبلی را نشان می‌داد. بازسازی از پایه:
+  - **نشانی‌های نسخه‌دار با شکستن انبار**: همهٔ نشانی‌های برندینگ حالا `?v=<زمان آپلود>` دارند (با بازگشت به زمان فایل اگر تنظیم گم شده باشد) — هر آپلود تازه نشانی‌های کاملاً نو می‌سازد، پس هیچ لایهٔ انباری در هیچ‌جا نمی‌تواند لوگوی جدید را پشت لوگوی قبلی پنهان کند. درخواست‌های نسخه‌دار `immutable` سرو می‌شوند و درخواست‌های بی‌نسخه همیشه اعتبارسنجی مجدد می‌شوند. **آیکون‌های مانیفست PWA** هم نسخه‌دارند تا گوشی‌های نصب‌شده آرت تازه را بگیرند.
+  - **انتشار زنده**: حافظهٔ مشترک برندینگ بعد از هر ذخیره/آپلود/بازنشانی به‌صورت اجباری تازه می‌شود و صفحهٔ ورود حالا **مشترک** تغییرات برندینگ است — لوگو، favicon و نام برنامه بی‌درنگ عوض می‌شوند؛ بدون بارگذاری دوباره و بدون «چند لحظه صبر کنید».
+  - **لوگوی صفحهٔ ورود دو برابر بزرگ‌تر شد** (همان حالت فلت با گوشه‌های گرد به سبک iOS) تا نشان سازمان درست خوانده شود.
+  - **المان «©2026» حالا قابل ویرایش است**: فیلد تازهٔ *سال کپی‌رایت* در تب شخصی‌سازی، المان سالِ خط کپی‌رایت پایین را عوض می‌کند (خالی = سال جاری، مثل قبل).
+
 ## 1.7.0-dev.2
 
 ### Added

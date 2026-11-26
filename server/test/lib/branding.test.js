@@ -85,6 +85,15 @@ describe("normalizeBrandingPatch", () => {
     expect(normalizeBrandingPatch().ok).toBe(true);
     expect(normalizeBrandingPatch(undefined).ok).toBe(true);
   });
+
+  test("normalizes and clamps the copyright year token", () => {
+    const result = normalizeBrandingPatch({ copyrightYear: "  2026  " });
+    expect(result.ok).toBe(true);
+    expect(result.value.copyrightYear).toBe("2026");
+    const clamped = normalizeBrandingPatch({ copyrightYear: "y".repeat(40) });
+    expect(clamped.ok).toBe(true);
+    expect(clamped.value.copyrightYear.length).toBe(24);
+  });
 });
 
 describe("isPngBuffer", () => {
@@ -158,12 +167,44 @@ describe("createBrandingService", () => {
     );
     const result = await service.saveLogoFiles(fileMap);
     expect(result.logoUpdatedAt).toBeTruthy();
-    expect(result.logo.logoUrl).toBe("/api/branding/logo.png");
-    expect(result.logo.faviconUrl).toBe("/api/branding/icon-32.png");
+    // Every URL is cache-busted with the upload timestamp — a replaced logo
+    // must never be shadowed by a cached copy of the previous PNG.
+    expect(result.logo.logoUrl).toBe(
+      `/api/branding/logo.png?v=${Date.parse(result.logoUpdatedAt)}`,
+    );
+    expect(result.logo.faviconUrl).toMatch(/^\/api\/branding\/icon-32\.png\?v=\d+$/);
     // Files actually on disk:
     expect(service.readIcon(512)).toBeTruthy();
     expect(service.readIcon(16)).toBeTruthy();
     expect(service.hasCustomLogo()).toBe(true);
+  });
+
+  test("re-uploading the logo produces a fresh set of versioned URLs", async () => {
+    const { service } = makeService();
+    const fileMap = Object.fromEntries(
+      BRANDING_ICON_SIZES.map((size) => [size, PNG_1PX]),
+    );
+    const first = await service.saveLogoFiles(fileMap);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    const second = await service.saveLogoFiles(fileMap);
+    expect(second.logo.logoUrl).not.toBe(first.logo.logoUrl);
+    expect(second.logo.logoUrl).toMatch(/^\/api\/branding\/logo\.png\?v=\d+$/);
+    // The stored config serves the same (latest) versioned URLs.
+    const config = await service.getConfig();
+    expect(config.logo.logoUrl).toBe(second.logo.logoUrl);
+  });
+
+  test("a missing logoUpdatedAt falls back to the icon-512 file mtime for the version", async () => {
+    const { store, service } = makeService();
+    await service.saveLogoFiles(Object.fromEntries(
+      BRANDING_ICON_SIZES.map((size) => [size, PNG_1PX]),
+    ));
+    // Simulate a lost/legacy setting row while files remain on disk.
+    const stored = JSON.parse(store.get(BRANDING_SETTING_KEY));
+    delete stored.logoUpdatedAt;
+    store.set(BRANDING_SETTING_KEY, JSON.stringify(stored));
+    const config = await service.getConfig();
+    expect(config.logo?.logoUrl).toMatch(/^\/api\/branding\/logo\.png\?v=\d+$/);
   });
 
   test("saveLogoFiles requires at least the 512 and 192 icons", async () => {
@@ -208,7 +249,7 @@ describe("createBrandingService", () => {
     const manifest = await service.buildManifest();
     expect(manifest.name).toBe("Acme");
     expect(manifest.short_name).toBe("Acme");
-    expect(manifest.icons.some((i) => i.src === "/api/branding/icon-512.png")).toBe(true);
+    expect(manifest.icons.some((i) => /^\/api\/branding\/icon-512\.png\?v=\d+$/.test(i.src))).toBe(true);
     expect(manifest.icons.some((i) => i.purpose === "maskable")).toBe(true);
   });
 });

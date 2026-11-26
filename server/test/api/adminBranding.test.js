@@ -59,9 +59,32 @@ describe("GET /api/branding (public)", () => {
     const res = await request(app).get("/api/branding");
     expect(res.body.loginTitle).toBe("Acme");
     expect(res.body.loginTagline).toBe("سازمان اکمه");
-    expect(res.body.logo?.logoUrl).toBe("/api/branding/logo.png");
-    expect(res.body.logo?.faviconUrl).toBe("/api/branding/icon-32.png");
+    expect(res.body.logo?.logoUrl).toMatch(/^\/api\/branding\/logo\.png\?v=\d+$/);
+    expect(res.body.logo?.faviconUrl).toMatch(/^\/api\/branding\/icon-32\.png\?v=\d+$/);
     expect(res.body.logoUpdatedAt).toBeTruthy();
+  });
+
+  test("re-uploading the logo changes the public URLs (cache-busting)", async () => {
+    const app = makeOwnerApp();
+    await logoRequest(app).set("Cookie", "sid=owner-session");
+    const first = (await request(app).get("/api/branding")).body.logo?.logoUrl;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await logoRequest(app).set("Cookie", "sid=owner-session");
+    const second = (await request(app).get("/api/branding")).body.logo?.logoUrl;
+    expect(second).toMatch(/^\/api\/branding\/logo\.png\?v=\d+$/);
+    expect(second).not.toBe(first);
+  });
+
+  test("the copyright year token round-trips through the admin API", async () => {
+    const app = makeOwnerApp();
+    const put = await request(app)
+      .put("/api/admin/branding")
+      .set("Cookie", "sid=owner-session")
+      .send({ copyrightYear: "2026" });
+    expect(put.status).toBe(200);
+    expect(put.body.config.copyrightYear).toBe("2026");
+    const res = await request(app).get("/api/branding");
+    expect(res.body.copyrightYear).toBe("2026");
   });
 });
 
@@ -76,6 +99,14 @@ describe("GET /api/branding/icon-:size.png (public)", () => {
     expect(after.status).toBe(200);
     expect(after.headers["content-type"]).toMatch(/image\/png/);
     expect(Buffer.compare(Buffer.from(after.body), PNG_1PX)).toBe(0);
+    // Unversioned requests must revalidate instead of trusting stale caches.
+    expect(after.headers["cache-control"]).toMatch(/no-cache/);
+
+    const versioned = await request(app).get(
+      "/api/branding/icon-512.png?v=1234567890",
+    );
+    expect(versioned.status).toBe(200);
+    expect(versioned.headers["cache-control"]).toMatch(/immutable/);
 
     const logo = await request(app).get("/api/branding/logo.png");
     expect(logo.status).toBe(200);
@@ -152,7 +183,7 @@ describe("POST/DELETE /api/admin/branding/logo", () => {
     const app = makeOwnerApp();
     const upload = await logoRequest(app).set("Cookie", "sid=owner-session");
     expect(upload.status).toBe(200);
-    expect(upload.body.logo?.logoUrl).toBe("/api/branding/logo.png");
+    expect(upload.body.logo?.logoUrl).toMatch(/^\/api\/branding\/logo\.png\?v=\d+$/);
 
     const served = await request(app).get("/api/branding/icon-32.png");
     expect(served.status).toBe(200);

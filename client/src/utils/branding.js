@@ -10,6 +10,26 @@ import { apiFetch } from "../api/chatApi.js";
 let cachePromise = null;
 let cachedBranding = null;
 
+// Subscribers are notified whenever a fresh payload lands (initial load or a
+// forced refresh after the owner uploads/resets a logo) — this is how the
+// entry page header and the favicon swap live without a full page reload.
+const listeners = new Set();
+
+export function subscribeToBranding(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function notifyBrandingListeners() {
+  for (const listener of listeners) {
+    try {
+      listener(cachedBranding);
+    } catch {
+      // One broken listener must not starve the others.
+    }
+  }
+}
+
 function setLinkHref(selector, href) {
   const link = document.querySelector(selector);
   if (link && href) link.setAttribute("href", href);
@@ -29,6 +49,7 @@ export function loadBranding({ force = false } = {}) {
       const payload = await response.json();
       cachedBranding = payload;
       applyBrandingToDocument(payload);
+      notifyBrandingListeners();
       return payload;
     } catch {
       return null;

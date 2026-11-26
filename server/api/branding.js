@@ -25,7 +25,7 @@ function registerBrandingRoutes(app, deps) {
     }
   });
 
-  const sendIcon = (res, size) => {
+  const sendIcon = (req, res, size) => {
     if (!service) {
       return res.status(503).json({ error: "Branding service unavailable." });
     }
@@ -38,14 +38,21 @@ function registerBrandingRoutes(app, deps) {
       return res.status(404).json({ error: "No custom logo configured." });
     }
     res.setHeader("Content-Type", "image/png");
-    // Short cache so a logo replacement propagates quickly while still
-    // taking the load off repeated entry-page hits.
-    res.setHeader("Cache-Control", "public, max-age=300");
+    // Versioned URLs (?v=<upload timestamp>) are immutable: a new upload
+    // produces brand-new URLs, so the old bytes can be cached forever without
+    // ever shadowing the new logo. Unversioned requests revalidate instead of
+    // trusting a stale cached copy — this is what fixes the "uploaded a new
+    // logo but the old one keeps showing" bug.
+    const versioned = Boolean(req?.query?.v);
+    res.setHeader(
+      "Cache-Control",
+      versioned ? "public, max-age=31536000, immutable" : "no-cache, must-revalidate",
+    );
     res.send(buffer);
   };
 
-  app.get("/api/branding/logo.png", (req, res) => sendIcon(res, 512));
-  app.get("/api/branding/icon-:size.png", (req, res) => sendIcon(res, req.params.size));
+  app.get("/api/branding/logo.png", (req, res) => sendIcon(req, res, 512));
+  app.get("/api/branding/icon-:size.png", (req, res) => sendIcon(req, res, req.params.size));
 }
 
 export { registerBrandingRoutes };

@@ -5,6 +5,7 @@ import { APP_CONFIG, setMessageMaxChars } from './settings/appConfig.js'
 import { fetchAppInfo } from './api/appMetaApi.js'
 import {
   loadBranding,
+  subscribeToBranding,
   brandingLoginTitle,
   brandingLoginTagline,
   brandingLogoUrl,
@@ -201,8 +202,14 @@ export default function App() {
     loadBranding().then((payload) => {
       if (isMounted && payload) setBranding(payload)
     })
+    // Live updates: when the owner uploads/resets a logo in another tab of
+    // this session, the entry page picks the new (versioned) URL at once.
+    const unsubscribe = subscribeToBranding((payload) => {
+      if (isMounted && payload) setBranding(payload)
+    })
     return () => {
       isMounted = false
+      unsubscribe()
     }
   }, [])
   const [adminPanelEnabled, setAdminPanelEnabled] = useState(true)
@@ -1073,7 +1080,7 @@ export default function App() {
                     alt={translateKey('auth.app.logoAlt')}
                     className={
                       branding?.logo
-                        ? 'h-16 w-16 rounded-[22.5%] object-cover shadow-sm sm:h-20 sm:w-20'
+                        ? 'h-32 w-32 rounded-[22.5%] object-cover shadow-sm sm:h-40 sm:w-40'
                         : 'h-8 w-8 sm:h-9 sm:w-9'
                     }
                   />

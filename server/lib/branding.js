@@ -54,6 +54,9 @@ export const BRANDING_DEFAULTS = Object.freeze({
   ]),
   copyrightLabel: "@MASolutionExpert",
   copyrightHref: "https://github.com/MASolutionExpert",
+  // Empty string = the current calendar year is rendered dynamically.
+  // The owner can pin or replace the «©2026» token with any short text.
+  copyrightYear: "",
   // Empty string = fall back to the UI-language default sentence
   // (settings.about.rights). The owner can override it per instance.
   rightsText: "",
@@ -109,6 +112,9 @@ export function normalizeBrandingPatch(raw = {}) {
 
   if (raw.copyrightLabel !== undefined) {
     value.copyrightLabel = clampText(raw.copyrightLabel, 120);
+  }
+  if (raw.copyrightYear !== undefined) {
+    value.copyrightYear = clampText(raw.copyrightYear, 24);
   }
   if (raw.copyrightHref !== undefined) {
     const href = String(raw.copyrightHref || "").trim();
@@ -221,25 +227,53 @@ export function createBrandingService({
     }
   };
 
-  const publicUrls = () => {
+  // Cache-busting version for every branding URL. Derived from the stored
+  // logoUpdatedAt timestamp so each upload produces a NEW set of URLs — this
+  // is what makes a replaced logo appear everywhere immediately instead of
+  // the browser/proxy serving the previous PNG for minutes. When the setting
+  // is missing but files exist on disk, the icon-512 mtime is used instead,
+  // so the URLs still change whenever the files are swapped.
+  const logoVersion = (storedUpdatedAt) => {
+    const raw = String(storedUpdatedAt || "").trim();
+    if (raw) {
+      const ts = Date.parse(raw);
+      if (Number.isFinite(ts)) return String(ts);
+      return raw.replace(/[^0-9a-z_-]/gi, "").slice(0, 40) || "logo";
+    }
+    try {
+      return String(Math.floor(fs.statSync(nodePath.join(brandingDir, iconFileName(512))).mtimeMs));
+    } catch {
+      return "";
+    }
+  };
+
+  const withVersion = (url, version) =>
+    version ? `${url}?v=${encodeURIComponent(version)}` : url;
+
+  const publicUrls = (version) => {
     if (!hasCustomLogo()) return null;
     return {
-      logoUrl: "/api/branding/logo.png",
-      faviconUrl: "/api/branding/icon-32.png",
-      appleIconUrl: "/api/branding/icon-180.png",
-      icon16Url: "/api/branding/icon-16.png",
-      icon32Url: "/api/branding/icon-32.png",
-      icon180Url: "/api/branding/icon-180.png",
-      icon192Url: "/api/branding/icon-192.png",
-      icon512Url: "/api/branding/icon-512.png",
+      logoUrl: withVersion("/api/branding/logo.png", version),
+      faviconUrl: withVersion("/api/branding/icon-32.png", version),
+      appleIconUrl: withVersion("/api/branding/icon-180.png", version),
+      icon16Url: withVersion("/api/branding/icon-16.png", version),
+      icon32Url: withVersion("/api/branding/icon-32.png", version),
+      icon180Url: withVersion("/api/branding/icon-180.png", version),
+      icon192Url: withVersion("/api/branding/icon-192.png", version),
+      icon512Url: withVersion("/api/branding/icon-512.png", version),
     };
   };
+
+  const configWithLogo = (config) => ({
+    ...config,
+    logo: publicUrls(logoVersion(config.logoUpdatedAt)),
+  });
 
   return {
     // Full effective config (defaults + stored overrides) with public URLs.
     async getConfig() {
       const stored = await Promise.resolve(dbGetSetting(BRANDING_SETTING_KEY));
-      return { ...mergeConfig(stored), logo: publicUrls() };
+      return configWithLogo(mergeConfig(stored));
     },
 
     // Merges a normalized patch into the stored config and persists it.
@@ -248,7 +282,7 @@ export function createBrandingService({
       const current = mergeConfig(stored);
       const next = { ...current, ...patch, logoUpdatedAt: current.logoUpdatedAt };
       dbSetSetting(BRANDING_SETTING_KEY, JSON.stringify(next));
-      return { ...next, logo: publicUrls() };
+      return configWithLogo(next);
     },
 
     // Writes a map { <size>: Buffer } of PNGs and marks the custom logo active.
@@ -276,7 +310,7 @@ export function createBrandingService({
       const current = mergeConfig(stored);
       const next = { ...current, logoUpdatedAt: new Date().toISOString() };
       dbSetSetting(BRANDING_SETTING_KEY, JSON.stringify(next));
-      return { ...next, written, logo: publicUrls() };
+      return { ...configWithLogo(next), written };
     },
 
     // Removes the custom logo files and falls back to the bundled ChatDesk art.
@@ -308,6 +342,10 @@ export function createBrandingService({
       if (!hasCustomLogo()) return null;
       const stored = await Promise.resolve(dbGetSetting(BRANDING_SETTING_KEY));
       const config = mergeConfig(stored);
+      // Versioned icon URLs — when the owner uploads a new logo the manifest
+      // points at fresh URLs, so installed PWAs pick the new art on update.
+      const version = logoVersion(config.logoUpdatedAt);
+      const iconSrc = (size) => withVersion(`/api/branding/icon-${size}.png`, version);
       const name = config.loginTitle || "ChatDesk";
       return {
         name,
@@ -319,16 +357,16 @@ export function createBrandingService({
         background_color: "#0f172a",
         theme_color: "#10b981",
         icons: [
-          { src: "/api/branding/icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/api/branding/icon-512.png", sizes: "512x512", type: "image/png" },
+          { src: iconSrc(192), sizes: "192x192", type: "image/png" },
+          { src: iconSrc(512), sizes: "512x512", type: "image/png" },
           {
-            src: "/api/branding/icon-192.png",
+            src: iconSrc(192),
             sizes: "192x192",
             type: "image/png",
             purpose: "maskable",
           },
           {
-            src: "/api/branding/icon-512.png",
+            src: iconSrc(512),
             sizes: "512x512",
             type: "image/png",
             purpose: "maskable",

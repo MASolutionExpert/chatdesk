@@ -12,6 +12,7 @@ import { api, btnPrimary, btnSecondary, btnDanger, cardCls, inputSmCls, labelCls
 import { apiFetch } from "../../api/chatApi.js";
 import { useI18n } from "../../i18n/index.js";
 import { buildLogoIconFormData } from "../../utils/logoPreprocess.js";
+import { loadBranding } from "../../utils/branding.js";
 
 // Same icon set the server registry accepts (BRANDING_ICON_KEYS).
 const LINK_ICON_OPTIONS = [
@@ -33,6 +34,7 @@ function formFromConfig(config = {}) {
         }))
       : [],
     copyrightLabel: String(config.copyrightLabel || ""),
+    copyrightYear: String(config.copyrightYear || ""),
     copyrightHref: String(config.copyrightHref || ""),
     rightsText: String(config.rightsText || ""),
     loginTitle: String(config.loginTitle || ""),
@@ -103,6 +105,14 @@ const BrandingTab = forwardRef(function BrandingTab(
     }));
   };
 
+  // The whole app shares one branding cache (entry page header, favicon,
+  // About panel). After any mutation it must be force-refreshed so the rest
+  // of the UI — including the versioned logo URLs — updates immediately,
+  // instead of every consumer sticking to the previous payload.
+  const refreshSharedBranding = () => {
+    loadBranding({ force: true }).catch(() => {});
+  };
+
   const saveConfig = async () => {
     setSaving(true);
     setSaveError("");
@@ -110,6 +120,7 @@ const BrandingTab = forwardRef(function BrandingTab(
       const response = await api.put("/api/admin/branding", {
         aboutLinks: form.aboutLinks,
         copyrightLabel: form.copyrightLabel,
+        copyrightYear: form.copyrightYear,
         copyrightHref: form.copyrightHref,
         rightsText: form.rightsText,
         loginTitle: form.loginTitle,
@@ -120,6 +131,7 @@ const BrandingTab = forwardRef(function BrandingTab(
         throw new Error(payload?.error || t("admin.branding.saveError"));
       }
       showToast(t("admin.branding.saved"));
+      refreshSharedBranding();
       onMutated?.();
     } catch (err) {
       setSaveError(err?.message || t("admin.branding.saveError"));
@@ -145,6 +157,7 @@ const BrandingTab = forwardRef(function BrandingTab(
         throw new Error(payload?.error || t("admin.branding.saveError"));
       }
       showToast(t("admin.branding.logoUpdated"));
+      refreshSharedBranding();
       onMutated?.();
     } catch (err) {
       const message = String(err?.message || "");
@@ -169,6 +182,7 @@ const BrandingTab = forwardRef(function BrandingTab(
         throw new Error(payload?.error || t("admin.branding.saveError"));
       }
       showToast(t("admin.branding.logoResetDone"));
+      refreshSharedBranding();
       onMutated?.();
     } catch (err) {
       setSaveError(err?.message || t("admin.branding.saveError"));
@@ -372,6 +386,21 @@ const BrandingTab = forwardRef(function BrandingTab(
             />
           </div>
           <div className="space-y-1.5">
+            <label className={labelCls} htmlFor="branding-copyright-year" dir="auto">
+              {t("admin.branding.copyrightYear")}
+            </label>
+            <input
+              id="branding-copyright-year"
+              type="text"
+              value={form.copyrightYear}
+              maxLength={24}
+              placeholder={t("admin.branding.copyrightYearPlaceholder")}
+              onChange={(e) => update("copyrightYear", e.target.value)}
+              className={inputSmCls}
+              dir="auto"
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
             <label className={labelCls} htmlFor="branding-copyright-href" dir="auto">
               {t("admin.branding.copyrightHref")}
             </label>

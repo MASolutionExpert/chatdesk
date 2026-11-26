@@ -56,6 +56,9 @@ export function AboutSettingsPanel({
   const copyrightHref = String(
     branding?.copyrightHref || ABOUT_CONTENT.copyright?.ownerHref || "",
   ).trim();
+  // The «©{year}» token: the owner can pin/replace it from the admin
+  // Personalization tab; empty falls back to the current calendar year.
+  const copyrightYear = String(branding?.copyrightYear || "").trim();
   const rightsText = String(branding?.rightsText || "").trim() || t("settings.about.rights");
   const year = new Date().getFullYear();
   const rowBase =
@@ -109,7 +112,7 @@ export function AboutSettingsPanel({
 
           {/* The copyright line stays at the very bottom of the dialog. */}
           <p className="mt-1 text-center text-xs text-slate-500 dark:text-slate-400">
-            {"\u00A9"} {year}{" "}
+            {"\u00A9"} {copyrightYear || year}{" "}
             {copyrightHref ? (
               <a
                 href={copyrightHref}
