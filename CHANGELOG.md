@@ -2,6 +2,22 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.7.0-dev.9
+
+### Fixed
+
+- 🛠️ **The self-hosted rebuild broke at the client build step — `Trash2` was missing from the project's icon barrel.** The 1.7.0-dev.7 department delete button imports the Lucide `Trash2` icon through the shared barrel `client/src/icons/lucide.js` (the project's single icon source, which re-exports only whitelisted icons from `lucide-react`), but that barrel only ever contained `Trash` — never `Trash2`. Every dev build stayed green because dev servers resolve imports permissively, yet the **production `vite build` (rolldown) performs strict ESM export checking**: the user's `/opt/chatdesk` update failed with `[MISSING_EXPORT] "Trash2" is not exported by "src/icons/lucide.js"` and `Rebuild failed`, leaving the previous services stopped. The barrel now imports and re-exports `Trash2` alongside `Trash`; a full production `vite build` was run before release and completes cleanly.
+
+**Tests:** client production `vite build` green (2226+ modules, clean bundle); ESLint clean.
+
+**خلاصهٔ فارسی:**
+
+### رفع اشکال
+
+- 🛠️ **بیلد خودمیزبان در مرحلهٔ ساخت کلاینت می‌شکست — `Trash2` در بارل آیکون‌های پروژه وجود نداشت.** دکمهٔ حذف دپارتمانِ ۱.۷.۰-dev.7 آیکون `Trash2` را از بارل مشترک `client/src/icons/lucide.js` وارد می‌کند (منبع واحد آیکون‌های پروژه که فقط آیکون‌های لیست‌سفیدشده از `lucide-react` را صادر می‌کند)، اما در آن بارل فقط `Trash` بود — هرگز `Trash2` نبود. هر بیلد dev سبز می‌ماند چون سرور توسعه ایمپورت‌ها را آسان‌گیرانه حل می‌کند، اما **بیلد پروداکشن `vite` (rolldown) بررسی سخت‌گیرانهٔ خروجی‌های ESM انجام می‌دهد**: به‌روزرسانیِ `/opt/chatdesk` کاربر با `[MISSING_EXPORT] "Trash2" is not exported by "src/icons/lucide.js"` و پیام `Rebuild failed` شکست خورد و سرویس‌های قبلی متوقف ماندند. حالا بارل `Trash2` را در کنار `Trash` وارد و صادر می‌کند؛ پیش از انتشار یک بیلد کامل پروداکشن `vite` اجرا شد و بدون خطا تمام می‌شود.
+
+**آزمون‌ها:** بیلد پروداکشن `vite` کلاینت سبز (۲۲۲۶+ ماژول، باندل پاک)؛ ESLint پاک.
+
 ## 1.7.0-dev.8
 
 ### Changed
