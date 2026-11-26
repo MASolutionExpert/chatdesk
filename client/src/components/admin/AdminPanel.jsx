@@ -9,6 +9,7 @@ import {
   Headset,
   ScrollText,
   Settings,
+  ShieldCheck,
   Users,
   Wrench,
 } from "../../icons/lucide.js";
@@ -23,6 +24,7 @@ import ChatsTab from "./ChatsTab.jsx";
 import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 import SettingsTab from "./SettingsTab.jsx";
+import PermissionsTab from "./PermissionsTab.jsx";
 import ServicesTab from "./ServicesTab.jsx";
 import HelpdeskTab from "./HelpdeskTab.jsx";
 
@@ -34,8 +36,9 @@ const TABS = [
   { id: "chats",     label: "admin.tabs.chats",     icon: Chat,              anim: "icon-anim-bob" },
   { id: "actions",   label: "admin.tabs.actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
   { id: "services",  label: "admin.tabs.services",  icon: Blocks,            anim: "icon-anim-bob" },
-  { id: "settings",  label: "admin.tabs.settings",  icon: Settings,          anim: "icon-anim-spin-dir" },
-  { id: "logs",      label: "admin.tabs.logs",      icon: ScrollText,        anim: "icon-anim-sway" },
+  { id: "settings",    label: "admin.tabs.settings",    icon: Settings,      anim: "icon-anim-spin-dir" },
+  { id: "permissions", label: "admin.tabs.permissions", icon: ShieldCheck,   anim: "icon-anim-pop" },
+  { id: "logs",        label: "admin.tabs.logs",        icon: ScrollText,    anim: "icon-anim-sway" },
 ];
 
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
@@ -73,6 +76,7 @@ export default function AdminPanel({ user, onBack }) {
     actions:  () => api.get("/api/admin/service/available"),
     settings: () => api.get("/api/admin/settings"),
     services: () => api.get("/api/admin/services"),
+    permissions: () => api.get("/api/admin/permissions"),
   });
 
   const cacheRef = useRef(cache);
@@ -381,6 +385,15 @@ export default function AdminPanel({ user, onBack }) {
                 hasData={Boolean(cache.settings?.data)}
                 currentUser={user}
                 onMutated={() => invalidate("settings")}
+              />
+            </Activity>
+            <Activity mode={tab === "permissions" ? "visible" : "hidden"}>
+              <PermissionsTab
+                ref={(r) => { tabRefs.current.permissions = r; }}
+                cachedData={cache.permissions?.data ?? null}
+                isLoading={cache.permissions?.loading ?? false}
+                hasData={Boolean(cache.permissions?.data)}
+                onMutated={() => invalidate("permissions")}
               />
             </Activity>
             <Activity mode={tab === "actions" ? "visible" : "hidden"}>

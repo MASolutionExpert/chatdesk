@@ -25,6 +25,7 @@ import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import ChannelBadge from "../common/ChannelBadge.jsx";
 import { setTicketStatus, fetchReferCandidates, referTicket } from "../../api/chatApi.js";
+import { hasPermission } from "../../utils/permissions.js";
 import Tooltip from "../common/Tooltip.jsx";
 import {
   FocusedMediaModal,
@@ -1085,13 +1086,12 @@ export default function ChatWindowPanel({
   };
 
   // ─── Ticket referral (dev.8) ──────────────────────────────────────────────
-  // Staff-only: hand the ticket to another operator. The server converts the
-  // DM-shaped thread into a private support group; every member then sees
-  // the messages and can answer. The picker lists staff from recent contact
-  // first and supports lookup by username / nickname / id.
-  const isStaffMember = ["owner", "operator"].includes(
-    String(user?.role || "").toLowerCase(),
-  );
+  // Permission-gated (1.7.0): hand the ticket to another operator only with
+  // the configurable 'ticket.refer' permission (operators by default; the
+  // owner can extend or revoke it per role from the admin panel). The
+  // server enforces the same gate.
+  const canReferTickets = hasPermission(user, "ticket.refer");
+  const canChangeTicketStatus = hasPermission(user, "ticket.close");
   const [referOpen, setReferOpen] = useState(false);
   const [referCandidates, setReferCandidates] = useState([]);
   const [referDepartments, setReferDepartments] = useState([]);
@@ -1802,14 +1802,17 @@ export default function ChatWindowPanel({
               <span className="min-w-0 truncate text-slate-500 dark:text-slate-400">
                 {t("common.ticketClosedBanner")}
               </span>
-              <button
-                type="button"
-                onClick={() => handleTicketAction("reopen")}
-                disabled={ticketActionBusy}
-                className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
-              >
-                {t("common.ticketReopen")}
-              </button>
+              {/* Permission-gated (1.7.0): reopen needs 'ticket.close'. */}
+              {canChangeTicketStatus ? (
+                <button
+                  type="button"
+                  onClick={() => handleTicketAction("reopen")}
+                  disabled={ticketActionBusy}
+                  className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                >
+                  {t("common.ticketReopen")}
+                </button>
+              ) : null}
             </>
           ) : (
             <>
@@ -1821,9 +1824,9 @@ export default function ChatWindowPanel({
                 {t("common.ticketStatusOpen")}
               </span>
               <span className="flex shrink-0 items-center gap-1.5">
-                {/* Staff-only: hand the ticket to another operator (dev.8).
-                    The server turns the thread into a shared support group. */}
-                {isStaffMember ? (
+                {/* Permission-gated (1.7.0): the close action needs
+                    'ticket.close'; refer needs 'ticket.refer'. */}
+                {canReferTickets ? (
                   <button
                     type="button"
                     onClick={openReferModal}
@@ -1834,14 +1837,16 @@ export default function ChatWindowPanel({
                     {t("common.ticketRefer")}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => handleTicketAction("close")}
-                  disabled={ticketActionBusy}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300 dark:hover:bg-slate-500/20"
-                >
-                  {t("common.ticketClose")}
-                </button>
+                {canChangeTicketStatus ? (
+                  <button
+                    type="button"
+                    onClick={() => handleTicketAction("close")}
+                    disabled={ticketActionBusy}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300 dark:hover:bg-slate-500/20"
+                  >
+                    {t("common.ticketClose")}
+                  </button>
+                ) : null}
               </span>
             </>
           )}

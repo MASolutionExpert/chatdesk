@@ -21,6 +21,14 @@ export function normalizeSessionUser(data) {
     status: data.status || "online",
     role: data.role || "user",
     verified: Boolean(data.verified),
+    // Configurable permission system (1.7.0): the allowed registry keys for
+    // this role, served by /api/me (and login/register). The owner receives
+    // the full registry. Missing/empty array (stale caches, old servers)
+    // means "unknown" — hasPermission() then fails OPEN and the server
+    // still enforces every gate server-side.
+    permissions: Array.isArray(data.permissions)
+      ? data.permissions.filter((key) => typeof key === "string" && key)
+      : [],
     // Owner-impersonation stamp: present only while the owner is monitoring
     // through this session ("login as user" from the admin panel).
     impersonatedBy: data.impersonatedBy

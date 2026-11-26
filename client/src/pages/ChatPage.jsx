@@ -71,6 +71,11 @@ import {
   isMessageFromOtherUser,
   isRemoteChannelMessage,
 } from "../utils/messageOwnership.js";
+import {
+  hasPermission,
+  chatMessageScope,
+  messagePermissionKey,
+} from "../utils/permissions.js";
 import { normalizeUuid, isValidUuid } from "../utils/uuidUtils.js";
 import {
   createDmChat,
@@ -337,21 +342,29 @@ const buildInviteLinkForChat = (chat) => {
 };
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
-  // Moderators (owner/operator — role model, migration 047) may edit and
-  // moderate messages.
-  const canModerateContent = ["owner", "operator"].includes(
-    String(user?.role || "").toLowerCase(),
-  );
-  // Deletion policy: ChatDesk is an organizational messenger and ticketing
-  // system — ONLY the instance owner may delete messages and DM threads
-  // (support tickets included). Regular users, admins, and operators never
-  // see or reach the delete actions. Group/channel cleanup keeps working
-  // via leave + hide.
-  const isOwner = String(user?.role || "").toLowerCase() === "owner";
+  // Configurable permission system (1.7.0): message edit/delete allowances
+  // come from the role's registry permissions per chat scope, not bare role
+  // lists. hasPermission fails open when the permission array is missing
+  // (stale session) — the server still enforces every gate.
+  // Call permissions (1.7.0): voice/video call buttons follow the role's
+  // registry permissions on top of the instance-wide feature flags.
+  const voiceCallPermitted = hasPermission(user, "call.voice");
+  const videoCallPermitted = hasPermission(user, "call.video");
+  // Deletion policy: DM/ticket threads are hard-delete gated by
+  // 'dm.thread.delete' / 'ticket.delete'; group/channel deletion keeps the
+  // chat-owner rule (plus 'group.delete' / 'channel.delete').
   const canDeleteThread = useCallback(
-    (chat) =>
-      isOwner || String(chat?.type || "").toLowerCase() !== "dm",
-    [isOwner],
+    (chat) => {
+      const scope = chatMessageScope(chat);
+      if (scope === "dm") return hasPermission(user, "dm.thread.delete");
+      if (scope === "ticket") return hasPermission(user, "ticket.delete");
+      const type = String(chat?.type || "").toLowerCase();
+      return hasPermission(
+        user,
+        type === "channel" ? "channel.delete" : "group.delete",
+      );
+    },
+    [user],
   );
   /* eslint-disable react-hooks/exhaustive-deps */
   const { t, lang } = useI18n();
@@ -3201,54 +3214,62 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const requestDeleteChats = (ids) => {
     const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
     if (!list.length) return;
-    // Only the owner may delete DM-type threads (support tickets included);
-    // referred tickets — support GROUP chats — fall under the same rule and
-    // are filtered out too. The server enforces the same rule; this keeps
-    // the UI consistent.
-    const allowedIds = isOwner
-      ? list
-      : list.filter((id) => {
-          const chat = chats.find((candidate) => candidate?.id === id);
-          const type = String(chat?.type || "").toLowerCase();
-          if (type === "dm") return false;
-          if (
-            String(chat?.channel || "") === "support" &&
-            chat?.department_id
-          ) {
-            return false;
-          }
-          return true;
-        });
+    // Configurable permission system (1.7.0): DM threads need
+    // 'dm.thread.delete', ticket threads (including referred support
+    // groups) need 'ticket.delete'; group/channel cleanup stays available
+    // ('group.delete'/'channel.delete'). The server enforces the same
+    // gates; this keeps the UI consistent.
+    const allowedIds = list.filter((id) => {
+      const chat = chats.find((candidate) => candidate?.id === id);
+      if (!chat) return true;
+      return canDeleteThread(chat);
+    });
     if (!allowedIds.length) return;
     setPendingDeleteIds(allowedIds);
     setConfirmDeleteOpen(true);
   };
 
+  // Message-delete entry in the context menu: visible when the role can
+  // delete any message in the active chat's scope OR (DM scope) its own
+  // (configurable permissions, 1.7.0).
+  const canDeleteMessagesInActiveChat =
+    hasPermission(user, messagePermissionKey(activeChat, "delete_any")) ||
+    hasPermission(user, messagePermissionKey(activeChat, "delete_own"));
+
   const canDeleteMessageForEveryone = useCallback(
     (message) => {
       if (String(activeChat?.type || "").toLowerCase() === "saved") return false;
       if (isActiveChannelChat && !canCurrentUserEditGroup) return false;
-      // Deletion policy: ONLY the instance owner may delete a message for
-      // everyone — the server allows the same.
-      if (isOwner) return true;
+      // Configurable permission system (1.7.0): deleting ANY message needs
+      // the scope's delete_any permission; deleting one's own message needs
+      // delete_own (DM scope) or delete_any. The server enforces the same.
+      const deleteAnyAllowed = hasPermission(
+        user,
+        messagePermissionKey(activeChat, "delete_any"),
+      );
+      if (deleteAnyAllowed) return true;
       const messageAuthor = String(message?.username || "").toLowerCase();
       const currentUsername = String(user?.username || "").toLowerCase();
       if (!messageAuthor) return false;
-      if (messageAuthor === currentUsername) return true;
-      return canCurrentUserEditGroup;
+      if (messageAuthor !== currentUsername) return false;
+      return hasPermission(
+        user,
+        messagePermissionKey(activeChat, "delete_own"),
+      );
     },
-    [activeChat?.type, canCurrentUserEditGroup, isOwner, isActiveChannelChat, user?.username],
+    [activeChat, canCurrentUserEditGroup, isActiveChannelChat, user],
   );
 
-  // Only moderators (owner/admin/operator) may edit messages at all —
-  // regular users never see the edit entry. The server enforces the same
-  // rule on both edit paths.
+  // Message editing is permission-gated per chat scope (1.7.0):
+  // 'dm.message.edit' / 'ticket.message.edit' / 'group.message.edit' —
+  // authors only, as before. The server enforces the same rule on both
+  // edit paths.
   const canEditMessageFromContext = useCallback(
     (message) =>
-      canModerateContent &&
+      hasPermission(user, messagePermissionKey(activeChat, "edit")) &&
       (!isActiveChannelChat || canCurrentUserEditGroup) &&
       isMessageAuthoredByUser(message, { username: user?.username }),
-    [canCurrentUserEditGroup, isActiveChannelChat, canModerateContent, user?.username],
+    [activeChat, canCurrentUserEditGroup, isActiveChannelChat, user],
   );
 
   function handleDeleteMessageRequest(message, _options = {}) {
@@ -6784,7 +6805,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     canReplyToMessage: canSendInActiveChat,
     canEditMessage: canEditMessageFromContext,
     canDeleteMessageForEveryone,
-    canDeleteMessages: isOwner,
+    canDeleteMessages: canDeleteMessagesInActiveChat,
     canDeleteChatThread: canDeleteThread,
     onReplyToMessage: handleStartReply,
     onEditMessage: handleStartEdit,
@@ -7137,7 +7158,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onDeleteSelectedCalls={handleDeleteCalls}
         onOpenNewCall={handleOpenNewCall}
         onStartCall={handleStartCallFromRow}
-        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled}
+        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled || !voiceCallPermitted}
         isInCall={callState !== "idle"}
         formatChatTimestamp={formatChatCardTimestamp}
         requestDeleteChats={requestDeleteChats}
@@ -7330,8 +7351,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         registerMessageRef={registerMessageRef}
         onStartVoiceCall={handleStartVoiceCall}
         onStartVideoCall={handleStartVideoCall}
-        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled}
-        videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled}
+        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled || !voiceCallPermitted}
+        videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled || !videoCallPermitted}
         isInCall={callState !== "idle"}
         isDmChat={!isActiveGroupChat && !isActiveChannelChat && !isActiveSavedChat}
         permissionsPrompt={{
@@ -7674,8 +7695,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             dmError={profileDmError}
             onStartVoiceCall={handleProfileStartVoiceCall}
             onStartVideoCall={handleProfileStartVideoCall}
-            callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled}
-            videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled}
+            callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled || !voiceCallPermitted}
+            videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled || !videoCallPermitted}
             isInCall={callState !== "idle"}
             onToggleMute={() =>
               toggleMuteChat(mentionProfileChat?.id || activeChat?.id)

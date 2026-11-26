@@ -197,6 +197,7 @@ export default function ChatSidebar({
     >
       <div className={mobileTab === "settings" ? "hidden" : ""}>
         <SidebarHeader
+          user={user}
           mobileTab={mobileTab}
           editMode={mobileTab === "calls" ? callsEditMode : editMode}
           onExitEdit={
