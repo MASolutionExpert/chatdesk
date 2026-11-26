@@ -117,18 +117,18 @@ describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`,
         .toBeInTheDocument();
     });
 
-    test("shows Admin badge when user_role='admin'", async () => {
+    test("shows Operator badge when user_role='admin'", async () => {
       render(
         <MessageItem
           {...BASE_PROPS}
           isDesktop={label === "desktop"}
           isGroupChat={true}
           isFirstInGroup={true}
-          msg={makeMsg({ user_role: "admin" })}
+          msg={makeMsg({ user_role: "operator" })}
         />,
       );
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .toBeInTheDocument();
     });
 
@@ -148,19 +148,19 @@ describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`,
         .toBeInTheDocument();
     });
 
-    test("shows both Verified and Admin for verified admin", async () => {
+    test("shows both Verified and Operator for verified operator", async () => {
       render(
         <MessageItem
           {...BASE_PROPS}
           isDesktop={label === "desktop"}
           isGroupChat={true}
           isFirstInGroup={true}
-          msg={makeMsg({ user_verified: 1, user_role: "admin" })}
+          msg={makeMsg({ user_verified: 1, user_role: "operator" })}
         />,
       );
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .toBeInTheDocument();
     });
 
@@ -221,7 +221,7 @@ describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`,
             nickname: ME.nickname,
             color: ME.color,
             user_verified: 1,
-            user_role: "admin",
+            user_role: "operator",
           })}
         />,
       );
@@ -240,7 +240,7 @@ describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`,
           isDesktop={label === "desktop"}
           isGroupChat={true}
           isFirstInGroup={true}
-          msg={makeMsg({ user_verified: 1, user_role: "admin" })}
+          msg={makeMsg({ user_verified: 1, user_role: "operator" })}
         />,
       );
       const verified = page.getByLabelText("Verified");
@@ -298,12 +298,12 @@ describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`,
           isDesktop={label === "desktop"}
           isGroupChat={true}
           isFirstInGroup={false}
-          msg={makeMsg({ user_verified: 1, user_role: "admin" })}
+          msg={makeMsg({ user_verified: 1, user_role: "operator" })}
         />,
       );
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .toBeInTheDocument();
     });
 
@@ -383,34 +383,34 @@ describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`,
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
     });
 
-    test("shows Admin badge in reply chip when role='admin'", async () => {
+    test("shows Operator badge in reply chip when role='admin'", async () => {
       render(
         <MessageItem
           {...BASE_PROPS}
           isDesktop={label === "desktop"}
           isGroupChat={true}
-          msg={makeMsg({ replyTo: makeReply({ role: "admin" }) })}
+          msg={makeMsg({ replyTo: makeReply({ role: "operator" }) })}
         />,
       );
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .toBeInTheDocument();
     });
 
-    test("shows both badges for verified admin in reply chip", async () => {
+    test("shows both badges for verified operator in reply chip", async () => {
       render(
         <MessageItem
           {...BASE_PROPS}
           isDesktop={label === "desktop"}
           isGroupChat={true}
           msg={makeMsg({
-            replyTo: makeReply({ verified: true, role: "admin" }),
+            replyTo: makeReply({ verified: true, role: "operator" }),
           })}
         />,
       );
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
       await expect
-        .element(page.getByLabelText("Server Admin"))
+        .element(page.getByLabelText("Support Operator"))
         .toBeInTheDocument();
     });
 
@@ -443,7 +443,7 @@ describe(`MessageItem sender badges (with-avatar, first-in-group) — ${label}`,
           isDesktop={label === "desktop"}
           isChannelChat={true}
           msg={makeMsg({
-            replyTo: makeReply({ verified: true, role: "admin" }),
+            replyTo: makeReply({ verified: true, role: "operator" }),
           })}
         />,
       );
@@ -584,15 +584,15 @@ for (const [label, viewport] of [["desktop", DESKTOP_VIEWPORT], ["mobile", MOBIL
       await expect.element(page.getByLabelText("Server Owner")).toBeInTheDocument();
     });
 
-    test("shows Admin badge for forwarded user with role='admin'", async () => {
-      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "admin" })} forwardedUserStatus="ready" />);
-      await expect.element(page.getByLabelText("Server Admin")).toBeInTheDocument();
+    test("shows Operator badge for forwarded user with role='admin'", async () => {
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ role: "operator" })} forwardedUserStatus="ready" />);
+      await expect.element(page.getByLabelText("Support Operator")).toBeInTheDocument();
     });
 
-    test("shows both Verified and Admin for verified admin forwarded user", async () => {
-      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "admin" })} forwardedUserStatus="ready" />);
+    test("shows both Verified and Operator for verified operator forwarded user", async () => {
+      renderWithLang(<MessageItem {...BASE_PROPS} isDesktop={label === "desktop"} msg={makeUserForwardedMsg()} forwardedUser={makeForwardedUser({ verified: true, role: "operator" })} forwardedUserStatus="ready" />);
       await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
-      await expect.element(page.getByLabelText("Server Admin")).toBeInTheDocument();
+      await expect.element(page.getByLabelText("Support Operator")).toBeInTheDocument();
     });
 
     test("shows no badges for plain unverified forwarded user", async () => {

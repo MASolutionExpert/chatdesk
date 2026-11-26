@@ -51,6 +51,44 @@ export function createSessionHelpers({
     res.setHeader("Set-Cookie", parts.join("; "));
   };
 
+  // Issue (or clear) a side cookie next to `sid` — e.g. the parked admin
+  // session (`admin_sid`) while an owner impersonates another user. Same
+  // hardening rules as the session cookie itself. Appends to any Set-Cookie
+  // header already on the response instead of overwriting it.
+  const setSideCookie = (
+    req,
+    res,
+    name,
+    value,
+    { httpOnly = true, maxAge = 1209600, clear = false } = {},
+  ) => {
+    const parts = [
+      `${name}=${encodeURIComponent(String(value ?? ""))}`,
+      "Path=/",
+      "SameSite=Lax",
+      `Max-Age=${clear ? 0 : maxAge}`,
+    ];
+
+    if (httpOnly) {
+      parts.splice(2, 0, "HttpOnly");
+    }
+
+    if (shouldUseSecureCookie(req)) {
+      parts.push("Secure");
+    }
+
+    const cookie = parts.join("; ");
+    const existing = res.getHeader("Set-Cookie");
+    if (!existing) {
+      res.setHeader("Set-Cookie", cookie);
+      return;
+    }
+    res.setHeader(
+      "Set-Cookie",
+      Array.isArray(existing) ? [...existing, cookie] : [existing, cookie],
+    );
+  };
+
   const clearSessionCookie = (req, res) => {
     const parts = ["sid=", "Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0"];
 
@@ -122,6 +160,7 @@ export function createSessionHelpers({
     isHttpsRequest,
     shouldUseSecureCookie,
     setSessionCookie,
+    setSideCookie,
     clearSessionCookie,
     getSessionFromRequest,
     requireSession,

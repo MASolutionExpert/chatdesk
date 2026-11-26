@@ -152,8 +152,12 @@ function CheckUpdateRow({ appInfo }) {
   );
 }
 
-const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
+const ActionsTab = forwardRef(function ActionsTab({ serviceStatus, currentUser = null }, ref) {
   const { t } = useI18n();
+  // Deletion policy: only the instance owner may delete messages, so the
+  // "Clear all messages" danger action is hidden for admins and operators
+  // (the server enforces the same rule).
+  const isOwner = String(currentUser?.role || "").toLowerCase() === "owner";
   const [appInfo, setAppInfo] = useState(null);
   const [maintenanceInfo, setMaintenanceInfo] = useState({
     engine: "sqlite",
@@ -390,6 +394,7 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
       <div>
         <SectionHeading danger>{t("admin.actions.dangerZone")}</SectionHeading>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {isOwner && (
           <ActionRow
             icon={MessageCircleX}
             iconAnim="icon-anim-sway"
@@ -409,6 +414,7 @@ const ActionsTab = forwardRef(function ActionsTab({ serviceStatus }, ref) {
             status={rowStatus.clearMessages}
             danger
           />
+          )}
           <ActionRow
             icon={Trash}
             iconAnim="icon-anim-slide"

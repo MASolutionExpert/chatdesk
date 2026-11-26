@@ -30,7 +30,9 @@ function makeAdminApp(deps = {}) {
       { id: "c0000000-0000-4000-8000-000000000003", username: "carol", nickname: "Carol", role: "user" },
     ]),
     deps: {
-      isUserAdmin: (userId) => userId === admin.id,
+      // Owner-gated endpoints (chat delete, clear-messages) are exercised
+      // through this app, so the acting admin is treated as the owner.
+      isUserOwner: (userId) => userId === admin.id,
       findChatById: () => ({ id: "d0000000-0000-4000-8000-000000000009", name: "Test Group", type: "group" }),
       ...deps,
     },

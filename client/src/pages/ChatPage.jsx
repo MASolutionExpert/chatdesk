@@ -71,6 +71,11 @@ import {
   isMessageFromOtherUser,
   isRemoteChannelMessage,
 } from "../utils/messageOwnership.js";
+import {
+  hasPermission,
+  chatMessageScope,
+  messagePermissionKey,
+} from "../utils/permissions.js";
 import { normalizeUuid, isValidUuid } from "../utils/uuidUtils.js";
 import {
   createDmChat,
@@ -124,6 +129,7 @@ import {
   uploadAvatarFile,
   prepareFilesForMessage,
 } from "../api/chatApi.js";
+import { compressImageForUpload } from "../utils/mediaCompress.js";
 import { useMessageMaxChars } from "../settings/appConfig.js";
 import {
   MOBILE_CLOSE_ANIMATION_MS,
@@ -337,18 +343,29 @@ const buildInviteLinkForChat = (chat) => {
 };
 
 export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme, adminPanelEnabled = true }) {
-  // Moderators (owner/admin/operator) may delete messages and threads;
-  // regular users must never see or reach the delete actions.
-  const canModerateContent = ["owner", "admin", "operator"].includes(
-    String(user?.role || "").toLowerCase(),
-  );
-  // Regular users cannot delete DM-type chats (support tickets included);
-  // group/channel cleanup keeps working via leave + hide.
+  // Configurable permission system (1.7.0): message edit/delete allowances
+  // come from the role's registry permissions per chat scope, not bare role
+  // lists. hasPermission fails open when the permission array is missing
+  // (stale session) — the server still enforces every gate.
+  // Call permissions (1.7.0): voice/video call buttons follow the role's
+  // registry permissions on top of the instance-wide feature flags.
+  const voiceCallPermitted = hasPermission(user, "call.voice");
+  const videoCallPermitted = hasPermission(user, "call.video");
+  // Deletion policy: DM/ticket threads are hard-delete gated by
+  // 'dm.thread.delete' / 'ticket.delete'; group/channel deletion keeps the
+  // chat-owner rule (plus 'group.delete' / 'channel.delete').
   const canDeleteThread = useCallback(
-    (chat) =>
-      canModerateContent ||
-      String(chat?.type || "").toLowerCase() !== "dm",
-    [canModerateContent],
+    (chat) => {
+      const scope = chatMessageScope(chat);
+      if (scope === "dm") return hasPermission(user, "dm.thread.delete");
+      if (scope === "ticket") return hasPermission(user, "ticket.delete");
+      const type = String(chat?.type || "").toLowerCase();
+      return hasPermission(
+        user,
+        type === "channel" ? "channel.delete" : "group.delete",
+      );
+    },
+    [user],
   );
   /* eslint-disable react-hooks/exhaustive-deps */
   const { t, lang } = useI18n();
@@ -373,6 +390,12 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [filesModalOpen, setFilesModalOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [profileModalMember, setProfileModalMember] = useState(null);
+  // Failure of a DM attempt launched from the profile modal (e.g. the server
+  // refusing a customer↔staff direct chat). Rendered INSIDE the modal so the
+  // action can never fail silently — previously the error went to
+  // `profileError`, which is only displayed by the self-profile editor, so a
+  // refused DM looked like a dead button.
+  const [profileDmError, setProfileDmError] = useState("");
   const [profileInviteLink, setProfileInviteLink] = useState("");
   const [profileInviteLinkLoading, setProfileInviteLinkLoading] = useState(false);
   const [profileRemoteChannelStatus, setProfileRemoteChannelStatus] = useState(null);
@@ -532,6 +555,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     appInfo,
     appInfoLoading,
     appInfoError,
+    whatsNewData,
+    whatsNewAvailable,
     whatsNewOpen,
     openWhatsNew,
     dismissWhatsNew,
@@ -3190,45 +3215,62 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const requestDeleteChats = (ids) => {
     const list = (Array.isArray(ids) ? ids : []).filter(Boolean);
     if (!list.length) return;
-    // Regular users must not be able to delete threads: filter DM-type
-    // chats (support tickets included) out of every deletion request.
-    // The server enforces the same rule; this keeps the UI consistent.
-    const allowedIds = canModerateContent
-      ? list
-      : list.filter((id) => {
-          const chat = chats.find((candidate) => candidate?.id === id);
-          return String(chat?.type || "").toLowerCase() !== "dm";
-        });
+    // Configurable permission system (1.7.0): DM threads need
+    // 'dm.thread.delete', ticket threads (including referred support
+    // groups) need 'ticket.delete'; group/channel cleanup stays available
+    // ('group.delete'/'channel.delete'). The server enforces the same
+    // gates; this keeps the UI consistent.
+    const allowedIds = list.filter((id) => {
+      const chat = chats.find((candidate) => candidate?.id === id);
+      if (!chat) return true;
+      return canDeleteThread(chat);
+    });
     if (!allowedIds.length) return;
     setPendingDeleteIds(allowedIds);
     setConfirmDeleteOpen(true);
   };
 
+  // Message-delete entry in the context menu: visible when the role can
+  // delete any message in the active chat's scope OR (DM scope) its own
+  // (configurable permissions, 1.7.0).
+  const canDeleteMessagesInActiveChat =
+    hasPermission(user, messagePermissionKey(activeChat, "delete_any")) ||
+    hasPermission(user, messagePermissionKey(activeChat, "delete_own"));
+
   const canDeleteMessageForEveryone = useCallback(
     (message) => {
       if (String(activeChat?.type || "").toLowerCase() === "saved") return false;
       if (isActiveChannelChat && !canCurrentUserEditGroup) return false;
-      // Moderators (owner/admin/operator) may delete anyone's message for
-      // everyone in chats they can post in — the server allows the same.
-      if (canModerateContent) return true;
+      // Configurable permission system (1.7.0): deleting ANY message needs
+      // the scope's delete_any permission; deleting one's own message needs
+      // delete_own (DM scope) or delete_any. The server enforces the same.
+      const deleteAnyAllowed = hasPermission(
+        user,
+        messagePermissionKey(activeChat, "delete_any"),
+      );
+      if (deleteAnyAllowed) return true;
       const messageAuthor = String(message?.username || "").toLowerCase();
       const currentUsername = String(user?.username || "").toLowerCase();
       if (!messageAuthor) return false;
-      if (messageAuthor === currentUsername) return true;
-      return canCurrentUserEditGroup;
+      if (messageAuthor !== currentUsername) return false;
+      return hasPermission(
+        user,
+        messagePermissionKey(activeChat, "delete_own"),
+      );
     },
-    [activeChat?.type, canCurrentUserEditGroup, canModerateContent, isActiveChannelChat, user?.username],
+    [activeChat, canCurrentUserEditGroup, isActiveChannelChat, user],
   );
 
-  // Only moderators (owner/admin/operator) may edit messages at all —
-  // regular users never see the edit entry. The server enforces the same
-  // rule on both edit paths.
+  // Message editing is permission-gated per chat scope (1.7.0):
+  // 'dm.message.edit' / 'ticket.message.edit' / 'group.message.edit' —
+  // authors only, as before. The server enforces the same rule on both
+  // edit paths.
   const canEditMessageFromContext = useCallback(
     (message) =>
-      canModerateContent &&
+      hasPermission(user, messagePermissionKey(activeChat, "edit")) &&
       (!isActiveChannelChat || canCurrentUserEditGroup) &&
       isMessageAuthoredByUser(message, { username: user?.username }),
-    [canCurrentUserEditGroup, isActiveChannelChat, canModerateContent, user?.username],
+    [activeChat, canCurrentUserEditGroup, isActiveChannelChat, user],
   );
 
   function handleDeleteMessageRequest(message, _options = {}) {
@@ -5358,10 +5400,32 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       clearPendingUploads();
     }
 
-    const metadata = await Promise.all(
-      incoming.map((file) => getMediaFileMetadata(file)),
+    // Telegram-style compression: chat images picked as media are re-encoded
+    // in the browser (≤2560px, quality 0.82) before anything is uploaded —
+    // less upload bandwidth, lighter messages, far less server storage.
+    // Videos and documents pass through untouched (videos are transcoded
+    // server-side by the media worker).
+    const prepared = await Promise.all(
+      incoming.map(async (file, index) => {
+        const mime = String(file.type || "");
+        if (uploadType !== "media" || !mime.startsWith("image/")) return file;
+        try {
+          const result = await compressImageForUpload(file);
+          if (!result.compressed) return file;
+          return new File([result.blob], file.name || `image-${index}`, {
+            type: result.mimeType,
+            lastModified: file.lastModified || Date.now(),
+          });
+        } catch {
+          return file;
+        }
+      }),
     );
-    const nextItems = incoming.map((file, index) => ({
+
+    const metadata = await Promise.all(
+      prepared.map((file) => getMediaFileMetadata(file)),
+    );
+    const nextItems = prepared.map((file, index) => ({
       id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       file,
       name: file.name,
@@ -5828,7 +5892,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           avatarUrlToSave = uploadData.avatarUrl || s3Upload.avatarUrl;
         } else {
           const payload = new FormData();
-          payload.append("avatar", pendingAvatarFile.file);
+          payload.append("avatar", s3Upload.compressedFile || pendingAvatarFile.file);
           payload.append("currentUsername", user.username);
           const uploadRes = await uploadAvatar(payload);
           const uploadData = await uploadRes.json();
@@ -5934,6 +5998,18 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setMobileTab("chat");
     await loadChats();
   }
+
+  // Ticket lifecycle (migration 045): reflect close/reopen from the chat
+  // window strip in the chat list immediately. The server response carries
+  // the authoritative status; loadChats re-syncs on the next full refresh.
+  const handleTicketStatusChanged = useCallback((chatId, status) => {
+    if (!chatId || !status) return;
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat?.id === chatId ? { ...chat, ticket_status: status } : chat,
+      ),
+    );
+  }, []);
 
   const closeNewChatModal = () => {
     setNewChatOpen(false);
@@ -6179,6 +6255,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     setProfileInviteLink("");
     setProfileInviteLinkLoading(false);
     setMentionProfile(null);
+    setProfileDmError("");
   };
 
   // Files gallery (opened from the profile panel's "Files" action).
@@ -6584,7 +6661,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         } else {
           const form = new FormData();
           form.append("username", user.username);
-          form.append("avatar", pendingGroupAvatarFile.file);
+          form.append("avatar", s3Upload.compressedFile || pendingGroupAvatarFile.file);
           avatarRes = await uploadGroupAvatar(nextChatId, form);
         }
         const avatarData = await avatarRes.json();
@@ -6642,6 +6719,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     const targetUsername = String(member?.username || "").toLowerCase();
     if (!targetUsername) return;
     if (targetUsername === String(user.username || "").toLowerCase()) return;
+    setProfileDmError("");
     try {
       const existingDm = chats.find((chat) => {
         if (chat?.type !== "dm") return false;
@@ -6679,7 +6757,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       );
       setActivePeer(nextPeer || member || null);
     } catch (err) {
-      setProfileError(err.message || t("chat.profileErrors.dmOpenFailed"));
+      // Surface the failure inside the profile modal (profileError is only
+      // rendered by the self-profile editor, so DM refusals were invisible).
+      setProfileDmError(err.message || t("chat.profileErrors.dmOpenFailed"));
     }
   }
 
@@ -6748,7 +6828,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     canReplyToMessage: canSendInActiveChat,
     canEditMessage: canEditMessageFromContext,
     canDeleteMessageForEveryone,
-    canDeleteMessages: canModerateContent,
+    canDeleteMessages: canDeleteMessagesInActiveChat,
     canDeleteChatThread: canDeleteThread,
     onReplyToMessage: handleStartReply,
     onEditMessage: handleStartEdit,
@@ -7101,7 +7181,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onDeleteSelectedCalls={handleDeleteCalls}
         onOpenNewCall={handleOpenNewCall}
         onStartCall={handleStartCallFromRow}
-        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled}
+        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled || !voiceCallPermitted}
         isInCall={callState !== "idle"}
         formatChatTimestamp={formatChatCardTimestamp}
         requestDeleteChats={requestDeleteChats}
@@ -7186,6 +7266,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onOpenOwnProfile={openOwnProfileModal}
         displayInitials={displayInitials}
         onOpenWhatsNew={handleOpenWhatsNew}
+        whatsNewAvailable={whatsNewAvailable}
         adminPanelEnabled={adminPanelEnabled}
         permissionsPrompt={{
           show: showPermissionsPrompt,
@@ -7257,6 +7338,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         onClearPendingUploads={clearPendingUploads}
         onVoiceRecorded={handleVoiceRecorded}
         onClearPendingVoiceMessage={clearPendingVoiceMessage}
+        onTicketStatusChanged={handleTicketStatusChanged}
         onMessageInput={handleMessageInput}
         replyTarget={replyTarget}
         onClearReply={handleClearReply}
@@ -7292,8 +7374,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         registerMessageRef={registerMessageRef}
         onStartVoiceCall={handleStartVoiceCall}
         onStartVideoCall={handleStartVideoCall}
-        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled}
-        videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled}
+        callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled || !voiceCallPermitted}
+        videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled || !videoCallPermitted}
         isInCall={callState !== "idle"}
         isDmChat={!isActiveGroupChat && !isActiveChannelChat && !isActiveSavedChat}
         permissionsPrompt={{
@@ -7633,10 +7715,11 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
             )}
             onClose={closeProfileModal}
             onOpenChat={handleOpenProfileChat}
+            dmError={profileDmError}
             onStartVoiceCall={handleProfileStartVoiceCall}
             onStartVideoCall={handleProfileStartVideoCall}
-            callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled}
-            videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled}
+            callsDisabled={!CHAT_PAGE_CONFIG.callsEnabled || !voiceCallPermitted}
+            videoCallsDisabled={!CHAT_PAGE_CONFIG.videoCallsEnabled || !videoCallPermitted}
             isInCall={callState !== "idle"}
             onToggleMute={() =>
               toggleMuteChat(mentionProfileChat?.id || activeChat?.id)
@@ -7710,9 +7793,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         <Suspense fallback={null}>
           <WhatsNewModal
             open={whatsNewOpen}
-            version={appInfo?.version || ""}
-            changelog={appInfo?.currentChangelog || appInfo?.changelog || ""}
-            changelogSections={appInfo?.changelogSections || []}
+            version={whatsNewData?.version || ""}
+            changelog={whatsNewData?.currentChangelog || whatsNewData?.changelog || ""}
+            changelogSections={whatsNewData?.changelogSections || []}
             onClose={() => dismissWhatsNew(true)}
           />
         </Suspense>

@@ -196,4 +196,79 @@ describe("useOverlayBack (Android system back)", () => {
       expect(window.history.state?.sbBaseline).toBe(window.__sbBaselineMarker);
     });
   });
+
+  test("closing a menu that sits above a modal keeps the chat underneath open", async () => {
+    // Regression (1.6.0-dev.5): referred support group → member profile
+    // modal open → the member context menu opens ON TOP of the modal;
+    // selecting an item closed the menu (its own history.back()) and the
+    // pop landed on the MODAL's live sentinel. The chat's old popstate
+    // handler misread "new top is another LIVE sentinel" as "the pop went
+    // past me" and called closeChat() — throwing the user out of the
+    // conversation while the modal was still open.
+    function MenuOverModalHarness() {
+      const [stage, setStage] = useState("chat");
+      useOverlayBack(
+        stage !== "closed",
+        () => setStage("closed"),
+        "sbChatOpen",
+      );
+      useOverlayBack(
+        stage === "modal" || stage === "menu",
+        () => setStage("chat"),
+        "sbChatProfileModal",
+      );
+      useOverlayBack(stage === "menu", () => setStage("modal"), "sbContextMenu");
+      return (
+        <>
+          {stage !== "closed" && <div data-testid="chat-open">chat</div>}
+          {(stage === "modal" || stage === "menu") && (
+            <div data-testid="modal-open">modal</div>
+          )}
+          {stage === "menu" && <div data-testid="menu-open">menu</div>}
+          <button data-testid="open-modal" onClick={() => setStage("modal")}>
+            open modal
+          </button>
+          <button data-testid="open-menu" onClick={() => setStage("menu")}>
+            open menu
+          </button>
+          <button data-testid="close-menu" onClick={() => setStage("modal")}>
+            close menu
+          </button>
+        </>
+      );
+    }
+    render(<MenuOverModalHarness />);
+    await userEvent.click(page.getByTestId("open-modal"));
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbChatProfileModal).toBe(true);
+    });
+    await userEvent.click(page.getByTestId("open-menu"));
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbContextMenu).toBe(true);
+    });
+
+    // Closing the menu (e.g. selecting "Profile") must keep BOTH the modal
+    // and the chat open.
+    await userEvent.click(page.getByTestId("close-menu"));
+    await expect
+      .element(page.getByTestId("menu-open"))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByTestId("modal-open")).toBeInTheDocument();
+    await expect.element(page.getByTestId("chat-open")).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(window.history.state?.sbChatProfileModal).toBe(true);
+    });
+
+    // A genuine back gesture still closes the modal, then the chat.
+    window.history.back();
+    await expect
+      .element(page.getByTestId("modal-open"))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByTestId("chat-open")).toBeInTheDocument();
+
+    window.history.back();
+    await expect
+      .element(page.getByTestId("chat-open"))
+      .not.toBeInTheDocument();
+  });
 });

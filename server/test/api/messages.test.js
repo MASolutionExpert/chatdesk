@@ -374,7 +374,7 @@ describe("POST /api/messages/edit", () => {
       .set("Cookie", cookie)
       .send({ chatId: CHAT_ID, username: "alice", messageId: MSG_ID, body: "New body" });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/moderator/i);
+    expect(res.body.error).toMatch(/do not have permission to edit/i);
   });
 
   test("returns 200 on successful edit", async () => {
@@ -402,7 +402,7 @@ describe("POST /api/messages/edit", () => {
 // ─── POST /api/messages/delete ────────────────────────────────────────────────
 
 describe("POST /api/messages/delete", () => {
-  function makeDeleteApp(messageOverride = {}, role = "operator") {
+  function makeDeleteApp(messageOverride = {}, role = "owner", depsOverride = {}) {
     const hash = bcrypt.hashSync("secret123", 4);
     const userStore = makeUserStore([
       {
@@ -429,6 +429,7 @@ describe("POST /api/messages/delete", () => {
         hideMessageForUser: () => {},
         hideMessageForEveryone: () => {},
         writeAdminAuditLog,
+        ...depsOverride,
       },
     });
     return { app, writeAdminAuditLog };
@@ -452,21 +453,39 @@ describe("POST /api/messages/delete", () => {
     expect(res.status).toBe(400);
   });
 
+  // Deletion policy (configurable permissions, 1.7.0): by registry default
+  // only the owner carries the delete permissions — regular users, admins,
+  // and operators are all rejected with permission_denied.
   test("regular users cannot delete messages (even their own)", async () => {
     const { app } = makeDeleteApp({}, "user");
     const res = await loginAndDelete(app, { scope: "self" });
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/admins and operators/i);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
   });
 
-  test("regular users cannot delete for everyone either", async () => {
-    const { app } = makeDeleteApp({}, "user");
+  test("operators cannot delete messages (403)", async () => {
+    const { app } = makeDeleteApp({}, "operator");
+    const res = await loginAndDelete(app, { scope: "self" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
+  });
+
+  test("operators cannot delete for everyone either (403)", async () => {
+    const { app } = makeDeleteApp({}, "operator");
     const res = await loginAndDelete(app, { scope: "everyone" });
     expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
   });
 
-  test("operator deletes for self by default (scope: self) and the deletion is audited", async () => {
-    const { app, writeAdminAuditLog } = makeDeleteApp();
+  test("admins cannot delete messages (403)", async () => {
+    const { app } = makeDeleteApp({}, "admin");
+    const res = await loginAndDelete(app, { scope: "everyone" });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/do not have permission to delete/i);
+  });
+
+  test("owner deletes for self by default (scope: self) and the deletion is audited", async () => {
+    const { app, writeAdminAuditLog } = makeDeleteApp({}, "owner");
     const res = await loginAndDelete(app, {});
     expect(res.status).toBe(200);
     expect(res.body.scope).toBe("self");
@@ -479,8 +498,8 @@ describe("POST /api/messages/delete", () => {
     });
   });
 
-  test("operator deletes for everyone and the deletion is audited", async () => {
-    const { app, writeAdminAuditLog } = makeDeleteApp({ body: "clean me" });
+  test("owner deletes for everyone and the deletion is audited", async () => {
+    const { app, writeAdminAuditLog } = makeDeleteApp({ body: "clean me" }, "owner");
     const res = await loginAndDelete(app, { scope: "everyone" });
     expect(res.status).toBe(200);
     expect(res.body.scope).toBe("everyone");
@@ -494,23 +513,21 @@ describe("POST /api/messages/delete", () => {
     });
   });
 
-  test("operator can delete someone else's message for everyone", async () => {
+  test("owner can delete someone else's message for everyone", async () => {
     const { app } = makeDeleteApp(
       { id: MSG_ID, chat_id: CHAT_ID, user_id: OTHER_USER_ID },
-      "operator",
+      "owner",
     );
     const res = await loginAndDelete(app, { scope: "everyone" });
     expect(res.status).toBe(200);
     expect(res.body.scope).toBe("everyone");
   });
 
-  test("returns 403 when a regular user tries to delete someone else's message for everyone", async () => {
-    const { app } = makeDeleteApp(
-      { id: MSG_ID, chat_id: CHAT_ID, user_id: OTHER_USER_ID },
-      "user",
-    );
-    const res = await loginAndDelete(app, { scope: "everyone" });
-    expect(res.status).toBe(403);
+  test("owner can delete without being a chat member (system-owner authority)", async () => {
+    const { app } = makeDeleteApp({}, "owner", { isMember: () => false });
+    const res = await loginAndDelete(app, { scope: "self" });
+    expect(res.status).toBe(200);
+    expect(res.body.scope).toBe("self");
   });
 });
 

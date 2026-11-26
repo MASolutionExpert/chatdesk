@@ -893,13 +893,13 @@ describe("CallScreen controls layout", () => {
               username: "alice",
               nickname: "Alice",
               verified: true,
-              role: "admin",
+              role: "operator",
             },
           })}
         />,
       );
       await expect.element(page.getByRole("img", { name: "Verified" })).toBeInTheDocument();
-      await expect.element(page.getByRole("img", { name: "Server Admin" })).toBeInTheDocument();
+      await expect.element(page.getByRole("img", { name: "Support Operator" })).toBeInTheDocument();
     });
 
     test("renders badges in floating minimized call box", async () => {

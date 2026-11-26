@@ -1081,8 +1081,8 @@ function registerAdminRoutes(app, deps) {
         // Role change support
         if (payload.role !== undefined && payload.role !== null) {
           const requestedRole = String(payload.role || "user");
-          if (!["user", "admin", "owner"].includes(requestedRole)) {
-            return res.status(400).json({ error: "Invalid role. Allowed: user, admin, owner." });
+          if (!["user", "operator", "owner"].includes(requestedRole)) {
+            return res.status(400).json({ error: "Invalid role. Allowed: user, operator, owner." });
           }
           // Only one owner allowed — reject if another user already holds the role
           if (requestedRole === "owner") {

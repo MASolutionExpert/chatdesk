@@ -20,7 +20,7 @@ function makeAdminApp(adminDeps = {}) {
     sessionStore,
     userStore: makeUserStore([admin]),
     deps: {
-      isUserAdmin: (userId) => userId === admin.id,
+      isUserOwner: (userId) => userId === admin.id,
       ...adminDeps,
     },
   });
@@ -41,7 +41,7 @@ describe("GET /api/admin/calls (call-history report)", () => {
       sessionStore,
       userStore: makeUserStore([user]),
       deps: {
-        isUserAdmin: () => false,
+        isUserOwner: () => false,
         adminListCalls: vi.fn(),
       },
     });

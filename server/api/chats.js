@@ -43,6 +43,9 @@ function registerChatRoutes(app, deps) {
     listChatsForUser,
     listMessageFilesByMessageIds,
     listUsers,
+    // Ticket registry lookup (migration 045) — protects referred tickets:
+    // the customer of a support thread can never be dropped from it.
+    getTicketByChatId,
     removeAvatarByUrl,
     removePendingPresignedUploads,
     removeStoredFileNames,
@@ -72,13 +75,46 @@ function registerChatRoutes(app, deps) {
     getMessages,
     remoteChannelManager,
     upsertRemoteChannelSource,
+    // Configurable permission system (1.7.0): registry-driven role checks.
+    hasPermission,
   } = deps;
+
+  // Permission gate helper (see departments.js): denies with 403 when the
+  // actor's account role lacks the registry permission; fails open only
+  // when the permission service is not wired (legacy dep stubs).
+  async function requirePermission(res, role, permissionKey, message) {
+    if (typeof hasPermission !== "function") return true;
+    let allowed = true;
+    try {
+      allowed = await hasPermission(role, permissionKey);
+    } catch {
+      allowed = true;
+    }
+    if (!allowed) {
+      res.status(403).json({ error: message, code: "permission_denied" });
+      return false;
+    }
+    return true;
+  }
 
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
 
-  const isModeratorRole = (role) =>
-    ["owner", "admin", "operator"].includes(String(role || "").toLowerCase());
+  // Ticket threads (migration 045): support-channel chats — in their classic
+  // DM shape AND in the referred support-group shape (a referred ticket is
+  // converted from a DM into a private support group but keeps its support
+  // identity). The department is NOT part of the identity (1.7.0-dev.8): the
+  // thread belongs to its customer↔operator pair, so tickets stay protected
+  // thread-objects even after their department was hard-deleted.
+  const isTicketThread = (chat) =>
+    Boolean(
+      chat &&
+        String(chat.channel || "direct") === "support",
+    );
+
+  // Deletion policy note: thread/message deletion is owner-only (see the
+  // /api/chats/hide handler). The former isModeratorRole helper was removed
+  // because no chats.js surface grants admin/operator deletion rights anymore.
 
   // Best-effort moderation audit logging (must never break the request).
   const logModerationAudit = (entry) => {
@@ -526,6 +562,39 @@ function registerChatRoutes(app, deps) {
       return res.status(404).json({ error: "User not found." });
     }
 
+    // Permission registry (1.7.0): 'dm.send' gates opening direct chats.
+    if (
+      !(await requirePermission(
+        res,
+        fromUser.role,
+        "dm.send",
+        "You do not have permission to send direct messages.",
+      ))
+    ) {
+      return;
+    }
+
+    // ── Two-logic separation: messenger never crosses the support boundary ──
+    //
+    //   customer (role 'user')  ↔  staff (operator/admin/owner)  =  TICKET.
+    //   The customer opens POST /api/support/request (department → fair-routed
+    //   operator). A direct message here would bypass department routing,
+    //   ticket assignment and the ticket lifecycle — so it is refused.
+    //
+    //   user↔user and staff↔staff remain messenger flows ("find user by ID").
+    //   Existing legacy cross-boundary threads are left untouched (no data
+    //   migration); they can no longer be (re)opened through this endpoint.
+    const STAFF_ROLES = ["operator", "owner"];
+    const fromIsStaff = STAFF_ROLES.includes(String(fromUser.role || "").toLowerCase());
+    const toIsStaff = STAFF_ROLES.includes(String(toUser.role || "").toLowerCase());
+    if (fromIsStaff !== toIsStaff) {
+      return res.status(403).json({
+        error:
+          "Direct messages between customers and support staff are not allowed. Please open a support ticket instead: pick a department and send a support request.",
+        code: "support_only",
+      });
+    }
+
     // Channel separation (migration 044): "find user by ID → send a message"
     // is a MESSENGER flow. Reuse only the pair's direct chat; a support
     // ticket between the same pair is a separate, never-converted thread.
@@ -573,6 +642,19 @@ function registerChatRoutes(app, deps) {
     }
 
     const normalizedType = type === "channel" ? "channel" : "group";
+    // Permission registry (1.7.0): 'group.create' / 'channel.create'.
+    if (
+      !(await requirePermission(
+        res,
+        creatorUser.role,
+        normalizedType === "channel" ? "channel.create" : "group.create",
+        normalizedType === "channel"
+          ? "You do not have permission to create channels."
+          : "You do not have permission to create groups.",
+      ))
+    ) {
+      return;
+    }
     const rawChatId = createChat(name || "Untitled", normalizedType);
     const chatId = rawChatId && typeof rawChatId.then === "function" ? await rawChatId : rawChatId;
 
@@ -626,6 +708,19 @@ function registerChatRoutes(app, deps) {
 
     const normalizedType =
       String(type || "group").toLowerCase() === "channel" ? "channel" : "group";
+    // Permission registry (1.7.0): 'group.create' / 'channel.create'.
+    if (
+      !(await requirePermission(
+        res,
+        creatorUser.role,
+        normalizedType === "channel" ? "channel.create" : "group.create",
+        normalizedType === "channel"
+          ? "You do not have permission to create channels."
+          : "You do not have permission to create groups.",
+      ))
+    ) {
+      return;
+    }
     const label = normalizedType === "channel" ? "Channel" : "Group";
     const groupNickname = String(nickname || "").trim();
     const groupUsername = String(username || "")
@@ -1248,6 +1343,28 @@ function registerChatRoutes(app, deps) {
       }
     }
 
+    // Ticket protection: if the member sync dropped the ticket's customer
+    // (e.g. a stale client member list), silently restore them — a referred
+    // ticket must always keep its subject in the loop.
+    if (isTicketThread(chat)) {
+      const ticket = await resolveMaybePromise(getTicketByChatId(chatId));
+      if (ticket?.customerId) {
+        const rawStillMember = isMember(chatId, ticket.customerId);
+        const stillMember =
+          rawStillMember && typeof rawStillMember.then === "function"
+            ? await rawStillMember
+            : rawStillMember;
+        if (!stillMember) {
+          const c1 = clearChatMemberLeft(chatId, ticket.customerId);
+          if (c1 && typeof c1.then === "function") await c1;
+          const u = unhideChat(ticket.customerId, chatId);
+          if (u && typeof u.then === "function") await u;
+          const a = addChatMember(chatId, ticket.customerId, "member");
+          if (a && typeof a.then === "function") await a;
+        }
+      }
+    }
+
     const updated = await resolveMaybePromise(findChatById(chatId));
     const baseOrigin = resolveClientBaseOrigin(req);
     emitChatListChangedToChatParticipants(chatId);
@@ -1283,6 +1400,19 @@ function registerChatRoutes(app, deps) {
       return res.status(400).json({ error: "You are not a member of this group." });
     }
 
+    // Permission registry (1.7.0): 'chat.leave' gates leaving groups and
+    // channels (owner always allowed; operator/user configurable).
+    if (
+      !(await requirePermission(
+        res,
+        user.role,
+        "chat.leave",
+        "You do not have permission to leave groups or channels.",
+      ))
+    ) {
+      return;
+    }
+
     const members = (await resolveMaybePromise(listChatMembers(chatId))) || [];
     const isOwner = members.some(
       (member) =>
@@ -1294,6 +1424,13 @@ function registerChatRoutes(app, deps) {
         (member) => member.id !== user.id,
       );
       if (remainingMembers.length === 0) {
+        // A ticket thread is never deleted by its last member walking away —
+        // that is the instance owner's job (deletion policy).
+        if (isTicketThread(chat)) {
+          return res.status(403).json({
+            error: "A support thread cannot be deleted by leaving. Ask the instance owner to delete it.",
+          });
+        }
         const result = await deletionService.deleteChat({ chatId });
         if (Array.isArray(result.storedFilesToRemove) && result.storedFilesToRemove.length > 0) {
           removeStoredFileNames(result.storedFilesToRemove);
@@ -1303,9 +1440,28 @@ function registerChatRoutes(app, deps) {
         }
         return res.json({ ok: true, deleted: true });
       }
-      const nextOwner = crypto?.randomInt
-        ? remainingMembers[crypto.randomInt(remainingMembers.length)]
-        : remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
+      // Ownership transfer on leave. For ticket threads (referred tickets)
+      // ownership must stay with STAFF: pass it to another operator/owner
+      // member; a staff owner cannot abandon the ticket to a customer, so
+      // they may only leave once another staff member remains.
+      let nextOwner = null;
+      if (isTicketThread(chat)) {
+        const remainingStaff = remainingMembers.filter((member) =>
+          ["operator", "owner"].includes(
+            String(member.user_role || member.role || "").toLowerCase(),
+          ),
+        );
+        if (!remainingStaff.length) {
+          return res.status(403).json({
+            error: "The last staff member cannot leave a ticket thread.",
+          });
+        }
+        nextOwner = remainingStaff[0];
+      } else {
+        nextOwner = crypto?.randomInt
+          ? remainingMembers[crypto.randomInt(remainingMembers.length)]
+          : remainingMembers[Math.floor(Math.random() * remainingMembers.length)];
+      }
       if (nextOwner?.id) {
         await resolveMaybePromise(setChatMemberRole(chatId, nextOwner.id, "owner"));
       }
@@ -1373,6 +1529,37 @@ function registerChatRoutes(app, deps) {
         .json({ error: "Only the owner can delete this chat." });
     }
 
+    // Deletion policy: a referred ticket is a support GROUP whose chat-owner
+    // is the operator. Hard-deleting a ticket is gated by the configurable
+    // 'ticket.delete' permission (owner always allowed — previously the
+    // owner was the ONLY role allowed); an operator who owns the support
+    // group gets 403 unless the owner grants them the permission.
+    if (isTicketThread(chat)) {
+      if (
+        !(await requirePermission(
+          res,
+          user.role,
+          "ticket.delete",
+          "You do not have permission to delete tickets.",
+        ))
+      ) {
+        return;
+      }
+    } else if (
+      !(await requirePermission(
+        res,
+        user.role,
+        String(chat.type || "").toLowerCase() === "channel"
+          ? "channel.delete"
+          : "group.delete",
+        String(chat.type || "").toLowerCase() === "channel"
+          ? "You do not have permission to delete channels."
+          : "You do not have permission to delete groups.",
+      ))
+    ) {
+      return;
+    }
+
     const memberUsernames = members
       .map((member) => String(member?.username || "").toLowerCase())
       .filter(Boolean);
@@ -1438,6 +1625,17 @@ function registerChatRoutes(app, deps) {
     }
     if (String(targetMember.role || "").toLowerCase() === "owner") {
       return res.status(400).json({ error: "Owner cannot be removed." });
+    }
+
+    // Ticket protection: the customer of a referred ticket can never be
+    // dropped from the thread — without them the ticket loses its subject.
+    if (isTicketThread(chat)) {
+      const ticket = await resolveMaybePromise(getTicketByChatId(chatId));
+      if (ticket && String(ticket.customerId) === String(target.id)) {
+        return res
+          .status(400)
+          .json({ error: "The customer cannot be removed from a ticket." });
+      }
     }
 
     await resolveMaybePromise(removeChatMember(chatId, target.id));
@@ -1696,30 +1894,55 @@ function registerChatRoutes(app, deps) {
     }
 
     const idsToHide = chatIds.filter(Boolean);
-    const moderatorHide = isModeratorRole(user.role);
-    if (!moderatorHide) {
-      // Regular users cannot delete threads (support tickets are DM-type
-      // chats). Group/channel cleanup still works via leave + hide.
-      for (const id of idsToHide) {
-        const chat = await resolveMaybePromise(findChatById(id));
-        if (chat && String(chat.type || "").toLowerCase() === "dm") {
-          return res.status(403).json({
-            error: "Regular users cannot delete threads.",
-          });
-        }
+    const threadDeleteIds = [];
+    // Deletion policy: this endpoint doubles as "delete thread" in the UI.
+    // Hard-deleting DM threads and ticket threads is gated by the
+    // configurable permission registry (1.7.0): 'dm.thread.delete' for
+    // messenger threads, 'ticket.delete' for support threads (including
+    // referred support groups). Previously ONLY the instance owner could
+    // do this; now the owner can extend it, per role, from the admin panel.
+    // Group/channel cleanup still works via leave + hide (list hygiene,
+    // not thread deletion).
+    for (const id of idsToHide) {
+      const chat = await resolveMaybePromise(findChatById(id));
+      if (!chat) continue;
+      const isDmThread =
+        String(chat.type || "").toLowerCase() === "dm" &&
+        String(chat.channel || "direct").toLowerCase() !== "support";
+      const permissionKey = isDmThread
+        ? "dm.thread.delete"
+        : isTicketThread(chat)
+          ? "ticket.delete"
+          : null;
+      if (!permissionKey) continue;
+      threadDeleteIds.push(id);
+      if (
+        !(await requirePermission(
+          res,
+          user.role,
+          permissionKey,
+          "Only the owner can delete threads.",
+        ))
+      ) {
+        return;
       }
     }
 
     await resolveMaybePromise(hideChatsForUser(user.id, idsToHide));
 
-    if (moderatorHide) {
+    // Audit thread deletions only (dm/ticket threads) — plain list hygiene
+    // (groups/channels hidden while remaining joinable) is not audited.
+    if (threadDeleteIds.length > 0) {
       logModerationAudit({
         actorUserId: user.id,
         actorUsername: user.username,
         action: "thread.delete",
         targetType: "chat",
-        targetLabel: idsToHide.length === 1 ? "1 thread" : `${idsToHide.length} threads`,
-        details: { chatIds: idsToHide },
+        targetLabel:
+          threadDeleteIds.length === 1
+            ? "1 thread"
+            : `${threadDeleteIds.length} threads`,
+        details: { chatIds: threadDeleteIds },
       });
     }
 

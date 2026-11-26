@@ -1,4 +1,13 @@
 import { normalizeHexColor, normalizeGroupUsername, normalizeVisibility, normalizeChatType } from "../lib/dbToolHelpers.js";
+import {
+  PERMISSION_DEFS,
+  PERMISSION_GROUPS,
+  CONFIGURABLE_ROLES,
+} from "../lib/permissions.js";
+import {
+  BRANDING_ICON_SIZES,
+  normalizeBrandingPatch,
+} from "../lib/branding.js";
 import { createInviteToken } from "../lib/inviteTokens.js";
 import { validateUuidParams } from "../lib/uuidMiddleware.js";
 import { isValidUuid, generateUuid } from "../lib/uuidUtils.js";
@@ -73,12 +82,18 @@ function getCachedUploadsSizeBytes(fs, nodePath, uploadsRoot) {
 function registerAdminPanelRoutes(app, deps) {
   const {
     getSessionFromRequest,
+    // impersonation (owner-only "login as user")
+    parseCookies,
+    setSessionCookie,
+    setSideCookie,
+    getSession,
+    createSession,
+    deleteSession,
     findUserById,
     findUserByUsername,
     findChatById,
     isConnected,
     getConnectedUsernames,
-    isUserAdmin,
     isUserOwner,
     isLoopbackRequest,
     getOwnerUser,
@@ -99,9 +114,11 @@ function registerAdminPanelRoutes(app, deps) {
     createDepartment,
     updateDepartment,
     deleteDepartment,
+    hardDeleteDepartment,
     listOperatorsForDepartment,
     setUserDepartment,
     getSupportOverview,
+    getSupportReport,
     removeStoredFileNames,
     setUserRole,
     // user creation / editing
@@ -326,10 +343,12 @@ function registerAdminPanelRoutes(app, deps) {
         return res.status(401).json({ error: "Invalid admin token" });
       }
 
-      // 4. Role determination (owner vs admin)
+      // 4. Role determination. The first claim mints the owner; any later
+      // claim (an owner already exists) becomes an operator — the retired
+      // "admin" role is no longer assignable.
       const getRow = deps.getRow || deps.adminGetRow || adminGetRow;
       const existingOwner = await resolveMaybePromise(getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1"));
-      const targetRole = existingOwner ? "admin" : "owner";
+      const targetRole = existingOwner ? "operator" : "owner";
 
       // 5. Apply role change
       await resolveMaybePromise(setUserRole(session.id, targetRole));
@@ -345,7 +364,11 @@ function registerAdminPanelRoutes(app, deps) {
   // ─── Auth middleware ─────────────────────────────────────────────────────────
 
   app.use("/api/admin", async (req, res, next) => {
-    if (req.path === "/db-tools" || req.path === "/claim") return next();
+    // `/impersonate/return` is its own gate: the working session is the
+    // IMPERSONATED user's (not an admin), so the normal admin check would
+    // bounce the owner's way back. The route validates the parked
+    // `admin_sid` cookie itself instead.
+    if (req.path === "/db-tools" || req.path === "/claim" || req.path === "/impersonate/return") return next();
     try {
       const rawSession = getSessionFromRequest(req);
       const session = rawSession && typeof rawSession.then === "function"
@@ -354,7 +377,10 @@ function registerAdminPanelRoutes(app, deps) {
       if (!session) {
         return res.status(401).json({ error: "Not authenticated" });
       }
-      const rawIsAdmin = isUserAdmin(session.id);
+      // Role model (migration 047): the "admin" role is retired — the panel
+      // is owner-only. Operators are staff inside the messenger/tickets and
+      // never touch the panel.
+      const rawIsAdmin = isUserOwner(session.id);
       const isAdmin = rawIsAdmin && typeof rawIsAdmin.then === "function"
         ? await rawIsAdmin
         : rawIsAdmin;
@@ -378,7 +404,7 @@ function registerAdminPanelRoutes(app, deps) {
       }
       return null;
     }
-    if (req.adminSession || isUserAdmin(session.id) === true) return session;
+    if (req.adminSession || isUserOwner(session.id) === true) return session;
     res.status(403).json({ error: "Admin access required" });
     return null;
   };
@@ -426,6 +452,180 @@ function registerAdminPanelRoutes(app, deps) {
       // Logging must never break the request flow.
     }
   };
+
+  // ─── Permissions (configurable role permission matrix, 1.7.0) ─────────────
+  //
+  // The registry (server/lib/permissions.js) is the source of truth for the
+  // permission list, labels and built-in defaults; the role_permissions
+  // table stores admin overrides per (role, permission). The owner role is
+  // intentionally absent — the owner ALWAYS has every permission.
+
+  app.get("/api/admin/permissions", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const service = deps.permissionsService;
+    if (!service) {
+      return res.status(503).json({ error: "Permission service unavailable." });
+    }
+    const matrix = await service.getMatrix();
+    const defsByKey = new Map(PERMISSION_DEFS.map((d) => [d.key, d]));
+    const permissions = matrix.permissions.map((entry) => {
+      const def = defsByKey.get(entry.key) || {};
+      return {
+        key: entry.key,
+        group: def.group || null,
+        labelEn: def.labelEn || entry.key,
+        labelFa: def.labelFa || entry.key,
+        descEn: def.descEn || null,
+        descFa: def.descFa || null,
+        roles: entry.roles,
+      };
+    });
+    res.json({
+      roles: matrix.roles,
+      ownerAlwaysFull: true,
+      groups: PERMISSION_GROUPS,
+      permissions,
+      overrides: await service.listOverrides(),
+    });
+  });
+
+  app.put("/api/admin/permissions", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    const service = deps.permissionsService;
+    if (!service) {
+      return res.status(503).json({ error: "Permission service unavailable." });
+    }
+    const role = String(req.body?.role || "").trim().toLowerCase();
+    const permission = String(req.body?.permission || "").trim();
+    const allowed = req.body?.allowed;
+    if (!CONFIGURABLE_ROLES.includes(role)) {
+      return res.status(400).json({
+        error: "Role must be 'operator' or 'user' (the owner always has full access).",
+      });
+    }
+    if (!permission) {
+      return res.status(400).json({ error: "Permission key is required." });
+    }
+    if (allowed !== null && allowed !== undefined && typeof allowed !== "boolean") {
+      return res.status(400).json({
+        error: "'allowed' must be true, false, or null (null resets to the default).",
+      });
+    }
+    try {
+      const effective = await service.setOverride({
+        role,
+        permission,
+        allowed: allowed === undefined ? null : allowed,
+      });
+      log(session, "permission.update", {
+        targetType: "permission",
+        targetLabel: `${role}:${permission}`,
+        details: {
+          role,
+          permission,
+          allowed: allowed === undefined || allowed === null ? null : Boolean(allowed),
+          effective,
+        },
+      });
+      res.json({ ok: true, role, permission, effective });
+    } catch (err) {
+      res.status(400).json({ error: String(err?.message || "Invalid permission update.") });
+    }
+  });
+
+  // ─── Branding / personalization (owner panel → «شخصی‌سازی») ────────────────
+  //
+  // Edits the About dialog (link icons, copyright line, proprietary-software
+  // sentence) and the entry page (organization logo + title/tagline). The
+  // logo files are pre-sized PNGs generated by the client from any image
+  // format; this side only validates the PNG signature, stores them under
+  // DATA_DIR/branding and serves them through the public /api/branding routes.
+
+  const brandingService = deps.brandingService;
+  const brandingUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024, files: BRANDING_ICON_SIZES.length },
+  });
+  const brandingFields = BRANDING_ICON_SIZES.map((size) => ({ name: `icon-${size}`, maxCount: 1 }));
+
+  app.get("/api/admin/branding", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    if (!brandingService) {
+      return res.status(503).json({ error: "Branding service unavailable." });
+    }
+    try {
+      res.json(await brandingService.getConfig());
+    } catch (err) {
+      res.status(500).json({ error: String(err?.message || "Branding lookup failed.") });
+    }
+  });
+
+  app.put("/api/admin/branding", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (!brandingService) {
+      return res.status(503).json({ error: "Branding service unavailable." });
+    }
+    const normalized = normalizeBrandingPatch(req.body || {});
+    if (!normalized.ok) {
+      return res.status(400).json({ error: normalized.errors.join(" ") });
+    }
+    try {
+      const config = await brandingService.updateConfig(normalized.value);
+      log(session, "branding.update", {
+        targetType: "branding",
+        targetLabel: "personalization",
+        details: { keys: Object.keys(normalized.value) },
+      });
+      res.json({ ok: true, config });
+    } catch (err) {
+      res.status(400).json({ error: String(err?.message || "Invalid branding update.") });
+    }
+  });
+
+  app.post("/api/admin/branding/logo", brandingUpload.fields(brandingFields), async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (!brandingService) {
+      return res.status(503).json({ error: "Branding service unavailable." });
+    }
+    const fileMap = {};
+    for (const size of BRANDING_ICON_SIZES) {
+      const file = req.files?.[`icon-${size}`]?.[0];
+      if (file) fileMap[size] = file.buffer;
+    }
+    try {
+      const result = await brandingService.saveLogoFiles(fileMap);
+      log(session, "branding.logo", {
+        targetType: "branding",
+        targetLabel: "logo",
+        details: { written: result.written },
+      });
+      res.json({ ok: true, logoUpdatedAt: result.logoUpdatedAt, logo: result.logo });
+    } catch (err) {
+      res.status(400).json({ error: String(err?.message || "Logo upload failed.") });
+    }
+  });
+
+  app.delete("/api/admin/branding/logo", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+    if (!brandingService) {
+      return res.status(503).json({ error: "Branding service unavailable." });
+    }
+    try {
+      await brandingService.resetLogo();
+      log(session, "branding.logo", {
+        targetType: "branding",
+        targetLabel: "logo",
+        details: { reset: true },
+      });
+      res.json({ ok: true, config: await brandingService.getConfig() });
+    } catch (err) {
+      res.status(500).json({ error: String(err?.message || "Logo reset failed.") });
+    }
+  });
 
   // ─── Dashboard ───────────────────────────────────────────────────────────────
 
@@ -748,8 +948,10 @@ function registerAdminPanelRoutes(app, deps) {
     res.json({ ok: true, department: fresh });
   });
 
-  // Soft delete: departments are deactivated so historical support chats keep
-  // their department label and reports stay meaningful.
+  // Hard delete (1.7.0-dev.7): the department row is removed outright and
+  // its operators are detached. Historical support chats/tickets keep their
+  // department_id values (message history intact); the deleted department
+  // just disappears from pickers, lists and per-department reports.
   app.delete("/api/admin/departments/:id", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
@@ -757,10 +959,13 @@ function registerAdminPanelRoutes(app, deps) {
     if (!Number.isFinite(deptId)) {
       return res.status(400).json({ error: "Invalid department id." });
     }
-    const dept = await resolveMaybePromise(getDepartmentById(deptId));
-    if (!dept) return res.status(404).json({ error: "Department not found." });
-    await resolveMaybePromise(deleteDepartment(deptId));
-    log(session, "department.delete", { targetType: "department", targetLabel: dept.name });
+    const deleted = await resolveMaybePromise(hardDeleteDepartment(deptId));
+    if (!deleted) return res.status(404).json({ error: "Department not found." });
+    log(session, "department.delete", {
+      targetType: "department",
+      targetLabel: deleted.name,
+      details: JSON.stringify({ hard: true, departmentId: deptId }),
+    });
     res.json({ ok: true });
   });
 
@@ -770,6 +975,46 @@ function registerAdminPanelRoutes(app, deps) {
     if (!requireAdmin(req, res)) return;
     const overview = await resolveMaybePromise(getSupportOverview());
     res.json(overview || { departments: [], chats: [] });
+  });
+
+  // Time-filtered department/operator performance report.
+  //   ?departmentId=7   optional — restrict to one department
+  //   ?from=2025-01-01  optional — inclusive ("YYYY-MM-DD" or ISO)
+  //   ?to=2025-01-31    optional — inclusive
+  app.get("/api/admin/support/report", async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    const rawDepartmentId = String(req.query.departmentId || "").trim();
+    let departmentId = null;
+    if (rawDepartmentId) {
+      departmentId = Number(rawDepartmentId);
+      if (!Number.isInteger(departmentId) || departmentId <= 0) {
+        return res.status(400).json({ error: "Invalid departmentId." });
+      }
+    }
+
+    const rawFrom = String(req.query.from || "").trim();
+    const rawTo = String(req.query.to || "").trim();
+    const rangeDate = (value) => {
+      if (!value) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isNaN(Date.parse(value))) return null;
+      return value;
+    };
+    const from = rangeDate(rawFrom);
+    const to = rangeDate(rawTo);
+    if ((rawFrom && from === null) || (rawTo && to === null)) {
+      return res.status(400).json({ error: "Invalid date range." });
+    }
+
+    const report = await resolveMaybePromise(getSupportReport({ departmentId, from, to }));
+    if (!report) {
+      return res.status(400).json({ error: "Invalid date range." });
+    }
+    if (departmentId && !(report.departments || []).length) {
+      return res.status(404).json({ error: "Department not found." });
+    }
+    res.json(report);
   });
 
   // ─── Users — list ────────────────────────────────────────────────────────────
@@ -782,7 +1027,7 @@ function registerAdminPanelRoutes(app, deps) {
     const sortBy    = ["id", "username", "nickname", "role", "created_at", "last_seen"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
     const sortDir   = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
-    const roleFilter = ["user", "admin", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
+    const roleFilter = ["user", "operator", "owner", "banned"].includes(req.query.role) ? req.query.role : null;
     const statusFilter = ["online", "offline"].includes(req.query.status) ? req.query.status : null;
     const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
     const connectedUsernames = typeof getConnectedUsernames === "function" ? getConnectedUsernames() : null;
@@ -805,7 +1050,10 @@ function registerAdminPanelRoutes(app, deps) {
     const password    = String(req.body?.password  || "");
     const requestedRole = String(req.body?.role || "user");
     // Only owners can assign the owner role; admins can assign user/admin
-    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner", "operator"] : ["user", "admin", "operator"];
+    // Role model (migration 047): the "admin" role is retired. Only the
+    // owner (the only panel user) may assign roles; owner assignment keeps
+    // its own guards below.
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "operator", "owner"] : ["user", "operator"];
     const role = allowedRoles.includes(requestedRole) ? requestedRole : "user";
 
     if (!rawUsername || !nickname || !password) {
@@ -876,9 +1124,16 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Non-owners cannot edit the owner account
-    if (user.role === "owner" && !(await actorIsOwner(session))) {
-      return res.status(403).json({ error: "Cannot edit the owner account." });
+    // The owner account is immutable through the app — for EVERY actor,
+    // including the owner themselves. The only supported path to change the
+    // owner account (username, nickname, status, color, verification, ...)
+    // is the interactive server menu (CLI db-tools), which operates outside
+    // the HTTP surface.
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner account can only be changed from the server's interactive menu.",
+        code: "owner_protected",
+      });
     }
 
     const b = req.body || {};
@@ -953,9 +1208,13 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // The owner cannot be banned
+    // The owner cannot be banned — by anyone, through the app (owner role is
+    // permanent; lifecycle actions on the owner belong to the server CLI).
     if (user.role === "owner") {
-      return res.status(403).json({ error: "Cannot ban the owner account." });
+      return res.status(403).json({
+        error: "The owner account cannot be banned.",
+        code: "owner_protected",
+      });
     }
 
     const banned = Boolean(req.body?.banned);
@@ -977,7 +1236,10 @@ function registerAdminPanelRoutes(app, deps) {
     const { role } = req.body || {};
 
     // Only the owner can assign/revoke the owner role; admins can only use user/admin
-    const allowedRoles = (await actorIsOwner(session)) ? ["user", "admin", "owner", "operator"] : ["user", "admin", "operator"];
+    // Role model (migration 047): the "admin" role is retired. Only the
+    // owner (the only panel user) may assign roles; owner assignment keeps
+    // its own guards below.
+    const allowedRoles = (await actorIsOwner(session)) ? ["user", "operator", "owner"] : ["user", "operator"];
     if (!allowedRoles.includes(role)) {
       return res.status(400).json({ error: "Invalid role" });
     }
@@ -985,16 +1247,25 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Non-owners cannot change the role of the owner
-    if (user.role === "owner" && !(await actorIsOwner(session))) {
-      return res.status(403).json({ error: "Cannot change the role of the owner." });
+    // The owner role is permanent — nobody (not even the owner) may change
+    // the owner's role from the app. Owner transfers belong to the server's
+    // interactive menu only.
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner role is permanent and can only be changed from the server's interactive menu.",
+        code: "owner_protected",
+      });
     }
 
-    // Only one owner is allowed — block promoting if another owner already exists
-    if (role === "owner" && user.role !== "owner") {
+    // Only one owner is allowed — block promoting a second owner (reassignment
+    // is only possible from the server's interactive menu).
+    if (role === "owner") {
       const existing = await resolveMaybePromise(getOwnerUser());
       if (existing && existing.id !== userId) {
-        return res.status(409).json({ error: "An owner already exists. Demote them first." });
+        return res.status(409).json({
+          error: "An owner already exists. Owner reassignment is only possible from the server's interactive menu.",
+          code: "owner_protected",
+        });
       }
     }
 
@@ -1002,6 +1273,155 @@ function registerAdminPanelRoutes(app, deps) {
     adminSave();
     log(session, "user.role", { targetType: "user", targetLabel: `@${user.username}`, details: `role=${role}` });
     res.json({ ok: true, role });
+  });
+
+  // ─── Users — impersonate (owner only) ────────────────────────────────────
+
+  // The owner "logs in as" a user for monitoring: a fresh session is minted
+  // for the target user, the owner's own session is parked in the HttpOnly
+  // `admin_sid` cookie, and the working `sid` cookie becomes the target's.
+  // No password is read, exposed or changed anywhere in the flow.
+  app.post("/api/admin/users/:id/impersonate", validateUuidParams("id"), async (req, res) => {
+    const session = requireAdmin(req, res);
+    if (!session) return;
+
+    // Owner only — the hard gate lives here on the server; the client merely
+    // hides the button for non-owners.
+    if (!(await actorIsOwner(session))) {
+      return res.status(403).json({
+        error: "Only the owner can log in as another user.",
+        code: "owner_only",
+      });
+    }
+
+    const user = await resolveMaybePromise(findUserById(req.params.id));
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (String(user.id) === String(session.id)) {
+      return res.status(400).json({ error: "You are already logged in as yourself." });
+    }
+    // The owner account is untouchable — impersonating it would hand the
+    // owner identity to a session minted by code.
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner account cannot be impersonated.",
+        code: "owner_protected",
+      });
+    }
+    if (Number(user.banned)) {
+      return res.status(403).json({ error: "Banned users cannot be impersonated." });
+    }
+
+    const ownerToken = parseCookies(req).sid;
+    if (!ownerToken) return res.status(401).json({ error: "Not authenticated" });
+
+    const targetToken = crypto.randomBytes(24).toString("hex");
+    // Stamp the minted session with the acting owner's id (migration 046)
+    // so the return endpoint can verify — server-side — that it is about to
+    // revoke a real impersonation session, never an innocent fresh login.
+    await resolveMaybePromise(createSession(user.id, targetToken, { impersonatedBy: session.id }));
+
+    setSessionCookie(req, res, targetToken);
+    setSideCookie(req, res, "admin_sid", ownerToken);
+    adminSave();
+    log(session, "user.impersonate", {
+      targetType: "user",
+      targetLabel: `@${user.username}`,
+      details: `userId=${user.id}`,
+    });
+    res.json({
+      id: user.id,
+      username: user.username,
+      nickname: user.nickname || null,
+      avatarUrl: user.avatar_url || null,
+      color: user.color || null,
+      status: user.status || "online",
+      role: user.role || "user",
+      impersonated: true,
+    });
+  });
+
+  // ─── Impersonation — return to the owner's session ─────────────────────
+
+  // Restores the parked owner session, revokes the minted impersonation
+  // session, and clears the side cookie. Registered outside the normal
+  // admin session gate (see the middleware skip above) because the working
+  // session belongs to the impersonated user.
+  app.post("/api/admin/impersonate/return", async (req, res) => {
+    const cookies = parseCookies(req);
+    const ownerToken = cookies.admin_sid;
+    const impersonationToken = cookies.sid;
+
+    const clearParkedCookie = () => {
+      setSideCookie(req, res, "admin_sid", "", { clear: true });
+    };
+
+    if (!ownerToken || !impersonationToken || ownerToken === impersonationToken) {
+      clearParkedCookie();
+      return res.status(400).json({
+        error: "No impersonation session in progress.",
+        code: "not_impersonating",
+      });
+    }
+
+    // The parked cookie must resolve to a LIVE session of an admin/owner.
+    // The session stores differ in shape (full user row vs { userId, token }),
+    // so resolve the user through findUserById either way.
+    const ownerRaw = await resolveMaybePromise(getSession(ownerToken));
+    const ownerId = ownerRaw?.id ?? ownerRaw?.userId ?? null;
+    if (!ownerId) {
+      clearParkedCookie();
+      return res.status(401).json({
+        error: "Your admin session has expired. Please log in again.",
+        code: "admin_session_expired",
+      });
+    }
+    const ownerUser = await resolveMaybePromise(findUserById(ownerId));
+    const ownerStillOwner = ownerUser
+      ? await resolveMaybePromise(isUserOwner(ownerUser.id))
+      : false;
+    if (!ownerUser || !ownerStillOwner) {
+      clearParkedCookie();
+      return res.status(403).json({ error: "Admin access required", code: "admin_required" });
+    }
+
+    // The working session must be an impersonation session stamped with
+    // THIS owner's id — a fresh login must never be revoked by a stale
+    // parked cookie.
+    const impersonatedRaw = await resolveMaybePromise(getSession(impersonationToken));
+    const impersonatedId = impersonatedRaw?.id ?? impersonatedRaw?.userId ?? null;
+    if (
+      !impersonatedId ||
+      String(impersonatedRaw?.impersonated_by ?? "") !== String(ownerUser.id)
+    ) {
+      clearParkedCookie();
+      return res.status(400).json({
+        error: "No impersonation session in progress.",
+        code: "not_impersonating",
+      });
+    }
+
+    // Identify the impersonated user for the audit trail BEFORE deleting.
+    const impersonatedUser = impersonatedRaw?.username
+      ? impersonatedRaw
+      : await resolveMaybePromise(findUserById(impersonatedId));
+
+    await resolveMaybePromise(deleteSession(impersonationToken));
+    setSessionCookie(req, res, ownerToken);
+    clearParkedCookie();
+    adminSave();
+    log(ownerUser, "user.impersonate_return", {
+      targetType: "user",
+      targetLabel: impersonatedUser ? `@${impersonatedUser.username}` : null,
+    });
+    res.json({
+      id: ownerUser.id,
+      username: ownerUser.username,
+      nickname: ownerUser.nickname || null,
+      avatarUrl: ownerUser.avatar_url || null,
+      color: ownerUser.color || null,
+      status: ownerUser.status || "online",
+      role: ownerUser.role || "user",
+    });
   });
 
   // ─── Users — reset password ──────────────────────────────────────────────────
@@ -1015,9 +1435,14 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Non-owners cannot reset the owner's password
-    if (user.role === "owner" && !(await actorIsOwner(session))) {
-      return res.status(403).json({ error: "Cannot reset the owner's password." });
+    // The owner's password can never be reset through the app — by anyone.
+    // The owner changes their own password via their profile page; server-
+    // level changes go through the interactive menu (CLI).
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "The owner's password can only be changed by the owner or via the server's interactive menu.",
+        code: "owner_protected",
+      });
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
@@ -1032,7 +1457,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.post("/api/admin/users/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
     const session = await resolveMaybePromise(getSessionFromRequest(req));
-    const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
+    const isAdmin = session ? await resolveMaybePromise(isUserOwner(session.id)) : false;
     if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
@@ -1124,9 +1549,14 @@ function registerAdminPanelRoutes(app, deps) {
     const user = await resolveMaybePromise(findUserById(userId));
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // The owner cannot be deleted
+    // The owner cannot be deleted — the owner is the permanent owner of the
+    // whole system (deletion, like every owner change, belongs to the
+    // server's interactive menu only).
     if (user.role === "owner") {
-      return res.status(403).json({ error: "Cannot delete the owner account." });
+      return res.status(403).json({
+        error: "The owner account cannot be deleted.",
+        code: "owner_protected",
+      });
     }
 
     const rawDeletion = adminDeleteUser(userId);
@@ -1149,13 +1579,24 @@ function registerAdminPanelRoutes(app, deps) {
     const sortBy  = ["id", "name", "type", "group_visibility", "created_at", "member_count", "message_count"].includes(req.query.sortBy)
       ? req.query.sortBy : "id";
     const sortDir = String(req.query.sortDir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
-    const typeFilter = ["group", "channel", "dm"].includes(req.query.type) ? req.query.type : null;
+    const typeFilter = ["group", "channel", "dm", "support"].includes(req.query.type) ? req.query.type : null;
     const visibilityFilter = ["public", "private"].includes(req.query.visibility) ? req.query.visibility : null;
     const verifiedFilter = ["1", "0", "true", "false"].includes(req.query.verified) ? req.query.verified : null;
     const autoAddFilter = ["1", "0", "true", "false"].includes(req.query.auto_add) ? req.query.auto_add : null;
     const remoteFilter = ["active", "paused", "disabled", "none"].includes(req.query.remote) ? req.query.remote : null;
     const channelFilter = ["direct", "support"].includes(req.query.channel) ? req.query.channel : null;
-    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, channelFilter });
+    // Created-at range filter (like the helpdesk report's time filter):
+    // strict "YYYY-MM-DD" — exactly what the client date inputs emit.
+    const rangeDay = (value) => {
+      const text = String(value || "").trim();
+      return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+    };
+    const createdFrom = rangeDay(req.query.createdFrom);
+    const createdTo = rangeDay(req.query.createdTo);
+    if ((req.query.createdFrom && !createdFrom) || (req.query.createdTo && !createdTo)) {
+      return res.status(400).json({ error: "Invalid date range. Use YYYY-MM-DD." });
+    }
+    const rawResult = adminListChats({ limit, offset, search, sortBy, sortDir, typeFilter, visibilityFilter, verifiedFilter, autoAddFilter, remoteFilter, channelFilter, createdFrom, createdTo });
     const { chats, total } = (rawResult && typeof rawResult.then === "function"
       ? await rawResult
       : rawResult) || { chats: [], total: 0 };
@@ -1509,7 +1950,7 @@ function registerAdminPanelRoutes(app, deps) {
 
   app.post("/api/admin/chats/:id/avatar", validateUuidParams("id"), uploadAvatar.single("avatar"), async (req, res) => {
     const session = await resolveMaybePromise(getSessionFromRequest(req));
-    const isAdmin = session ? await resolveMaybePromise(isUserAdmin(session.id)) : false;
+    const isAdmin = session ? await resolveMaybePromise(isUserOwner(session.id)) : false;
     if (!session || !isAdmin) {
       removeUploadedFiles(req.file ? [req.file] : [], avatarUploadRootDir);
       return res.status(session ? 403 : 401).json({ error: session ? "Admin access required" : "Not authenticated" });
@@ -1715,6 +2156,13 @@ function registerAdminPanelRoutes(app, deps) {
   app.delete("/api/admin/chats/:id", validateUuidParams("id"), async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
+    // Deletion policy: ChatDesk is an organizational messenger and ticketing
+    // system — full chat/ticket deletion is destructive and must stay
+    // centralized. Only the instance owner may delete chats here; admins and
+    // operators can manage everything else in the panel but never delete.
+    if (!(await actorIsOwner(session))) {
+      return res.status(403).json({ error: "Owner access required" });
+    }
     const chatId = req.params.id;
     const chat = await resolveMaybePromise(findChatById(chatId));
     const deletion = await resolveMaybePromise(adminDeleteChat(chatId));
@@ -1819,6 +2267,11 @@ function registerAdminPanelRoutes(app, deps) {
   app.post("/api/admin/maintenance/clear-messages", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
+    // Deleting messages (even in bulk) is owner-only under the ChatDesk
+    // deletion policy — admins and operators never wipe message history.
+    if (!(await actorIsOwner(session))) {
+      return res.status(403).json({ error: "Owner access required" });
+    }
     if (req.body?.confirm !== "clear messages") {
       return res.status(400).json({ error: "Confirmation phrase required." });
     }

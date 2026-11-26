@@ -26,7 +26,7 @@ function makeAdminApp() {
     sessionStore,
     userStore: makeUserStore([admin, user]),
     deps: {
-      isUserAdmin: (userId) => userId === admin.id,
+      isUserOwner: (userId) => userId === admin.id,
     },
   });
   return app;

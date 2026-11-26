@@ -143,6 +143,7 @@ export function MobileSettingsPanel({
   appInfoLoading,
   appInfoError,
   onOpenWhatsNew,
+  whatsNewAvailable = false,
   adminPanelEnabled = true,
   onNavigateChats,
   onNavigateCalls,
@@ -178,7 +179,7 @@ export function MobileSettingsPanel({
     notificationsEnabled;
   const notificationsDisabled =
     Boolean(notificationsDisabledProp) || Boolean(notificationStatusLabel);
-  const isAdmin = user?.role === "admin" || user?.role === "owner";
+  const isAdmin = user?.role === "owner";
   const showAdminPanel = isAdmin && adminPanelEnabled;
   const detailTitle = t(DETAIL_TITLE_KEYS[settingsPanel] || "settings.title");
 
@@ -757,12 +758,18 @@ export function MobileSettingsPanel({
               </MobileMenuCard>
 
               <MobileMenuCard>
-                <MobileMenuRow
-                  label={t("settings.menu.whatsNew")}
-                  icon={<Rocket size={22} className="icon-anim-lift" />}
-                  onClick={() => onOpenWhatsNew?.()}
-                  showArrow={false}
-                />
+                {/* "What's new" (امکانات جدید) is a privilege of the system
+                    owner: the server answers /api/app/whats-new with 403 for
+                    everyone else, so the entry renders only when the server
+                    granted the payload. */}
+                {whatsNewAvailable ? (
+                  <MobileMenuRow
+                    label={t("settings.menu.whatsNew")}
+                    icon={<Rocket size={22} className="icon-anim-lift" />}
+                    onClick={() => onOpenWhatsNew?.()}
+                    showArrow={false}
+                  />
+                ) : null}
                 <MobileMenuRow
                   label={t("settings.menu.about")}
                   icon={<Info size={22} className="icon-anim-pop" />}

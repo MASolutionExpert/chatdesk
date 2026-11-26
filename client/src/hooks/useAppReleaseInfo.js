@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchAppInfo } from "../api/appMetaApi.js";
+import { fetchAppInfo, fetchWhatsNew } from "../api/appMetaApi.js";
 
 const WHATS_NEW_DISMISSED_VERSION_KEY = "chatdesk-whats-new-dismissed-version";
 
@@ -16,10 +16,19 @@ async function parseJsonResponse(response, fallbackMessage) {
   return payload;
 }
 
+/**
+ * App/release info + the per-version "What's new" payload.
+ *
+ * The server is the authority: GET /api/app/whats-new answers 200 ONLY for
+ * the system owner and 403 (owner_only) for everyone else. A non-owner
+ * simply gets whatsNewAvailable = false — the popup never opens and the
+ * settings entry is not rendered. No client-side role guessing.
+ */
 export function useAppReleaseInfo() {
   const [appInfo, setAppInfo] = useState(null);
   const [appInfoLoading, setAppInfoLoading] = useState(true);
   const [appInfoError, setAppInfoError] = useState("");
+  const [whatsNewData, setWhatsNewData] = useState(null);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
 
   const loadAppInfo = useCallback(async () => {
@@ -32,9 +41,23 @@ export function useAppReleaseInfo() {
         "Unable to load app information.",
       );
       setAppInfo(payload);
-      const currentVersion = String(payload?.version || "").trim();
+
+      // Owner-only what's new. Any failure (401/403/network) means the
+      // current user is not the owner — silently no what's new at all.
+      let whatsNew = null;
+      try {
+        const whatsNewResponse = await fetchWhatsNew();
+        if (whatsNewResponse.ok) {
+          whatsNew = await whatsNewResponse.json();
+        }
+      } catch {
+        whatsNew = null;
+      }
+      setWhatsNewData(whatsNew);
+
+      const currentVersion = String(whatsNew?.version || "").trim();
       const changelog = String(
-        payload?.currentChangelog || payload?.changelog || "",
+        whatsNew?.currentChangelog || whatsNew?.changelog || "",
       ).trim();
       if (!currentVersion || !changelog) {
         setWhatsNewOpen(false);
@@ -62,26 +85,29 @@ export function useAppReleaseInfo() {
 
   const dismissWhatsNew = useCallback(
     (remember = true) => {
-      if (remember && appInfo?.version) {
+      if (remember && whatsNewData?.version) {
         window.localStorage.setItem(
           WHATS_NEW_DISMISSED_VERSION_KEY,
-          String(appInfo.version),
+          String(whatsNewData.version),
         );
       }
       setWhatsNewOpen(false);
     },
-    [appInfo],
+    [whatsNewData],
   );
 
   const openWhatsNew = useCallback(() => {
+    if (!whatsNewData) return;
     setWhatsNewOpen(true);
-  }, []);
+  }, [whatsNewData]);
 
   return {
     appInfo,
     appInfoLoading,
     appInfoError,
     loadAppInfo,
+    whatsNewData,
+    whatsNewAvailable: Boolean(whatsNewData),
     whatsNewOpen,
     openWhatsNew,
     dismissWhatsNew,

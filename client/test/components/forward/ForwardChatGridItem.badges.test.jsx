@@ -63,10 +63,10 @@ for (const [label, viewport] of [
           .toBeInTheDocument();
       });
 
-      test("shows Admin badge for DM peer with role='admin'", async () => {
-        render(<ForwardChatGridItem {...BASE_ITEM} kind="dm" role="admin" />);
+      test("shows Operator badge for DM peer with role='admin'", async () => {
+        render(<ForwardChatGridItem {...BASE_ITEM} kind="dm" role="operator" />);
         await expect
-          .element(page.getByLabelText("Server Admin"))
+          .element(page.getByLabelText("Support Operator"))
           .toBeInTheDocument();
       });
 
@@ -81,20 +81,20 @@ for (const [label, viewport] of [
           .not.toBeInTheDocument();
       });
 
-      test("shows both Verified and Admin badges for verified admin DM peer", async () => {
+      test("shows both Verified and Operator badges for verified operator DM peer", async () => {
         render(
           <ForwardChatGridItem
             {...BASE_ITEM}
             kind="dm"
             verified={true}
-            role="admin"
+            role="operator"
           />,
         );
         await expect
           .element(page.getByLabelText("Verified"))
           .toBeInTheDocument();
         await expect
-          .element(page.getByLabelText("Server Admin"))
+          .element(page.getByLabelText("Support Operator"))
           .toBeInTheDocument();
       });
 

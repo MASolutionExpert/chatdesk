@@ -115,9 +115,6 @@ export function RoleBadge({ role, banned = false }) {
   if (r === "owner") return (
     <span className={`${ROLE_CHIP_BASE} border-amber-300 bg-amber-50 text-amber-600 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400`}>{t("admin.common.roleOwner")}</span>
   );
-  if (r === "admin") return (
-    <span className={`${ROLE_CHIP_BASE} border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400`}>{t("admin.common.roleAdmin")}</span>
-  );
   return (
     <span className={`${ROLE_CHIP_BASE} border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400`}>{r}</span>
   );

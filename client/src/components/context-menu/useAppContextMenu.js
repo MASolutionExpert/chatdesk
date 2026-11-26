@@ -199,6 +199,29 @@ export function useAppContextMenu({
         const username = String(targetUser?.username || "").toLowerCase();
         const isSelf = username === String(currentUsername || "").toLowerCase();
         const existingDm = findExistingDmWithUser(username);
+        // A customer (role "user") inside a support-channel thread can never
+        // receive a direct chat: POST /api/chats/dm refuses customer↔staff
+        // pairs by design ("those are tickets"). Offering the DM shortcut
+        // there produced a dead end — inside a REFERRED support group the
+        // thread is a group (not the customer's dm-shaped ticket), so no
+        // existing DM matched and the client actually attempted to CREATE
+        // one, which the server always refuses. Hide the shortcut when the
+        // target is a customer in a support context.
+        // NOTE: prefer `user_role` (the account-level role) over `role`,
+        // which on chat-member objects is the CHAT role ("owner"/"member")
+        // and says nothing about whether the user is a customer.
+        const targetRole = String(
+          targetUser?.user_role ?? targetUser?.role ?? "",
+        ).toLowerCase();
+        const isSupportContext =
+          String(data?.sourceChatChannel || "") === "support";
+        const isCustomerTarget =
+          targetRole === "user" ||
+          // Operators in the members list carry the role explicitly; a bare
+          // username with no role at all is treated as a customer too — the
+          // safe side, since customer↔staff DMs are refused either way.
+          (!targetRole && data?.sourceChatChannel != null);
+        const hideDmShortcut = isSupportContext && isCustomerTarget;
         const isRemovableGroupMember =
           data?.sourceChatType === "group" &&
           canCurrentUserEditGroup &&
@@ -218,7 +241,7 @@ export function useAppContextMenu({
           },
         });
 
-        if (!isSelf && !existingDm) {
+        if (!isSelf && !existingDm && !hideDmShortcut) {
           items.push({
             id: "chat",
             label: t("modals.context.chat"),

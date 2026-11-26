@@ -18,6 +18,7 @@ import {
 import { useI18n } from "../../../i18n/index.js";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import UserMenuButton from "./UserMenuButton.jsx";
+import { hasPermission } from "../../../utils/permissions.js";
 
 export default function SidebarHeader({
   mobileTab = "chats",
@@ -42,6 +43,7 @@ export default function SidebarHeader({
   onNewSupport,
   onNewGroup,
   onNewChannel,
+  user,
   chatsSearchQuery,
   chatsSearchFocused,
   onChatsSearchChange,
@@ -53,7 +55,6 @@ export default function SidebarHeader({
   permissionsPrompt = null,
   insecureConnection = false,
   isLocalhost: isLocalhostProp,
-  user,
   displayName,
   displayInitials,
   userColor,
@@ -73,6 +74,17 @@ export default function SidebarHeader({
   const resolvedNewCallAriaLabel = newCallAriaLabel || t("sidebar.header.newCall");
   const isChatsTab = mobileTab !== "calls" && mobileTab !== "settings";
   const [showCreateMenu, setShowCreateMenu] = useState(false);
+
+  // ── Configurable permission system (1.7.0) ──────────────────────────────
+  // The "+" create menu follows the role's registry permissions; the owner
+  // can turn each entry off per role from the admin panel. The server
+  // enforces the same gates — these checks only keep the UI consistent.
+  const canCreateSupport = hasPermission(user, "ticket.create");
+  const canCreateDm = hasPermission(user, "dm.send");
+  const canCreateGroup = hasPermission(user, "group.create");
+  const canCreateChannel = hasPermission(user, "channel.create");
+  const anyCreateAllowed =
+    canCreateSupport || canCreateDm || canCreateGroup || canCreateChannel;
   const createMenuRef = useRef(null);
   const searchInputRef = useRef(null);
   const hasSearchText = Boolean(String(chatsSearchQuery || "").trim());
@@ -243,7 +255,7 @@ export default function SidebarHeader({
                 >
                   <PhoneCall size={18} className={isInCall || callsDisabled ? "" : "icon-anim-pop"} />
                 </button>
-              ) : (
+              ) : anyCreateAllowed ? (
                 <div className="relative" ref={createMenuRef}>
                   <button
                     type="button"
@@ -256,66 +268,62 @@ export default function SidebarHeader({
                   </button>
                   {showCreateMenu ? (
                     <div className="absolute right-0 top-12 z-20 w-44 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-1 text-sm font-semibold text-slate-700 shadow-xl shadow-emerald-950/10 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateMenu(false);
-                          onNewSupport?.();
-                        }}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                      >
-                        <LifeBuoy
-                          size={16}
-                          className="text-emerald-500 icon-anim-bob"
-                        />
-                        {t("sidebar.header.contactSupport")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateMenu(false);
-                          onNewChat?.();
-                        }}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                      >
-                        <Chat
-                          size={16}
-                          className="text-emerald-500 icon-anim-bob"
-                        />
-                        {t("sidebar.header.newDm")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateMenu(false);
-                          onNewGroup?.();
-                        }}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                      >
-                        <Users
-                          size={18}
-                          className="text-emerald-500 icon-anim-sway"
-                        />
-                        {t("sidebar.header.newGroup")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowCreateMenu(false);
-                          onNewChannel?.();
-                        }}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
-                      >
-                        <Megaphone
-                          size={18}
-                          className="text-emerald-500 icon-anim-swing"
-                        />
-                        {t("sidebar.header.newChannel")}
-                      </button>
+                      {canCreateSupport ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCreateMenu(false);
+                            onNewSupport?.();
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                        >
+                          <LifeBuoy size={16} className="text-emerald-500 icon-anim-bob" />
+                          {t("sidebar.header.contactSupport")}
+                        </button>
+                      ) : null}
+                      {canCreateDm ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCreateMenu(false);
+                            onNewChat?.();
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                        >
+                          <Chat size={16} className="text-emerald-500 icon-anim-bob" />
+                          {t("sidebar.header.newDm")}
+                        </button>
+                      ) : null}
+                      {canCreateGroup ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCreateMenu(false);
+                            onNewGroup?.();
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                        >
+                          <Users size={18} className="text-emerald-500 icon-anim-sway" />
+                          {t("sidebar.header.newGroup")}
+                        </button>
+                      ) : null}
+                      {canCreateChannel ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCreateMenu(false);
+                            onNewChannel?.();
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left transition hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/10 dark:hover:text-emerald-200"
+                        >
+                          <Megaphone size={18} className="text-emerald-500 icon-anim-swing" />
+                          {t("sidebar.header.newChannel")}
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
           {!isCallsMode ? (

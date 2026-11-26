@@ -31,7 +31,7 @@ describe("async admin-panel mutations", () => {
       sessionStore,
       userStore: makeUserStore([admin, target]),
       deps: {
-        isUserAdmin: (userId) => userId === admin.id,
+        isUserOwner: (userId) => userId === admin.id,
         findUserById: (userId) =>
           userId === target.id ? target : admin,
         adminDeleteUser,

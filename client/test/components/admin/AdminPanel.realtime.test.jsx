@@ -29,7 +29,8 @@ describe("AdminPanel — Real-time Updates", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
 
-    render(<AdminPanel user={{ role: "admin" }} onBack={() => {}} />);
+    // Role model (migration 047): the panel user is the owner.
+    render(<AdminPanel user={{ role: "owner" }} onBack={() => {}} />);
 
     // Wait for initial mount fetch of /api/admin/stats
     await new Promise((r) => setTimeout(r, 50));

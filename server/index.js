@@ -13,6 +13,8 @@ import multer from "multer";
 import webpush from "web-push";
 import { registerApiRoutes } from "./api/index.js";
 import { ensureValidVapidKeys } from "./lib/vapid.js";
+import { createPermissionService } from "./lib/permissionService.js";
+import { createBrandingService } from "./lib/branding.js";
 import { createSseHub } from "./lib/sse.js";
 import { createWebSocketGateway } from "./lib/websocketGateway.js";
 import { createPresenceTracker } from "./lib/presenceTracker.js";
@@ -27,6 +29,7 @@ import { createInspector } from "./lib/inspect.js";
 import { createSessionHelpers } from "./lib/sessions.js";
 import { createRedisClient, createRedisSessionStore } from "./lib/redis.js";
 import { storageEncryption } from "./lib/storageEncryption.js";
+import { planMessageBodyEncryption } from "./lib/storageEncryptionBackfill.js";
 import { createStorageProvider } from "./lib/storage/index.js";
 import { migrateLegacyStorageLayout } from "./lib/storageLayoutMigration.js";
 import { createMediaQueueManager } from "./lib/mediaQueue.js";
@@ -40,6 +43,7 @@ import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readDbConfig, parseEnv } from "./settings/env.js";
 import { createPostgresMaintenance } from "./lib/postgresMaintenance.js";
 import { dbKnex } from "./db/knex.js";
+import { getAll, run } from "./db.js";
 import {
   addAllEligibleChatMembers,
   addChatMember,
@@ -157,6 +161,7 @@ import {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  hardDeleteDepartment,
   setUserDepartment,
   getUserDepartmentId,
   listOperatorsForDepartment,
@@ -164,9 +169,17 @@ import {
   markChatDepartment,
   getChatDepartmentId,
   getSupportOverview,
-  isUserAdmin,
+  getSupportReport,
+  createTicketRow,
+  getTicketByChatId,
+  setTicketStatusByChatId,
+  convertSupportChatToGroup,
+  setTicketOperatorByChatId,
+  setTicketDepartmentByChatId,
+  listStaffReferCandidates,
   isUserOwner,
   getOwnerUser,
+  hasAnyUser,
   writeAdminAuditLog,
   readAdminAuditLogs,
   clearAdminAuditLogs,
@@ -361,6 +374,21 @@ const apiLimiter = rateLimit({
 const adminApiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3000,
+});
+
+// Brute-force hardening. The emergency claim endpoint validates
+// ADMIN_API_TOKEN — ten tries per window is plenty for a human who owns the
+// token and useless for a guessing attack (previously it rode the 3000/15min
+// admin bucket). Login/registration get their own bucket so credential
+// stuffing cannot ride the shared 1000/15min chat budget either.
+const adminClaimLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
 });
 
 const staticLimiter = rateLimit({
@@ -686,6 +714,7 @@ const {
   computeExpiryIso,
   pruneOrphanRemoteObjects,
   pruneOrphanAvatarObjects,
+  pruneOrphanLocalUploadFiles,
 } = messageFileJobs;
 
 const inspector = createInspector({ fs, dataDir, adminGetRow, adminGetAll });
@@ -736,6 +765,7 @@ const sessionHelpers = createSessionHelpers({
 const {
   parseCookies,
   setSessionCookie,
+  setSideCookie,
   clearSessionCookie,
   getSessionFromRequest,
   requireSession,
@@ -764,22 +794,15 @@ async function backfillStorageEncryption() {
 
     let encryptedInBatch = 0;
     batch.forEach((row) => {
-      const body = String(row?.body || "");
-      if (!body || storageEncryption.isSystemMessageBody(body)) return;
-
-      // Valid ciphertext must remain untouched, while legacy plaintext that
-      // merely imitates the ciphertext prefix is encrypted on startup.
-      const isValidCiphertext =
-        storageEncryption.isEncryptedText(body) &&
-        storageEncryption.decryptText(body) !== body;
-      if (isValidCiphertext) return;
-
-      const nextBody = storageEncryption.encryptText(body);
-      if (nextBody === body) return;
+      const plan = planMessageBodyEncryption(row, storageEncryption);
+      if (!plan) return;
+      // plan.id is the RAW message id (TEXT UUID since migration 036).
+      // Number(plan.id) is NaN — that once matched no rows and legacy
+      // plaintext bodies silently stayed unencrypted on every boot.
       adminRun(
         dbKnex("chat_messages")
-          .where({ id: Number(row.id) })
-          .update({ body: nextBody }),
+          .where({ id: plan.id })
+          .update({ body: plan.body }),
       );
       encryptedInBatch += 1;
     });
@@ -1026,6 +1049,7 @@ const apiDeps = {
   setRemoteChannelProviderState,
   listMutedUserIdsForChat,
   setSessionCookie,
+  setSideCookie,
   recordPendingPresignedUpload,
   removePendingPresignedUploads,
   listPendingPresignedUploads,
@@ -1060,6 +1084,7 @@ const apiDeps = {
   createDepartment,
   updateDepartment,
   deleteDepartment,
+  hardDeleteDepartment,
   setUserDepartment,
   getUserDepartmentId,
   listOperatorsForDepartment,
@@ -1067,9 +1092,27 @@ const apiDeps = {
   markChatDepartment,
   getChatDepartmentId,
   getSupportOverview,
-  isUserAdmin,
+  getSupportReport,
+  createTicketRow,
+  getTicketByChatId,
+  setTicketStatusByChatId,
+  convertSupportChatToGroup,
+  setTicketOperatorByChatId,
+  setTicketDepartmentByChatId,
+  listStaffReferCandidates,
   isUserOwner,
   getOwnerUser,
+  hasAnyUser,
+  // Emergency-claim gate: true when NO owner exists on the server (the
+  // retired "admin" role no longer counts). /api/app/info exposes
+  // adminClaimAvailable = token configured AND no owner — so the client
+  // only shows the claim form on real lockout.
+  hasAnyOwner: async () => {
+    const row = await adminGetRow(
+      "SELECT id FROM users WHERE role = 'owner' LIMIT 1",
+    );
+    return Boolean(row);
+  },
   writeAdminAuditLog,
   readAdminAuditLogs,
   clearAdminAuditLogs,
@@ -1253,12 +1296,71 @@ mirrorManagerRef.current = remoteChannelManager;
 if (isProduction) {
   app.use("/api", apiLimiter);
   app.use("/api/admin", adminApiLimiter);
+  // Stricter buckets on top of the general ones — must be mounted before
+  // registerApiRoutes() so they win over the wider /api/admin ceiling.
+  app.use("/api/admin/claim", adminClaimLimiter);
+  app.use("/api/login", authLimiter);
+  app.use("/api/register", authLimiter);
 }
+
+// ── Configurable permission system (1.7.0) ────────────────────────────────
+// Registry-driven role permissions: the registry lives in lib/permissions.js,
+// this service resolves effective allowances from the role_permissions
+// override table (migration 048) and exposes them to every route through
+// deps. The instance owner always has every permission (service-level bypass).
+const permissionService = createPermissionService({
+  getAll,
+  run,
+  knex: dbKnex,
+});
+apiDeps.permissionsService = permissionService;
+apiDeps.hasPermission = (role, permissionKey) =>
+  permissionService.isAllowed(role, permissionKey);
+apiDeps.getAllowedPermissions = (role) => permissionService.getAllowedKeys(role);
+
+// ── Branding / personalization (1.7.0-dev.2) ────────────────────────────
+// Owner-configurable About dialog + entry page (logo, title, tagline).
+// Config lives in the app_settings KV store; logo files under DATA_DIR.
+const brandingService = createBrandingService({
+  dbGetSetting,
+  dbSetSetting,
+  fs,
+  path,
+  brandingDir: path.join(dataDir, "branding"),
+});
+apiDeps.brandingService = brandingService;
 
 registerApiRoutes(app, apiDeps);
 
 if (isProduction) {
   app.use(staticLimiter);
+
+  // Dynamic branding overrides for the two root-level files the browser asks
+  // for before any JS runs. Without a custom logo both fall through to the
+  // bundled static files in client/dist.
+  app.get("/manifest.webmanifest", async (req, res, next) => {
+    try {
+      const manifest = await brandingService.buildManifest();
+      if (!manifest) return next();
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Content-Type", "application/manifest+json");
+      res.json(manifest);
+    } catch {
+      next();
+    }
+  });
+
+  app.get("/favicon.ico", (req, res, next) => {
+    try {
+      const icon = brandingService.readIcon(32);
+      if (!icon) return next();
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      res.setHeader("Content-Type", "image/png");
+      res.send(icon);
+    } catch {
+      next();
+    }
+  });
 
   const clientDist = path.resolve(serverDir, "..", "client", "dist");
   const setStaticCacheHeaders = (res, filePath) => {
@@ -1432,6 +1534,7 @@ async function backfillTextMessageExpiry() {
 try {
   await pruneOrphanRemoteObjects();
   await pruneOrphanAvatarObjects();
+  await pruneOrphanLocalUploadFiles();
   if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
     await backfillMessageFileExpiry();
     await cleanupExpiredMessageFiles();
@@ -1444,6 +1547,7 @@ const expiryCleanupTimer = setInterval(async () => {
   try {
     await pruneOrphanRemoteObjects();
     await pruneOrphanAvatarObjects();
+    await pruneOrphanLocalUploadFiles();
     if (getSetting("MESSAGE_FILE_RETENTION") > 0) {
       await cleanupExpiredMessageFiles();
     }

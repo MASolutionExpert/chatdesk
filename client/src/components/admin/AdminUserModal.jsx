@@ -327,11 +327,13 @@ export default function AdminUserModal({ mode = "edit", user = null, onClose, on
             {creating || !targetIsOwner ? (
               <div className="rounded-2xl border border-emerald-200 p-3 dark:border-emerald-500/30">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Account type</p>
-                <div className={`mt-2 grid gap-2 ${creating ? "grid-cols-2" : "grid-cols-3"}`}>
-                  {(creating
-                    ? [["user", "Customer"], ["operator", "Operator"]]
-                    : [["user", "Customer"], ["operator", "Operator"], ["admin", "Admin"]]
-                  ).map(([value, label]) => (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {/* Role model (migration 047): Customer or Operator — the
+                      retired "admin" role is no longer selectable. */}
+                  {[
+                    ["user", "Customer"],
+                    ["operator", "Operator"],
+                  ].map(([value, label]) => (
                     <button
                       key={value}
                       type="button"

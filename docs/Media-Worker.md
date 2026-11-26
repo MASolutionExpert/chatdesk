@@ -11,6 +11,7 @@ Whether deployed as a built-in background process or as a standalone cloud micro
 - **Intelligent Transcoding**:
   - Automatically probes video format, codecs, dimensions, and duration using `ffprobe`.
   - Converts incompatible or high-bitrate video formats (MKV, AVI, WebM, HEVC, ProRes, etc.) into universally supported web-compatible H.264 video with AAC audio (`.mp4`).
+  - **Compression standard (1.7.0-dev.4+)**: H.264 `veryfast` preset at constant-quality CRF 23 with AAC 128k audio — dramatically smaller files than the old `ultrafast` encode at the same quality — plus a 1920x1920 downscale box (aspect preserved, never upscales, even dimensions) so 4K phone recordings stop dominating storage.
   - **Smart Faststart Optimization**: If the uploaded video is already web-ready (H.264/AAC with `yuv420p` in an MP4 container), CPU-heavy re-encoding is skipped, applying faststart stream copy (`-movflags +faststart`) so playback starts instantly in client browsers without buffering.
 - **Thumbnail Extraction**: Automatically extracts high-quality JPEG thumbnails (`<storageKey>-thumb.jpg`) from the first seconds of video for fast message previews and placeholders.
 - **Metadata Extraction**: Measures video dimensions (width and height) and duration in seconds, reporting them to the ChatDesk backend for instant client layout rendering.

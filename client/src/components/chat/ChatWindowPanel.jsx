@@ -8,6 +8,8 @@ import {
 import {
   ArrowDown,
   ArrowLeft,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Ghost,
   LoaderCircle,
@@ -22,6 +24,8 @@ import Avatar from "../common/Avatar.jsx";
 import UserRoleBadge from "../common/UserRoleBadge.jsx";
 import VerifiedBadge from "../common/VerifiedBadge.jsx";
 import ChannelBadge from "../common/ChannelBadge.jsx";
+import { setTicketStatus, fetchReferCandidates, referTicket } from "../../api/chatApi.js";
+import { hasPermission } from "../../utils/permissions.js";
 import Tooltip from "../common/Tooltip.jsx";
 import {
   FocusedMediaModal,
@@ -123,6 +127,7 @@ export default function ChatWindowPanel({
   headerAvatarColor = null,
   microphonePermissionStatus = "unknown",
   onRequestMicrophonePermission = null,
+  onTicketStatusChanged = null,
   copyToastVisible = false,
   registerMessageRef = null,
   onStartVoiceCall,
@@ -1025,11 +1030,227 @@ export default function ChatWindowPanel({
 
   // Channel kind of the active conversation: "support" threads are helpdesk
   // tickets opened through the department picker; everything else (default)
-  // is a messenger-style direct chat. Only DM conversations carry a channel.
-  const isSupportChat = activeChat?.channel === "support";
-  const activeChatChannel =
-    activeChat?.type === "dm" ? (isSupportChat ? "support" : "direct") : null;
+  // is a messenger-style direct chat. Referred tickets are GROUP chats that
+  // keep their support identity — the ticket UI follows the channel, not the
+  // chat type.
+  //
+  // Defensive gate: the strip must never silently vanish when the `channel`
+  // field is missing from stale data. A chat list restored from an old
+  // IndexedDB offline cache (or any partial patch) can come back without
+  // `channel`, while the ticket furniture (ticket_status / department tag)
+  // is still there — those fields only exist on helpdesk threads, so their
+  // presence alone identifies a ticket. Messenger chats never carry either.
+  const isSupportChat =
+    activeChat?.channel === "support" ||
+    Boolean(activeChat?.ticket_status) ||
+    (activeChat?.department_id !== null &&
+      activeChat?.department_id !== undefined &&
+      String(activeChat?.department_id) !== "");
+  const activeChatChannel = isSupportChat
+    ? "support"
+    : activeChat?.type === "dm"
+      ? "direct"
+      : null;
   const supportDepartmentName = activeChat?.department_name || null;
+  // Ticket lifecycle (migration 045): support chats carry an open/closed
+  // status owned by the `tickets` table. Messenger chats never have one.
+  const ticketStatus = isSupportChat
+    ? String(activeChat?.ticket_status || "open").toLowerCase() === "closed"
+      ? "closed"
+      : "open"
+    : null;
+  const ticketClosed = ticketStatus === "closed";
+  const [ticketActionBusy, setTicketActionBusy] = useState(false);
+
+  const handleTicketAction = async (action) => {
+    if (!activeChatId || ticketActionBusy) return;
+    setTicketActionBusy(true);
+    try {
+      const result = await setTicketStatus({
+        chatId: activeChatId,
+        action,
+        creator: user?.username,
+      });
+      if (result?.status && typeof onTicketStatusChanged === "function") {
+        onTicketStatusChanged(activeChatId, result.status);
+      }
+    } catch {
+      // The server keeps the authority (e.g. 403 non-member) — surface it
+      // through the shared toast handling of the parent when available.
+      if (typeof onTicketStatusChanged === "function") {
+        onTicketStatusChanged(activeChatId, null);
+      }
+    } finally {
+      setTicketActionBusy(false);
+    }
+  };
+
+  // ─── Ticket referral (dev.8) ──────────────────────────────────────────────
+  // Permission-gated (1.7.0): hand the ticket to another operator only with
+  // the configurable 'ticket.refer' permission (operators by default; the
+  // owner can extend or revoke it per role from the admin panel). The
+  // server enforces the same gate.
+  const canReferTickets = hasPermission(user, "ticket.refer");
+  const canChangeTicketStatus = hasPermission(user, "ticket.close");
+  const [referOpen, setReferOpen] = useState(false);
+  const [referCandidates, setReferCandidates] = useState([]);
+  const [referDepartments, setReferDepartments] = useState([]);
+  const [referExpandedDept, setReferExpandedDept] = useState(null);
+  const [referLoading, setReferLoading] = useState(false);
+  const [referQuery, setReferQuery] = useState("");
+  const [referSelected, setReferSelected] = useState(null);
+  const [referBusy, setReferBusy] = useState(false);
+  const [referError, setReferError] = useState("");
+
+  const openReferModal = async () => {
+    if (!activeChatId || referBusy) return;
+    setReferOpen(true);
+    setReferQuery("");
+    setReferSelected(null);
+    setReferExpandedDept(null);
+    setReferError("");
+    setReferCandidates([]);
+    setReferDepartments([]);
+    setReferLoading(true);
+    try {
+      // fetchReferCandidates resolves to parsed data ({ candidates,
+      // departments }) and throws on HTTP errors — see chatApi.js.
+      const result = await fetchReferCandidates({
+        chatId: activeChatId,
+        creator: user?.username,
+      });
+      setReferCandidates(Array.isArray(result?.candidates) ? result.candidates : []);
+      setReferDepartments(Array.isArray(result?.departments) ? result.departments : []);
+    } catch (err) {
+      setReferError(err?.message || t("common.ticketReferError"));
+    } finally {
+      setReferLoading(false);
+    }
+  };
+
+  const referQueryTrimmed = referQuery.trim().toLowerCase();
+  const filteredReferCandidates = referQueryTrimmed
+    ? referCandidates.filter(
+        (candidate) =>
+          String(candidate?.username || "").toLowerCase().includes(referQueryTrimmed) ||
+          String(candidate?.nickname || "").toLowerCase().includes(referQueryTrimmed) ||
+          String(candidate?.id || "").toLowerCase().includes(referQueryTrimmed),
+      )
+    : referCandidates;
+
+  // Department → operator browser: group the full staff directory under
+  // their departments (server sends the active departments alongside), so
+  // the picker keeps working even when the actor has no recent contacts.
+  const referDepartmentsWithStaff = referDepartments
+    .map((department) => ({
+      ...department,
+      staff: referCandidates.filter(
+        (candidate) => candidate.departmentId === department.id,
+      ),
+    }))
+    .concat(
+      referCandidates.some((candidate) => !candidate.departmentId)
+        ? [{
+            id: "__none__",
+            name: t("common.ticketReferNoDepartment"),
+            color: null,
+            staff: referCandidates.filter((candidate) => !candidate.departmentId),
+          }]
+        : [],
+    );
+
+  const referRecentCandidates = referCandidates.filter(
+    (candidate) => candidate.lastInteraction,
+  );
+
+  const handleConfirmRefer = async () => {
+    if (!activeChatId || !referSelected || referBusy) return;
+    setReferBusy(true);
+    setReferError("");
+    try {
+      // referTicket resolves to parsed data and throws with the server's
+      // message on rejections (unknown ID, already a member, closed…).
+      await referTicket({
+        chatId: activeChatId,
+        creator: user?.username,
+        operatorUsername: referSelected.username,
+      });
+      setReferOpen(false);
+      setReferSelected(null);
+      // The server fans out chat_list_changed to every member, which reloads
+      // the (now group-shaped) thread for everyone — including this client.
+      if (typeof onTicketStatusChanged === "function") {
+        onTicketStatusChanged(activeChatId, null);
+      }
+    } catch (err) {
+      setReferError(err?.message || t("common.ticketReferError"));
+    } finally {
+      setReferBusy(false);
+    }
+  };
+
+  // One candidate row, reused by the search results, the "Recent" section
+  // and the department browser. Staff already inside the thread stay listed
+  // (full directory!) but are disabled — the server would refuse them (409).
+  const renderReferCandidateRow = (candidate) => {
+    const selected = referSelected?.id === candidate.id;
+    const inTicket = Boolean(candidate.inTicket);
+    return (
+      <li key={candidate.id}>
+        <button
+          type="button"
+          onClick={() => {
+            if (inTicket) return;
+            setReferSelected(candidate);
+          }}
+          disabled={inTicket}
+          aria-pressed={selected}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${
+            selected
+              ? "bg-emerald-50 dark:bg-emerald-500/10"
+              : inTicket
+                ? "opacity-55"
+                : "hover:bg-slate-50 dark:hover:bg-white/5"
+          }`}
+        >
+          <Avatar
+            name={candidate.nickname || candidate.username}
+            color={candidate.color || undefined}
+            src={candidate.avatarUrl || undefined}
+            className="h-8 w-8 shrink-0"
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+              {candidate.nickname || candidate.username}
+            </span>
+            <span className="block truncate text-xs text-slate-400 dark:text-slate-500">
+              @{candidate.username}
+              {candidate.departmentName
+                ? ` · ${candidate.departmentName}`
+                : ""}
+            </span>
+          </span>
+          {inTicket ? (
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
+              {t("common.ticketReferInTicket")}
+            </span>
+          ) : candidate.lastInteraction ? (
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
+              {t("common.ticketReferRecent")}
+            </span>
+          ) : null}
+          {selected ? (
+            <span
+              className="shrink-0 text-emerald-600 dark:text-emerald-400"
+              aria-hidden="true"
+            >
+              ✓
+            </span>
+          ) : null}
+        </button>
+      </li>
+    );
+  };
 
   const renderMessageItem = (msg, options = {}) => (
     <MessageItem
@@ -1280,7 +1501,11 @@ export default function ChatWindowPanel({
                       {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
                       <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
                       {activeChatChannel && (
-                        <ChannelBadge channel={activeChatChannel} departmentName={supportDepartmentName} />
+                        <ChannelBadge
+                          channel={activeChatChannel}
+                          departmentName={supportDepartmentName}
+                          ticketStatus={ticketStatus}
+                        />
                       )}
                     </button>
                   </Tooltip>
@@ -1295,7 +1520,11 @@ export default function ChatWindowPanel({
                       {!activeChat?.verified && Boolean(activeHeaderPeer?.user_verified) && <VerifiedBadge size={17} />}
                       <UserRoleBadge role={activeHeaderPeer?.user_role} size={17} />
                       {activeChatChannel && (
-                        <ChannelBadge channel={activeChatChannel} departmentName={supportDepartmentName} />
+                        <ChannelBadge
+                          channel={activeChatChannel}
+                          departmentName={supportDepartmentName}
+                          ticketStatus={ticketStatus}
+                        />
                       )}
                     </span>
                   </Tooltip>
@@ -1556,7 +1785,248 @@ export default function ChatWindowPanel({
         )}
       </div>
 
-      {showComposer ? (
+      {/* Ticket lifecycle strip (migration 045): support chats show their
+          open/closed state and the close/reopen action. A CLOSED ticket stops
+          accepting messages (server enforces 403 ticket_closed), so the
+          composer is replaced by the banner with a reopen button. Messenger
+          chats have no ticket row and never see this strip. */}
+      {isSupportChat ? (
+        <div
+          className="mx-2 mb-1 flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 text-xs sm:mx-3 dark:bg-white/[0.04]"
+          role="status"
+          data-testid="ticket-status-strip"
+          dir="auto"
+        >
+          {ticketClosed ? (
+            <>
+              <span className="min-w-0 truncate text-slate-500 dark:text-slate-400">
+                {t("common.ticketClosedBanner")}
+              </span>
+              {/* Permission-gated (1.7.0): reopen needs 'ticket.close'. */}
+              {canChangeTicketStatus ? (
+                <button
+                  type="button"
+                  onClick={() => handleTicketAction("reopen")}
+                  disabled={ticketActionBusy}
+                  className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                >
+                  {t("common.ticketReopen")}
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <span className="flex min-w-0 items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+                  aria-hidden="true"
+                />
+                {t("common.ticketStatusOpen")}
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5">
+                {/* Permission-gated (1.7.0): the close action needs
+                    'ticket.close'; refer needs 'ticket.refer'. */}
+                {canReferTickets ? (
+                  <button
+                    type="button"
+                    onClick={openReferModal}
+                    disabled={ticketActionBusy}
+                    data-testid="ticket-refer-button"
+                    className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
+                  >
+                    {t("common.ticketRefer")}
+                  </button>
+                ) : null}
+                {canChangeTicketStatus ? (
+                  <button
+                    type="button"
+                    onClick={() => handleTicketAction("close")}
+                    disabled={ticketActionBusy}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300 dark:hover:bg-slate-500/20"
+                  >
+                    {t("common.ticketClose")}
+                  </button>
+                ) : null}
+              </span>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {/* Ticket referral picker (dev.8, reworked in dev.9/dev.10): staff-only
+          operator chooser with two ways to pick a target — search across the
+          whole staff directory (username / nickname / ID — a pasted UUID
+          matches the operator's ID directly), or browse by department (click
+          a department to unfold its operators, alias first). Staff already
+          inside the thread stay visible but disabled. */}
+      {referOpen ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("common.ticketReferTitle")}
+          onClick={() => {
+            if (!referBusy) setReferOpen(false);
+          }}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-slate-900"
+            dir="auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 px-4 py-3 dark:border-white/5">
+              <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                {t("common.ticketReferTitle")}
+              </h2>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {t("common.ticketReferHint")}
+              </p>
+            </div>
+            <div className="px-4 pt-3">
+              <input
+                type="text"
+                value={referQuery}
+                onChange={(e) => setReferQuery(e.target.value)}
+                placeholder={t("common.ticketReferSearch")}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-400 dark:border-white/10 dark:bg-slate-950 dark:text-slate-200"
+              />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+              {referLoading ? (
+                <div className="flex items-center justify-center py-8 text-xs text-slate-500 dark:text-slate-400">
+                  {t("common.ticketReferLoading")}
+                </div>
+              ) : referQueryTrimmed ? (
+                // Search mode: one flat list over the entire staff directory.
+                filteredReferCandidates.length ? (
+                  <ul className="flex flex-col gap-1">
+                    {filteredReferCandidates.map((candidate) =>
+                      renderReferCandidateRow(candidate),
+                    )}
+                  </ul>
+                ) : (
+                  <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                    {t("common.ticketReferEmpty")}
+                  </div>
+                )
+              ) : (
+                <>
+                  {referRecentCandidates.length ? (
+                    <section className="mb-1">
+                      <p className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        {t("common.ticketReferRecent")}
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {referRecentCandidates.map((candidate) =>
+                          renderReferCandidateRow(candidate),
+                        )}
+                      </ul>
+                    </section>
+                  ) : null}
+                  {referDepartmentsWithStaff.length ? (
+                    <section>
+                      <p className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                        {t("common.ticketReferDepartments")}
+                      </p>
+                      <ul className="flex flex-col gap-1">
+                        {referDepartmentsWithStaff.map((department) => {
+                          const expanded =
+                            referExpandedDept === department.id;
+                          return (
+                            <li key={String(department.id)}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReferExpandedDept(
+                                    expanded ? null : department.id,
+                                  )
+                                }
+                                aria-expanded={expanded}
+                                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-white/5"
+                              >
+                                {expanded ? (
+                                  <ChevronDown
+                                    className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
+                                    aria-hidden="true"
+                                  />
+                                ) : (
+                                  <ChevronRight
+                                    className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                {department.color ? (
+                                  <span
+                                    className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                                    style={{ backgroundColor: department.color }}
+                                    aria-hidden="true"
+                                  />
+                                ) : null}
+                                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                  {department.name}
+                                </span>
+                                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-white/10 dark:text-slate-400">
+                                  {department.staff.length}{" "}
+                                  {t("common.ticketReferOperators")}
+                                </span>
+                              </button>
+                              {expanded ? (
+                                department.staff.length ? (
+                                  <ul className="mb-1 ml-4 flex flex-col gap-1 border-l border-slate-100 pl-1 dark:border-white/5">
+                                    {department.staff.map((candidate) =>
+                                      renderReferCandidateRow(candidate),
+                                    )}
+                                  </ul>
+                                ) : (
+                                  <p className="mb-1 ml-4 px-2.5 py-1.5 text-xs text-slate-400 dark:text-slate-500">
+                                    {t("common.ticketReferEmpty")}
+                                  </p>
+                                )
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  ) : null}
+                  {!referRecentCandidates.length &&
+                  !referDepartmentsWithStaff.length ? (
+                    <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
+                      {t("common.ticketReferEmpty")}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+            {referError ? (
+              <p className="px-4 pb-1 text-xs font-medium text-rose-600 dark:text-rose-400">
+                {referError}
+              </p>
+            ) : null}
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={() => setReferOpen(false)}
+                disabled={referBusy}
+                className="rounded-full border border-slate-200 px-3.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+              >
+                {t("common.actions.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRefer}
+                disabled={!referSelected || referBusy}
+                data-testid="ticket-refer-confirm"
+                className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {referBusy ? t("common.ticketReferBusy") : t("common.ticketReferConfirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showComposer && !ticketClosed ? (
           <MessageComposer
             activeChatId={activeChatId}
             isDesktop={isDesktop}

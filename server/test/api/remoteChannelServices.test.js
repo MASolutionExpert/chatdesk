@@ -46,7 +46,7 @@ function setupProfileApp({ role = "owner" } = {}) {
         telegramConfigured: true,
         proxyConfigured: false,
       },
-      isUserAdmin: () => true,
+      isUserOwner: () => true,
     },
   });
   return { app, listChatMembers, getChatMemberRole, getRemoteChannelQueueSummary };
@@ -143,7 +143,7 @@ describe("admin services status", () => {
       sessionStore,
       userStore,
       deps: {
-        isUserAdmin: () => true,
+        isUserOwner: () => true,
         storageProvider: { type: "local" },
         workerUrl: null,
         mediaWorkerUrl: null,
@@ -184,7 +184,7 @@ describe("admin services status", () => {
       sessionStore,
       userStore,
       deps: {
-        isUserAdmin: () => true,
+        isUserOwner: () => true,
         env: {
           TURN_TOKEN_ID: "cf-token",
           TURN_API_TOKEN: "cf-api",
@@ -224,7 +224,7 @@ describe("admin services status", () => {
       sessionStore,
       userStore,
       deps: {
-        isUserAdmin: () => true,
+        isUserOwner: () => true,
         storageProvider: { type: "remote", checkHealth: async () => true },
         workerUrl: null,
         mediaWorkerUrl: null,
@@ -242,7 +242,7 @@ describe("admin services status", () => {
       sessionStore,
       userStore,
       deps: {
-        isUserAdmin: () => true,
+        isUserOwner: () => true,
         storageProvider: {
           type: "remote",
           checkHealth: async () => {
@@ -279,7 +279,7 @@ describe("admin services database status", () => {
       sessionStore,
       userStore,
       deps: {
-        isUserAdmin: () => true,
+        isUserOwner: () => true,
         storageProvider: { type: "local" },
         workerUrl: null,
         mediaWorkerUrl: null,

@@ -7,8 +7,10 @@ import {
   Blocks,
   Chat,
   Headset,
+  Palette,
   ScrollText,
   Settings,
+  ShieldCheck,
   Users,
   Wrench,
 } from "../../icons/lucide.js";
@@ -23,6 +25,8 @@ import ChatsTab from "./ChatsTab.jsx";
 import ActionsTab from "./ActionsTab.jsx";
 import LogsTab from "./LogsTab.jsx";
 import SettingsTab from "./SettingsTab.jsx";
+import PermissionsTab from "./PermissionsTab.jsx";
+import BrandingTab from "./BrandingTab.jsx";
 import ServicesTab from "./ServicesTab.jsx";
 import HelpdeskTab from "./HelpdeskTab.jsx";
 
@@ -34,8 +38,10 @@ const TABS = [
   { id: "chats",     label: "admin.tabs.chats",     icon: Chat,              anim: "icon-anim-bob" },
   { id: "actions",   label: "admin.tabs.actions",   icon: Wrench,            anim: "icon-anim-wiggle" },
   { id: "services",  label: "admin.tabs.services",  icon: Blocks,            anim: "icon-anim-bob" },
-  { id: "settings",  label: "admin.tabs.settings",  icon: Settings,          anim: "icon-anim-spin-dir" },
-  { id: "logs",      label: "admin.tabs.logs",      icon: ScrollText,        anim: "icon-anim-sway" },
+  { id: "settings",    label: "admin.tabs.settings",    icon: Settings,      anim: "icon-anim-spin-dir" },
+  { id: "permissions", label: "admin.tabs.permissions", icon: ShieldCheck,   anim: "icon-anim-pop" },
+  { id: "branding",    label: "admin.tabs.branding",    icon: Palette,       anim: "icon-anim-bob" },
+  { id: "logs",        label: "admin.tabs.logs",        icon: ScrollText,    anim: "icon-anim-sway" },
 ];
 
 // Auto-exit the panel after this much inactivity (no mouse/keyboard/touch).
@@ -73,6 +79,8 @@ export default function AdminPanel({ user, onBack }) {
     actions:  () => api.get("/api/admin/service/available"),
     settings: () => api.get("/api/admin/settings"),
     services: () => api.get("/api/admin/services"),
+    permissions: () => api.get("/api/admin/permissions"),
+    branding:    () => api.get("/api/admin/branding"),
   });
 
   const cacheRef = useRef(cache);
@@ -367,6 +375,7 @@ export default function AdminPanel({ user, onBack }) {
             <Activity mode={tab === "chats" ? "visible" : "hidden"}>
               <ChatsTab
                 ref={(r) => { tabRefs.current.chats = r; }}
+                currentUser={user}
                 active={tab === "chats"}
                 onMutated={invalidateStats}
                 onStatsChange={invalidateStats}
@@ -382,10 +391,29 @@ export default function AdminPanel({ user, onBack }) {
                 onMutated={() => invalidate("settings")}
               />
             </Activity>
+            <Activity mode={tab === "permissions" ? "visible" : "hidden"}>
+              <PermissionsTab
+                ref={(r) => { tabRefs.current.permissions = r; }}
+                cachedData={cache.permissions?.data ?? null}
+                isLoading={cache.permissions?.loading ?? false}
+                hasData={Boolean(cache.permissions?.data)}
+                onMutated={() => invalidate("permissions")}
+              />
+            </Activity>
+            <Activity mode={tab === "branding" ? "visible" : "hidden"}>
+              <BrandingTab
+                ref={(r) => { tabRefs.current.branding = r; }}
+                cachedData={cache.branding?.data ?? null}
+                isLoading={cache.branding?.loading ?? false}
+                hasData={Boolean(cache.branding?.data)}
+                onMutated={() => invalidate("branding")}
+              />
+            </Activity>
             <Activity mode={tab === "actions" ? "visible" : "hidden"}>
               <ActionsTab
                 ref={(r) => { tabRefs.current.actions = r; }}
                 serviceStatus={cache.actions?.data ?? null}
+                currentUser={user}
               />
             </Activity>
             <Activity mode={tab === "logs" ? "visible" : "hidden"}>

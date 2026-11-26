@@ -17,6 +17,8 @@ Every agent (and any AI/human contributor) working on this project MUST follow t
 9. **Performance matters**: Security AND speed are both critical. Prefer efficient queries (indexes, pagination), avoid N+1 patterns, keep payloads lean.
 10. **No unnecessary work**: Do only what is asked plus what is strictly required for correctness/security/integration. No refactoring for taste, no scope creep, no changes that could break working features.
 11. **When fixing a bug**: Change ONLY what is needed for that bug. Never break other working features while fixing one. After the fix, mentally (or via tests) re-verify the affected flows end-to-end.
+12. **Backend-first, ALWAYS (mandatory build order)**: Every new feature/capability MUST be born in the backend and project logic FIRST — database table/migration, server logic, API endpoints, authorization, realtime (SSE) events, and API tests — and only AFTER that contract exists and its tests pass may the UI/frontend for it be built. A frontend-only implementation (tags, badges, buttons that render state the server does not own) is a FORBIDDEN fake feature, not a deliverable. When asked for a feature, the first commit must touch `server/` (db/migrations/api), not only `client/`.
+13. **Schema/migration compatibility sweep (mandatory for EVERY fundamental data change)**: Any change to the database's fundamental inputs or structure — a new migration, a column type change (e.g. integer → TEXT UUID in migration 036), a renamed/dropped column or table, a new id format, a default/value-format change — is NOT done when the migration runs green. The SAME change must be swept across the ENTIRE codebase for consumers that assume the OLD shape, in BOTH backend and frontend: every place that reads/writes the affected columns, keys Maps/Sets by them, compares them for equality, passes them through type coercions (`Number(id)` on a TEXT UUID becomes `NaN` — JS Maps then match NaN via SameValueZero and silently collapse everything into a "last row wins" bucket), or binds them into SQL (`WHERE id = NaN` matches nothing, silently). The sweep must enumerate the affected columns (grep the migrations), grep every consumer in `server/` (db, lib, api, index, scripts) AND `client/`, fix each consumer, and pin the new reality with tests that reproduce the OLD broken shape and fail on it (real production-shaped fixtures, e.g. actual UUID string ids — numeric test ids hide this entire bug class). A schema change delivered without this documented sweep + regression tests is an incomplete deliverable, exactly like skipping the API contract tests in rule 12.
 
 ## DevOps Workflow: Two GitHub Spaces (MANDATORY — read every session)
 
@@ -43,6 +45,18 @@ ChatDesk has EXACTLY TWO spaces on GitHub — `dev` and `main`. Their install co
 
 - **Main / stable**: `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/main/scripts/install.sh | bash`
 - **Dev / test**: `curl -fsSL https://raw.githubusercontent.com/MASolutionExpert/chatdesk/dev/scripts/install.sh | REPO_BRANCH=dev bash`
+
+### Feature build order (backend-first law)
+
+For every NEW capability, implement in this exact order and do not move to the next step before the previous one passes its checks:
+
+1. **Database**: schema/migration in `server/db.js` + `server/migrations/` (backfill-safe, idempotent).
+2. **Server logic + API**: endpoints under `server/api/`, authorization per role, all SQL in `server/db.js`, SSE fan-out for realtime state.
+3. **Server tests**: API/integration tests under `server/test/` proving the logic (green before UI work starts).
+4. **Client**: UI wired to the real API via `chatApi.js`, bilingual (en/fa) strings.
+5. **Docs**: `docs/` + `docs/fa/` updated.
+
+A step skipped, or a UI shipped for logic that does not exist, violates rule 12.
 
 ### Bug-fix loop
 
@@ -109,6 +123,8 @@ npm run docs:build           # Build documentation site
 - **Realtime SSE**: Real-time events are dispatched via `server/lib/sse.js` (`emitChatEvent`). API mutations must invoke SSE broadcast handlers to notify connected clients.
 - **Client Routing & API**: No React Router library. SPA navigation is managed manually in `client/src/App.jsx` via `window.history`. All client HTTP calls **must** use `apiFetch` in `client/src/api/chatApi.js` (`credentials: "include"`).
 - **Documentation Updates**: Any update to documentation under `docs/` must update both English (`docs/*.md`) and Persian (`docs/fa/*.md`) documents, matching the structure in `docs/.vitepress/config.mjs`. Call the `documentor` subagent to update docs when you implant a new feature.
+- **Role Model (three roles)**: ChatDesk has exactly three user roles — `owner` (system owner, full access incl. the admin panel and ALL deletion), `operator` (staff: tickets + in-messenger moderation, NO panel access), `user` (customer). The former `admin` role is RETIRED (migration 047 normalized legacy `admin` rows to `operator`); never reintroduce it — no new `role === "admin"` checks, no admin option in filters/modals/CLI prompts, and the panel gates use `isUserOwner` (db.js), not an "admin" concept.
+- **DB/Migration Compatibility Law (fundamental changes)**: Any change that rewrites or reclassifies existing rows (role normalization, id/type remapping, column semantics change) MUST ship as a numbered migration under `server/migrations/` (idempotent, re-runnable, case-insensitive on stored values, NULL-safe) + a dedicated test under `server/test/migrations/`. Rationale: restored old backups replay the migration tracker and are re-normalized automatically. Never "fix" stored rows with one-off scripts outside the migration system, and never break readers before the migration normalizes the data (migration runs before services accept traffic — see the pre-migration backup hook in `server/db.js`).
 
 ## Development & Git Workflow
 

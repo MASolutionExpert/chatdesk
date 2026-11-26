@@ -587,7 +587,7 @@ describe("POST /api/chats/hide — thread deletion policy", () => {
     const { app, hideChatsForUser } = makeHideApp("user");
     const res = await loginAndHide(app, [DM_CHAT_ID]);
     expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/cannot delete threads/i);
+    expect(res.body.error).toMatch(/only the owner/i);
     expect(hideChatsForUser).not.toHaveBeenCalled();
   });
 
@@ -598,8 +598,27 @@ describe("POST /api/chats/hide — thread deletion policy", () => {
     expect(hideChatsForUser).toHaveBeenCalledTimes(1);
   });
 
-  test("operator can delete a DM thread and the deletion is audited", async () => {
-    const { app, hideChatsForUser, writeAdminAuditLog } = makeHideApp("operator");
+  // Deletion policy: ONLY the instance owner may delete DM threads
+  // (support tickets included). Admins and operators are rejected like
+  // regular users; only the owner's deletion is audited.
+  test("operators cannot delete a DM thread (403)", async () => {
+    const { app, hideChatsForUser } = makeHideApp("operator");
+    const res = await loginAndHide(app, [DM_CHAT_ID]);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/only the owner/i);
+    expect(hideChatsForUser).not.toHaveBeenCalled();
+  });
+
+  test("admins cannot delete a DM thread (403)", async () => {
+    const { app, hideChatsForUser } = makeHideApp("admin");
+    const res = await loginAndHide(app, [DM_CHAT_ID]);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/only the owner/i);
+    expect(hideChatsForUser).not.toHaveBeenCalled();
+  });
+
+  test("owner can delete a DM thread and the deletion is audited", async () => {
+    const { app, hideChatsForUser, writeAdminAuditLog } = makeHideApp("owner");
     const res = await loginAndHide(app, [DM_CHAT_ID]);
     expect(res.status).toBe(200);
     expect(hideChatsForUser).toHaveBeenCalledTimes(1);
@@ -610,5 +629,12 @@ describe("POST /api/chats/hide — thread deletion policy", () => {
       targetType: "chat",
       details: { chatIds: [DM_CHAT_ID] },
     });
+  });
+
+  test("regular users hiding a group chat is still allowed alongside owner", async () => {
+    const { app, hideChatsForUser } = makeHideApp("owner");
+    const res = await loginAndHide(app, [GROUP_CHAT_ID]);
+    expect(res.status).toBe(200);
+    expect(hideChatsForUser).toHaveBeenCalledTimes(1);
   });
 });

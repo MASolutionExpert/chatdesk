@@ -8,12 +8,21 @@
 
 import express from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import bcrypt from "bcryptjs";
 import { registerApiRoutes } from "../../api/index.js";
 import { createSessionHelpers } from "../../lib/sessions.js";
 import { USER_COLORS } from "../../settings/colors.js";
 import { createStorageProvider } from "../../lib/storage/index.js";
 import { generateUuid } from "../../lib/uuidUtils.js";
+import { createBrandingService } from "../../lib/branding.js";
+import {
+  ALL_PERMISSION_KEYS,
+  CONFIGURABLE_ROLES,
+  getDefaultPermission,
+} from "../../lib/permissions.js";
 
 // ─── Minimal in-memory session store ─────────────────────────────────────────
 
@@ -21,8 +30,15 @@ export function makeSessionStore() {
   const sessions = new Map();
   return {
     sessions,
-    createSession: (userId, token) => {
-      sessions.set(token, { userId, token });
+    createSession: (userId, token, options = {}) => {
+      // Mirrors db.js: sessions may carry an owner-impersonation stamp
+      // (migration 046). getSession shapes match the real store closely
+      // enough for the impersonation routes (id/userId + impersonated_by).
+      sessions.set(token, {
+        userId,
+        token,
+        impersonated_by: options?.impersonatedBy ?? null,
+      });
     },
     deleteSession: (token) => {
       sessions.delete(token);
@@ -38,8 +54,10 @@ export function makeUserStore(initialUsers = []) {
   const users = new Map(initialUsers.map((u) => [u.username, u]));
   return {
     users,
-    createUser: (username, passwordHash, nickname, avatarUrl, color) => {
+    createUser: (username, passwordHash, nickname, avatarUrl, color, options = {}) => {
       const id = generateUuid();
+      const role =
+        typeof options === "string" ? options : (options?.role || "user");
       users.set(username, {
         id,
         username,
@@ -48,7 +66,7 @@ export function makeUserStore(initialUsers = []) {
         avatar_url: avatarUrl,
         color,
         status: "online",
-        role: "user",
+        role,
         banned: false,
       });
       return id;
@@ -128,6 +146,11 @@ export function makeApp(overrides = {}) {
     createUser: userStore.createUser,
     findUserByUsername: userStore.findUserByUsername,
     findUserById: userStore.findUserById,
+    hasAnyUser: () => userStore.users.size > 0,
+    // Emergency-claim gate: default = a healthy install (an admin exists) so
+    // unrelated tests never see the claim form advertised. Lockout tests
+    // override this with () => false.
+    hasAnyOwner: overrides.deps?.hasAnyOwner || (() => true),
     updateLastSeen: userStore.updateLastSeen,
     ensureAvatarExists: (_id, url) => url || null,
     findChatByGroupUsername: () => null,
@@ -139,6 +162,7 @@ export function makeApp(overrides = {}) {
     touchSession: sessionStore.touchSession,
     parseCookies: sessionHelpers.parseCookies,
     setSessionCookie: sessionHelpers.setSessionCookie,
+    setSideCookie: sessionHelpers.setSideCookie,
     clearSessionCookie: sessionHelpers.clearSessionCookie,
     getSessionFromRequest,
     requireSession: (req, res) => {
@@ -315,6 +339,10 @@ export function makeApp(overrides = {}) {
     setChatMuted: () => {},
     setChatMemberRole: () => {},
     getChatMemberRole: () => null,
+    // Ticket registry (migration 045) — tests override per scenario.
+    createTicketRow: () => generateUuid(),
+    getTicketByChatId: () => null,
+    setTicketStatusByChatId: () => true,
     regenerateGroupInviteToken: () => null,
     markGroupMemberRemoved: () => {},
     clearGroupMemberRemoved: () => {},
@@ -418,8 +446,75 @@ export function makeApp(overrides = {}) {
         },
       };
     })(),
-    isUserAdmin: () => false,
     isUserOwner: () => false,
+    // ── Configurable permission system (1.7.0) ──
+    // Default: registry built-in defaults, i.e. EXACTLY the pre-1.7 hard-coded
+    // behaviour — so every existing test keeps passing unchanged. Tests that
+    // exercise permission overrides replace these via `overrides.deps`.
+    hasPermission: (role, permissionKey) => getDefaultPermission(role, permissionKey),
+    getAllowedPermissions: (role) =>
+      ALL_PERMISSION_KEYS.filter((key) => getDefaultPermission(role, key)),
+    // In-memory override store mirroring the role_permissions table semantics.
+    permissionsService: (() => {
+      const overrideMap = new Map(); // "role:permission" -> 0|1
+      const overridesFor = (role) => {
+        const obj = {};
+        for (const [k, v] of overrideMap) {
+          const [r, p] = k.split(":");
+          if (r === role) obj[p] = v;
+        }
+        return obj;
+      };
+      const effective = (role, key) => {
+        if (String(role).toLowerCase() === "owner") return true;
+        const o = overridesFor(role)[key];
+        if (o === 0 || o === 1) return Boolean(o);
+        return getDefaultPermission(role, key);
+      };
+      return {
+        __overrides: overrideMap,
+        isAllowed: async (role, key) => effective(role, key),
+        getAllowedKeys: async (role) =>
+          ALL_PERMISSION_KEYS.filter((key) => effective(role, key)),
+        getMatrix: async () => ({
+          roles: CONFIGURABLE_ROLES,
+          permissions: ALL_PERMISSION_KEYS.map((key) => ({
+            key,
+            roles: Object.fromEntries(
+              CONFIGURABLE_ROLES.map((role) => [
+                role,
+                {
+                  default: getDefaultPermission(role, key),
+                  override: overridesFor(role)[key] === 0 ? false : overridesFor(role)[key] === 1 ? true : null,
+                  effective: effective(role, key),
+                },
+              ]),
+            ),
+          })),
+        }),
+        listOverrides: async () =>
+          [...overrideMap.entries()].map(([k, v]) => {
+            const [role, permission] = k.split(":");
+            return { role, permission, allowed: v };
+          }),
+        setOverride: async ({ role, permission, allowed }) => {
+          const r = String(role).toLowerCase();
+          if (!CONFIGURABLE_ROLES.includes(r)) {
+            throw new Error(`Role '${role}' is not configurable (owner always has full access).`);
+          }
+          if (!ALL_PERMISSION_KEYS.includes(permission)) {
+            throw new Error(`Unknown permission '${permission}'.`);
+          }
+          if (allowed === null || allowed === undefined) {
+            overrideMap.delete(`${r}:${permission}`);
+          } else {
+            overrideMap.set(`${r}:${permission}`, allowed ? 1 : 0);
+          }
+          return effective(r, permission);
+        },
+        invalidate: () => {},
+      };
+    })(),
     getOwnerUser: () => null,
     getAdminStats: () => ({}),
     adminListUsers: () => [],
@@ -456,6 +551,29 @@ export function makeApp(overrides = {}) {
     validateSetting: () => ({ valid: true }),
     SETTING_DEFS: [],
     buildTimestampSchedule: () => [],
+    // ── Branding / personalization (1.7.0-dev.2) ──
+    // Real filesystem service over an in-memory settings store and a
+    // throw-away temp dir, so branding route tests run hermetically.
+    ...(() => {
+      const brandingStore = new Map();
+      let brandingDir = null;
+      try {
+        brandingDir = fs.mkdtempSync(path.join(os.tmpdir(), "chatdesk-branding-"));
+      } catch {
+        brandingDir = null;
+      }
+      return {
+        brandingService: createBrandingService({
+          dbGetSetting: (key) => brandingStore.get(key) ?? null,
+          dbSetSetting: (key, value) => {
+            brandingStore.set(key, String(value));
+          },
+          fs,
+          path,
+          brandingDir,
+        }),
+      };
+    })(),
     setUserRole: () => {},
     normalizeUiLanguage: (v) => (["fa", "en"].includes(v) ? v : null),
     getUserLanguage: () => "fa",

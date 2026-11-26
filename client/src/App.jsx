@@ -3,10 +3,19 @@ import { createPortal } from 'react-dom'
 import logo from './assets/chatdesk-logo.svg'
 import { APP_CONFIG, setMessageMaxChars } from './settings/appConfig.js'
 import { fetchAppInfo } from './api/appMetaApi.js'
+import {
+  loadBranding,
+  subscribeToBranding,
+  brandingLoginTitle,
+  brandingLoginTagline,
+  brandingLogoUrl,
+  getCachedBranding,
+} from './utils/branding.js'
 import { setNameLimits } from './utils/nameLimits.js'
 import { setChatPageConfig } from './settings/chatPageConfig.js'
 import InstallBar from './components/pwa/InstallBar.jsx'
 import InstallGuideModal from './components/pwa/InstallGuideModal.jsx'
+import ImpersonationBanner from './components/common/ImpersonationBanner.jsx'
 // App renders <LanguageProvider> itself, so it sits above the provider and
 // cannot use the useI18n() hook. translateKey() reads the active language
 // (mirrored to localStorage by the provider) at call time instead.
@@ -65,7 +74,11 @@ function RouteLoadingFallback({ themeColor, onVisibleChange = null }) {
       style={{ backgroundColor: themeColor }}
     >
       <div className="flex flex-col items-center gap-3 text-center text-emerald-700 dark:text-emerald-300">
-        <img src={logo} alt={translateKey('auth.app.logoAlt')} className="h-10 w-10 animate-pulse" />
+        <img
+          src={brandingLogoUrl(getCachedBranding(), logo)}
+          alt={translateKey('auth.app.logoAlt')}
+          className="h-10 w-10 animate-pulse"
+        />
         <p className="text-xs font-semibold tracking-wide">
           {translateKey('auth.app.loading', { dots: '.'.repeat(dots) })}
         </p>
@@ -182,6 +195,23 @@ export default function App() {
   const [accountCreationEnabled, setAccountCreationEnabled] = useState(
     APP_CONFIG.accountCreationEnabled,
   )
+  // Owner-configurable entry page (logo / title / tagline) — 1.7.0-dev.2.
+  const [branding, setBranding] = useState(getCachedBranding())
+  useEffect(() => {
+    let isMounted = true
+    loadBranding().then((payload) => {
+      if (isMounted && payload) setBranding(payload)
+    })
+    // Live updates: when the owner uploads/resets a logo in another tab of
+    // this session, the entry page picks the new (versioned) URL at once.
+    const unsubscribe = subscribeToBranding((payload) => {
+      if (isMounted && payload) setBranding(payload)
+    })
+    return () => {
+      isMounted = false
+      unsubscribe()
+    }
+  }, [])
   const [adminPanelEnabled, setAdminPanelEnabled] = useState(true)
   const isStandaloneDisplay =
     window.matchMedia?.('(display-mode: standalone)')?.matches ||
@@ -348,6 +378,30 @@ export default function App() {
       navigate('/chat', true)
     }
   }, [route, adminPanelEnabled])
+
+  // A monitoring session minted through the owner's "login as user" must
+  // never linger on /admin — the server already rejects its admin API calls
+  // (403), so bounce straight back to the chat. This closes the "browser
+  // Back lands on the admin claim page" hole: no admin UI at all renders
+  // for an impersonation session.
+  useEffect(() => {
+    if (route === 'admin' && user?.impersonatedBy) {
+      navigate('/chat', true)
+    }
+  }, [route, user])
+
+  // Back/forward cache (bfcache) restores can resurrect a page whose
+  // rendered identity no longer matches the session cookie (e.g. the
+  // owner's panel shown from cache while `sid` now belongs to someone
+  // else). A bfcache restore fires `pageshow` with persisted=true — reload
+  // so /api/me re-syncs the identity with the server.
+  useEffect(() => {
+    const onPageShow = (event) => {
+      if (event?.persisted) window.location.reload()
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
 
   useEffect(() => {
     const refreshTheme = () => applyTheme(isDark, route)
@@ -922,7 +976,7 @@ export default function App() {
     }
   }
 
-  const isNonAdminClaimRoute = route === 'admin' && user && user.role !== 'admin' && user.role !== 'owner'
+  const isNonAdminClaimRoute = route === 'admin' && user && user.role !== 'owner'
   const isAuthRoute = route === 'login' || route === 'signup' || route === 'invite' || route === 'support' || isNonAdminClaimRoute
   const safeAreaKey = `${route}-${isDark ? 'dark' : 'light'}`
   const safeAreaThemeColor = getThemeColor(isDark, route)
@@ -1019,16 +1073,37 @@ export default function App() {
         >
           {isAuthRoute ? (
             <header className="flex flex-wrap items-center justify-center gap-3 text-center sm:gap-4">
-              <div className="flex items-center gap-1 text-black dark:text-white">
-                <div className="flex h-8 w-8 items-center justify-center sm:h-9 sm:w-9">
-                  <img src={logo} alt={translateKey('auth.app.logoAlt')} className="h-8 w-8" />
+              <div className="flex flex-col items-center gap-3 text-black dark:text-white">
+                <div className="flex items-center justify-center">
+                  <img
+                    src={brandingLogoUrl(branding, logo)}
+                    alt={translateKey('auth.app.logoAlt')}
+                    className={
+                      branding?.logo
+                        ? 'h-32 w-32 rounded-[22.5%] object-cover shadow-sm sm:h-40 sm:w-40'
+                        : 'h-8 w-8 sm:h-9 sm:w-9'
+                    }
+                  />
                 </div>
                 <div>
-                  <p className="text-xl font-bold tracking-tight sm:text-2xl">ChatDesk</p>
+                  <p className="text-xl font-bold tracking-tight sm:text-2xl">
+                    {brandingLoginTitle(branding)}
+                  </p>
+                  {brandingLoginTagline(branding) ? (
+                    <p
+                      className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400"
+                      dir="auto"
+                    >
+                      {brandingLoginTagline(branding)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </header>
           ) : null}
+
+          {/* Owner impersonation ("login as user") monitoring banner. */}
+          <ImpersonationBanner user={user} />
 
           <main className={isAuthRoute ? 'flex flex-1 items-center justify-center px-1 py-6 sm:mt-0 sm:px-0 sm:py-8' : 'flex min-h-0 flex-1'}>
             <Suspense
@@ -1124,7 +1199,7 @@ export default function App() {
       <InstallBar
         ref={installBarRef}
         show={showInstallBar}
-        iconSrc="/icons/icon-192.png"
+        iconSrc="/icons/icon-192.png?v=chatdesk"
         onDismiss={() => {
           setShowInstallBanner(false)
           setShowIosInstallBanner(false)
@@ -1157,7 +1232,7 @@ export default function App() {
 
       <InstallGuideModal
         open={showInstallGuide}
-        iconSrc="/icons/icon-192.png"
+        iconSrc="/icons/icon-192.png?v=chatdesk"
         isDesktop={isDesktopViewport}
         onClose={() => setShowInstallGuide(false)}
       />

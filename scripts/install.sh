@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.3.0
+# chatdesk-deploy-version: 1.7.0
 
 set -uo pipefail
 
@@ -472,6 +472,11 @@ show_deployment_success_frame() {
       title="ChatDesk Update Complete"
       lines+=("ChatDesk has been updated successfully.")
       lines+=("Service restarted and nginx reloaded.")
+      ;;
+    rebuild)
+      title="ChatDesk Rebuild Complete"
+      lines+=("Dependencies installed, client built and services restarted.")
+      lines+=("The running services now match the current source tree.")
       ;;
     *)
       title="ChatDesk Success"
@@ -1870,12 +1875,53 @@ finalize_chatdesk_source_change() {
   return 0
 }
 
+# ♻️ Rebuild & Restart — re-run the full source finalization pipeline
+# (dependencies, client build, migrations, service restart) WITHOUT pulling
+# new code and WITHOUT the update flow's "already up to date → downgrade?"
+# prompt. The update option only rebuilds when the remote has newer commits,
+# so source pulled by hand (or an aborted update) leaves the running
+# services out of sync with the tree — this option re-syncs them on demand.
+rebuild_and_restart_chatdesk() {
+  if [[ ! -d "$INSTALL_DIR" || ! -f "$INSTALL_DIR/.env" ]]; then
+    warn "ChatDesk does not appear to be installed at ${INSTALL_DIR}. Run Install first."
+    press_enter_to_continue
+    return 1
+  fi
+
+  log "Rebuilding ChatDesk from the current source tree..."
+  finalize_chatdesk_source_change || {
+    warn "Rebuild failed. Review the logs before retrying; the previous services may have been stopped."
+    restore_chatdesk_service_after_update
+    press_enter_to_continue
+    return 1
+  }
+
+  show_deployment_success_frame "rebuild"
+  press_enter_to_continue
+  return 0
+}
+
+# npm installs on the deployment box rewrite the tracked package-lock.json
+# files (the server's npm version differs from the one that produced the
+# committed lockfiles), so the working tree is dirty by the time the next
+# update runs and BOTH `git checkout <branch>` and `git pull --ff-only` abort
+# with "Your local changes to the following files would be overwritten".
+# The deployment tree must mirror the remote branch, so stash tracked +
+# untracked local modifications away BEFORE every checkout/pull — the stash
+# keeps a recoverable copy on the box (`git stash list` inside /opt/chatdesk)
+# instead of destroying anything; a clean tree simply produces "No local
+# changes to save" and moves on.
+discard_repo_local_changes() {
+  run_in_install_dir "git stash push --include-untracked -m 'chatdesk-updater auto-stash before checkout'" >/dev/null 2>&1 || true
+}
+
 clone_repo() {
   run_silent run_as_root mkdir -p "$INSTALL_DIR" || return 1
 
   if run_as_root test -d "$INSTALL_DIR/.git"; then
     log "Repository exists at ${INSTALL_DIR}. Updating source..."
     run_in_install_dir "git fetch --all --prune" || return 1
+    discard_repo_local_changes
     run_in_install_dir "git checkout ${REPO_BRANCH}" || return 1
     run_in_install_dir "git pull --ff-only origin ${REPO_BRANCH}" || return 1
     write_install_config || true
@@ -4089,7 +4135,10 @@ update_chatdesk_run() {
     log "Update available. Preparing to update ChatDesk..."
     preserve_backup_and_restore_data
 
-    # Ensure we're on the tracked branch and pull latest
+    # Ensure we're on the tracked branch and pull latest. Stash BEFORE the
+    # checkout: npm-rewritten lockfiles make the tree dirty and checkout
+    # refuses to run on it (the pull would fail the same way).
+    discard_repo_local_changes
     if ! run_in_install_dir "git checkout ${active_branch}"; then
       warn "Failed to checkout ${active_branch} branch."
       press_enter_to_continue
@@ -4149,6 +4198,27 @@ switch_release_channel() {
   log "Current: ${current_channel}, version ${installed_version:-unknown}"
   log "Target:  ${target_channel}"
 
+  # Downgrade guard (dev → main): main only carries PROMOTED releases. Newer
+  # dev-only features are absent from main's source, so switching channels is
+  # a functional downgrade whenever main is behind — e.g. a server moved from
+  # dev back to main loses every helpdesk feature that shipped after the last
+  # promotion (ticket strip, referral, …) even though the process "rebuilds
+  # fine". Make the direction explicit before checkout.
+  if [[ "$current_branch" == "dev" && "$target_branch" == "main" ]]; then
+    local main_version=""
+    main_version="$(run_in_install_dir_output "git show origin/main:VERSION 2>/dev/null" 2>/dev/null | tr -d '\r\n' || true)"
+    warn "This is a DOWNGRADE in feature terms: main only contains promoted stable releases."
+    if [[ -n "$main_version" ]]; then
+      warn "main is currently at version ${main_version}; your dev install is ${installed_version:-unknown}."
+    fi
+    warn "Features added on dev after the last promotion (helpdesk ticket UI, referral, …) will DISAPPEAR from the app until they are promoted to main."
+    if [[ "$(prompt_yes_no "Really switch back to the stable channel and LOSE dev-only features for now?" "no")" != "yes" ]]; then
+      log "Channel switch canceled."
+      press_enter_to_continue
+      return 0
+    fi
+  fi
+
   if [[ "$(prompt_yes_no "Switch ChatDesk from ${current_channel} to ${target_channel}?" "no")" != "yes" ]]; then
     log "Channel switch canceled."
     press_enter_to_continue
@@ -4170,6 +4240,7 @@ switch_release_channel() {
 
   preserve_backup_and_restore_data
 
+  discard_repo_local_changes
   if ! run_in_install_dir "git checkout ${target_branch}"; then
     warn "Failed to checkout ${target_branch}."
     restore_chatdesk_service_after_update
@@ -4804,6 +4875,7 @@ show_menu() {
   printf $'1) 📥  Install ChatDesk\n'
   printf $'2) 🔄️  Update ChatDesk (stays on current channel)\n'
   printf $'3) ♻️  Restart ChatDesk\n'
+  printf $'r) 🛠️  Rebuild & Restart (deps + client build + services)\n'
   printf $'4) 🔀  Switch Test (dev) / Stable (main) channel\n'
   printf $'5) ⚙️  Edit Settings (.env)\n'
   printf $'6) 🗃️  Manage Database\n'
@@ -5026,7 +5098,7 @@ Backup & repair:
 
 User and chat management:
   10    Create user
-        Prompts: nickname, username, password, role (user/admin/owner, default: user)
+        Prompts: nickname, username, password, role (user/operator/owner, default: user)
         Passes: --nickname --username --password --role
   11    Generate users in bulk
         Prompts: count, password, nickname prefix, username prefix
@@ -5251,13 +5323,13 @@ db_user_create() {
   password="$(prompt_secret "Password")"
 
   while true; do
-    prompt_read "Role (user/admin/owner, default: user): " role
+    prompt_read "Role (user/operator/owner, default: user): " role
     role="${role#"${role%%[![:space:]]*}"}"
     role="${role%"${role##*[![:space:]]}"}"
     [[ -z "$role" ]] && role="user"
     case "$role" in
-      user|admin|owner) break ;;
-      *) printf "Invalid role. Choose: user, admin, or owner.\n" ;;
+      user|operator|owner) break ;;
+      *) printf "Invalid role. Choose: user, operator, or owner.\n" ;;
     esac
   done
 
@@ -5553,15 +5625,15 @@ db_user_edit() {
   prompt_read "Color hex (optional, example: #10b981): " color
 
   while true; do
-    prompt_read "Role (user/admin/owner, optional — leave blank to keep current): " role
+    prompt_read "Role (user/operator/owner, optional — leave blank to keep current): " role
     role="${role#"${role%%[![:space:]]*}"}"
     role="${role%"${role##*[![:space:]]}"}"
     if [[ -z "$role" ]]; then
       break
     fi
     case "$role" in
-      user|admin|owner) break ;;
-      *) printf "Invalid role. Choose: user, admin, owner, or leave blank.\n" ;;
+      user|operator|owner) break ;;
+      *) printf "Invalid role. Choose: user, operator, owner, or leave blank.\n" ;;
     esac
   done
 
@@ -5825,11 +5897,12 @@ main() {
   local choice=""
   while true; do
     show_menu
-    prompt_read "Choose an option [0-9, l]: " choice
+    prompt_read "Choose an option [0-9, r, l]: " choice
     case "$choice" in
       1) run_menu_action install_chatdesk ;;
       2) run_menu_action update_chatdesk ;;
       3) run_menu_action restart_chatdesk ;;
+      r|R) run_menu_action rebuild_and_restart_chatdesk ;;
       4) run_menu_action switch_release_channel ;;
       5) run_menu_action edit_settings ;;
       6) run_menu_action show_db_menu ;;
@@ -5838,7 +5911,7 @@ main() {
       9) run_menu_action configure_mirrors_menu ;;
       l|L) run_menu_action show_logs_menu ;;
       0) break ;;
-      *) printf "Invalid choice. Select a number from 0 to 9, or l.\n" ;;
+      *) printf "Invalid choice. Select a number from 0 to 9, r, or l.\n" ;;
     esac
   done
 }

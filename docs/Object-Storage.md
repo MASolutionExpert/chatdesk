@@ -2,6 +2,17 @@
 
 ChatDesk supports a pluggable storage architecture that allows you to choose between local disk storage and S3-compatible remote object storage. When combined with the unified **ChatDesk Media Worker**, ChatDesk provides high-performance, asynchronous video transcoding, thumbnail extraction, and media optimization across single-server or distributed cloud environments.
 
+## Media Compression (Telegram-style, 1.7.0-dev.4+)
+
+ChatDesk keeps media small without a visible quality drop — similar to how mainstream messengers handle uploads:
+
+- **Images (photos/screenshots sent as media)** are compressed **in the browser before upload**: downscaled to a 2560px box (never upscaled) and re-encoded to WebP at quality 0.82 (JPEG fallback when a browser cannot encode WebP). This typically cuts a camera photo to a small fraction of its original size while remaining visually indistinguishable — and it also saves the uploader's bandwidth. Safety rules: GIF/SVG are never re-encoded (animation/vectors would break); transparency is never destroyed (a PNG/WebP with alpha keeps its original bytes if the browser cannot encode WebP); the compressed result is only used when it actually saves bytes (>=5% smaller), so already-tiny images pass through untouched. Documents the user explicitly sends as files are never touched.
+- **Videos** are compressed **server-side by the Media Worker**: H.264 (`veryfast`, CRF 23, AAC 128k, `+faststart`) with a 1920x1920 downscale box (aspect preserved, never upscales, even dimensions). The raw upload is deleted after a successful transcode, so only the compact H.264 copy occupies storage.
+- **Avatars** (user, group, channel) are re-encoded in the browser to a 1024px WebP/JPEG at upload time.
+- **Voice messages / audio** are stored as-is (they are already small).
+
+No extra configuration is required; compression applies to both storage drivers (local disk and S3-compatible remote storage).
+
 ## Storage Drivers
 
 ChatDesk uses the `STORAGE_DRIVER` environment variable to determine where uploaded chat files, media attachments, and avatars are stored.

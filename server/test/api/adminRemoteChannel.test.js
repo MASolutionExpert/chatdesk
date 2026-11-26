@@ -62,7 +62,7 @@ function setupAdminApp(overrides = {}) {
       REMOTE_CHANNEL_TELEGRAM_PROXY_URL: "",
     },
     deps: {
-      isUserAdmin: (id) => id === "u-admin",
+      isUserOwner: (id) => id === "u-admin",
       remoteChannelManager: {
         getHealth: () => ({ enabled: true }),
         reloadConfig,

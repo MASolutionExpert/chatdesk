@@ -36,7 +36,7 @@ function withTimeout(promise, ms, message) {
 function registerAdminRemoteChannelRoutes(app, deps) {
   const {
     getSessionFromRequest,
-    isUserAdmin,
+    isUserOwner,
     getSetting,
     dbGetSetting,
     dbSetSetting,
@@ -55,7 +55,7 @@ function registerAdminRemoteChannelRoutes(app, deps) {
       res.status(401).json({ error: "Not authenticated" });
       return null;
     }
-    const admin = await resolveMaybePromise(isUserAdmin(session.id));
+    const admin = await resolveMaybePromise(isUserOwner(session.id));
     if (!admin) {
       res.status(403).json({ error: "Admin access required" });
       return null;

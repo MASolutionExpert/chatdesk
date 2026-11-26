@@ -66,6 +66,10 @@ export default function ChatProfileModal({
   onOpenUserContextMenu,
   onEditGroup,
   onEditSelfProfile,
+  // Failure message from a DM-opening attempt launched from this modal
+  // (e.g. "customer↔staff direct chats are refused"). Rendered inline so
+  // the action can never fail silently again.
+  dmError = "",
   showJoinAction = false,
   onJoinChat,
   showMembers = true,
@@ -316,6 +320,27 @@ export default function ChatProfileModal({
         : targetUser?.color || "#10b981";
   const initials = getAvatarInitials(profileName);
   const isDeletedTarget = Boolean(targetUser?.isDeleted || !targetUser?.username);
+  // A customer (role "user") inside a support-channel thread can never be
+  // reached through a direct chat: POST /api/chats/dm refuses customer↔staff
+  // pairs by design. In a REFERRED support group the member profile modal
+  // still carries the group's "support" channel (with type coerced to dm for
+  // the member view), so the Chat action used to attempt a DM the server
+  // always refuses — a silent dead end (the failure was swallowed because
+  // profileError is only rendered by the self-profile editor). Hide the
+  // action there; staff↔staff DMs inside the group stay available. The
+  // GROUP profile itself (type "group") keeps its Chat action, which simply
+  // focuses the thread.
+  // NOTE: prefer `user_role` (account-level role) over `role`, which on
+  // chat-member objects is the CHAT role ("owner"/"member").
+  const profileTargetRole = String(
+    targetUser?.user_role ?? targetUser?.role ?? "",
+  ).toLowerCase();
+  const hideChatAction =
+    !isGroup &&
+    !isChannel &&
+    !isSaved &&
+    String(chat?.channel || "") === "support" &&
+    (profileTargetRole === "user" || !profileTargetRole);
   const callSupported = isCallSupported();
   const isCallDisabled = isDeletedTarget || !callSupported || isInCall;
   const isVoiceCallDisabled = isCallDisabled || callsDisabled;
@@ -453,7 +478,7 @@ export default function ChatProfileModal({
               <UserRoleBadge
                 role={
                   targetUser?.user_role ||
-                  (["owner", "admin", "user"].includes(String(targetUser?.role || "").toLowerCase())
+                  (["owner", "operator"].includes(String(targetUser?.role || "").toLowerCase())
                     ? targetUser?.role
                     : null)
                 }
@@ -503,12 +528,19 @@ export default function ChatProfileModal({
               isGroup || isChannel
                 ? "grid grid-cols-3"
                 : onStartVoiceCall || onStartVideoCall
-                  ? "grid grid-cols-4"
-                  : canBrowseFiles
+                  ? hideChatAction
                     ? "grid grid-cols-3"
-                    : "mx-auto grid w-full max-w-[18rem] grid-cols-2"
+                    : "grid grid-cols-4"
+                  : canBrowseFiles
+                    ? hideChatAction
+                      ? "grid grid-cols-2"
+                      : "grid grid-cols-3"
+                    : hideChatAction
+                      ? "mx-auto grid w-full max-w-[18rem] grid-cols-1"
+                      : "mx-auto grid w-full max-w-[18rem] grid-cols-2"
             }`}
           >
+            {hideChatAction ? null : (
             <button
               type="button"
               onClick={onOpenChat}
@@ -519,6 +551,7 @@ export default function ChatProfileModal({
               </div>
               <p className="mt-1 text-xs font-semibold">{t("modals.profile.chat")}</p>
             </button>
+            )}
             {!isGroup && !isChannel && onStartVoiceCall ? (
               <button
                 type="button"
@@ -652,6 +685,16 @@ export default function ChatProfileModal({
               </button>
             ) : null}
           </div>
+        ) : null}
+
+        {dmError ? (
+          <p
+            className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-600 dark:border-rose-500/30 dark:bg-rose-900/30 dark:text-rose-200"
+            dir="auto"
+            role="alert"
+          >
+            {dmError}
+          </p>
         ) : null}
 
         {!isReadOnly && (isGroup || isChannel) && canViewInvite ? (
@@ -803,6 +846,10 @@ export default function ChatProfileModal({
                           data: {
                             member,
                             sourceChatType: chat?.type || "",
+                            // Lets the menu hide the DM shortcut for customer
+                            // members of support threads (customer↔staff
+                            // direct chats are refused by the server).
+                            sourceChatChannel: chat?.channel || "",
                             onOpenProfile: onOpenMember,
                           },
                         }),

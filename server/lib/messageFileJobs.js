@@ -735,6 +735,86 @@ export function createMessageFileJobs({
     };
   };
 
+  // ─── Local orphan sweep (1.7.0-dev.4) ───────────────────────────────────
+  // Multipart uploads land in DATA_DIR/uploads/messages as their FINAL
+  // storage location (multer diskStorage writes straight there). A crashed
+  // request, a killed server, or a failure between multer's write and the
+  // DB insert leaves a stray file that no row references — nothing removed
+  // these before, so the disk slowly filled up. This sweep deletes files in
+  // the message uploads directory that (a) are older than `olderThanMs`
+  // (default 24h — an in-flight upload never races the sweeper) and
+  // (b) are referenced by no row in chat_message_files (stored_name,
+  // storage_key or thumb_storage_key).
+  const pruneOrphanLocalUploadFiles = async (options = {}) => {
+    const olderThanMs = Number(options.olderThanMs ?? 24 * 60 * 60 * 1000);
+    const nowMs = Number(options.nowMs ?? Date.now());
+    if (!fs || !path || !uploadRootDir) {
+      return { scanned: 0, removed: 0, removedNames: [] };
+    }
+    let entries = [];
+    try {
+      entries = fs.readdirSync(uploadRootDir, { withFileTypes: true });
+    } catch (_) {
+      return { scanned: 0, removed: 0, removedNames: [] };
+    }
+    const names = entries
+      .filter((entry) => entry.isFile() || entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .filter(Boolean);
+    if (!names.length) {
+      return { scanned: 0, removed: 0, removedNames: [] };
+    }
+
+    // Collect every name the DB may reference. Over-inclusive on purpose:
+    // a false "referenced" verdict only postpones one cleanup run, while a
+    // false "orphan" verdict would delete live user data.
+    const referenced = new Set();
+    const addReference = (value) => {
+      const clean = String(value || "").trim();
+      if (clean) referenced.add(path.basename(clean));
+    };
+    try {
+      const rawRows = adminGetAll(
+        dbKnex("chat_message_files").select(
+          "stored_name",
+          "storage_key",
+          "thumb_storage_key",
+        ),
+      );
+      const rows =
+        rawRows && typeof rawRows.then === "function" ? await rawRows : rawRows;
+      (rows || []).forEach((row) => {
+        addReference(row?.stored_name);
+        addReference(row?.storage_key);
+        addReference(row?.thumb_storage_key);
+      });
+    } catch (_) {
+      // If the DB cannot be consulted, never delete anything.
+      return { scanned: names.length, removed: 0, removedNames: [] };
+    }
+
+    const removedNames = [];
+    for (const name of names) {
+      if (referenced.has(name)) continue;
+      if (Number.isFinite(olderThanMs) && olderThanMs > 0) {
+        let mtimeMs = 0;
+        try {
+          mtimeMs = fs.statSync(path.join(uploadRootDir, name)).mtimeMs;
+        } catch (_) {
+          continue;
+        }
+        if (mtimeMs > nowMs - olderThanMs) continue;
+      }
+      try {
+        fs.unlinkSync(path.join(uploadRootDir, name));
+        removedNames.push(name);
+      } catch (_) {
+        // best effort — keep sweeping the rest
+      }
+    }
+    return { scanned: names.length, removed: removedNames.length, removedNames };
+  };
+
   return {
     chunkArray,
     cleanupMissingMessageFiles,
@@ -744,5 +824,6 @@ export function createMessageFileJobs({
     computeExpiryIso,
     pruneOrphanRemoteObjects,
     pruneOrphanAvatarObjects,
+    pruneOrphanLocalUploadFiles,
   };
 }

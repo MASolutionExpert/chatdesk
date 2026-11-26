@@ -31,8 +31,7 @@ function makeAuditApp({ owner = true } = {}) {
     sessionStore,
     userStore: makeUserStore([admin, user]),
     deps: {
-      isUserAdmin: (userId) => userId === admin.id,
-      isUserOwner: () => owner,
+      isUserOwner: (userId) => owner && userId === admin.id,
     },
   });
   return { ...built, admin, user };

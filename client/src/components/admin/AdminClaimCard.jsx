@@ -1,18 +1,53 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AuthPage from "../../pages/AuthPage.jsx";
 import { Eye, EyeOff } from "../../icons/lucide.js";
-import { claimAdminPrivileges } from "../../api/chatApi.js";
+import { apiFetch, claimAdminPrivileges } from "../../api/chatApi.js";
+import { useI18n } from "../../i18n/index.js";
+
+// ─── Emergency Admin Claim (strictly gated) ──────────────────────────────────
+//
+// The ADMIN_API_TOKEN form is an emergency lockout-recovery tool, NOT a page
+// every visitor may stare at. The form renders ONLY when the server says a
+// genuine lockout is possible (GET /api/app/info → adminClaimAvailable:
+// ADMIN_API_TOKEN configured AND no admin/owner exists). In every other case
+// — a plain user typing /admin into the URL bar, a monitoring session minted
+// through the owner's "login as user" — this component renders "access
+// denied" with no token prompt at all. The server-side claim endpoint
+// re-validates everything regardless; this gate only removes the probe
+// surface from the UI.
 
 export default function AdminClaimCard({
+  user,
   setUser,
   isDark,
   onToggleTheme,
   onBack,
 }) {
+  const { t } = useI18n();
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // null = the server has not answered yet — fail closed, no form until
+  // adminClaimAvailable:true actually arrives.
+  const [claimAvailable, setClaimAvailable] = useState(null);
+
+  const isImpersonated = Boolean(user?.impersonatedBy);
+
+  useEffect(() => {
+    let isMounted = true;
+    apiFetch("/api/app/info")
+      .then((res) => res.json())
+      .then((data) => {
+        if (isMounted) setClaimAvailable(Boolean(data?.adminClaimAvailable));
+      })
+      .catch(() => {
+        if (isMounted) setClaimAvailable(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const isSecure =
     typeof window !== "undefined" &&
@@ -21,21 +56,31 @@ export default function AdminClaimCard({
       window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1");
 
-  if (!isSecure) {
+  // Whether the token form may render at all. Anything but a confirmed,
+  // secure-context, non-impersonated lockout shows the denied view.
+  const mayShowForm = isSecure && !isImpersonated && claimAvailable === true;
+
+  if (!mayShowForm) {
+    const checking = isSecure && !isImpersonated && claimAvailable === null;
     return (
       <AuthPage
         isDark={isDark}
         onToggleTheme={onToggleTheme}
-        title="Unauthorized"
-        subtitle="Access Denied"
+        title={t("common.claimDenied.title")}
+        subtitle={t("common.claimDenied.subtitle")}
       >
         <div className="mt-4 text-center">
+          {checking ? (
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              {t("common.claimDenied.checking")}
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={onBack}
             className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 sm:px-4 sm:py-3 sm:text-sm"
           >
-            Back to Chat
+            {t("common.claimDenied.back")}
           </button>
         </div>
       </AuthPage>

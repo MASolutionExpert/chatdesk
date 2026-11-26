@@ -72,7 +72,10 @@ export function createInspector({ fs, dataDir, adminGetRow, adminGetAll }) {
           .orderBy("c.id", "asc")
           .limit(safeLimit),
       );
-      const chatIds = chats.map((chat) => Number(chat.id)).filter(Number.isFinite);
+      // chat ids are TEXT UUIDs since migration 036 — keep them raw.
+      // Number("uuid") is NaN, which once emptied this whole block: the
+      // whereIn matched nothing and every chat reported 0 members.
+      const chatIds = chats.map((chat) => String(chat.id));
       const members = chatIds.length
         ? await adminGetAll(
             dbKnex("chat_members")
@@ -84,17 +87,17 @@ export function createInspector({ fs, dataDir, adminGetRow, adminGetAll }) {
         : [];
       const memberIdsByChat = new Map();
       members.forEach((member) => {
-        const chatId = Number(member.chat_id);
-        const userId = Number(member.user_id);
-        if (!Number.isFinite(chatId) || !Number.isFinite(userId) || userId <= 0) return;
+        const chatId = member.chat_id === null || member.chat_id === undefined ? null : String(member.chat_id);
+        const userId = member.user_id === null || member.user_id === undefined ? null : String(member.user_id);
+        if (!chatId || !userId) return;
         const memberIds = memberIdsByChat.get(chatId) || [];
         memberIds.push(userId);
         memberIdsByChat.set(chatId, memberIds);
       });
       snapshot.chats = chats.map((chat) => ({
         ...chat,
-        members: memberIdsByChat.get(Number(chat.id))?.length || 0,
-        member_ids: memberIdsByChat.get(Number(chat.id)) || [],
+        members: memberIdsByChat.get(String(chat.id))?.length || 0,
+        member_ids: memberIdsByChat.get(String(chat.id)) || [],
         messages: Number(chat.messages || 0),
       }));
     }

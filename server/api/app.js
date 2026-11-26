@@ -1,17 +1,51 @@
 import { readAppMeta } from "../lib/appMeta.js";
 
 function registerAppRoutes(app, deps) {
-  const { REMOTE_CHANNELS, getSetting, fs, path, projectRootDir } = deps;
+  const {
+    REMOTE_CHANNELS,
+    getSetting,
+    fs,
+    path,
+    projectRootDir,
+    getSessionFromRequest,
+    isUserOwner,
+    hasAnyOwner,
+  } = deps;
 
-  app.get("/api/app/info", (_req, res) => {
+  const resolveMaybePromise = async (value) =>
+    value && typeof value.then === "function" ? await value : value;
+
+  // Emergency-claim UI gate (GET /api/app/info → adminClaimAvailable).
+  //
+  // The client must only render the ADMIN_API_TOKEN "claim privileges" form
+  // when a genuine lockout is possible: the token is configured AND no
+  // admin/owner exists on the server. Every other case — any non-admin
+  // typing /admin into the URL bar, a monitoring (impersonation) session,
+  // a healthy installation — must see "access denied" instead of a token
+  // prompt. The server never reveals whether the token is set beyond this
+  // boolean, and the claim endpoint itself re-validates everything.
+  const adminClaimAvailable = async () => {
+    const tokenConfigured = Boolean(String(process.env.ADMIN_API_TOKEN || "").trim());
+    if (!tokenConfigured) return false;
+    if (typeof hasAnyOwner !== "function") return false;
+    try {
+      const anyAdmin = await resolveMaybePromise(hasAnyOwner());
+      return !anyAdmin;
+    } catch {
+      // Fail closed: if the check cannot run, never advertise the form.
+      return false;
+    }
+  };
+
+  app.get("/api/app/info", async (_req, res) => {
     const appMeta = readAppMeta({ fs, path, projectRootDir });
     res.json({
       version: appMeta.version,
       normalizedVersion: appMeta.normalizedVersion,
       channel: appMeta.channel,
-      changelog: appMeta.changelog,
-      changelogSections: appMeta.changelogSections,
-      currentChangelog: appMeta.currentChangelog,
+      // NOTE: changelog fields are intentionally NOT exposed here — the
+      // "What's new" payload is a privilege of the system owner and is
+      // served exclusively by GET /api/app/whats-new (owner-only).
       repository: appMeta.repository,
       // Live runtime config the client needs before it can render auth/chat
       // UI correctly. Read via getSetting() on every request so admin-panel
@@ -21,6 +55,9 @@ function registerAppRoutes(app, deps) {
       adminPanelEnabled: !["0", "false", "no", "n", "off"].includes(
         String(process.env.ADMIN_PANEL ?? "true").trim().toLowerCase(),
       ),
+      // Emergency-claim gate — see adminClaimAvailable() above. True only
+      // when ADMIN_API_TOKEN is configured AND no admin/owner exists.
+      adminClaimAvailable: await adminClaimAvailable(),
       messageMaxChars: Number(getSetting("MESSAGE_MAX_CHARS")) || 4000,
       usernameMaxChars: Number(getSetting("USERNAME_MAX_CHARS")) || 16,
       nicknameMaxChars: Number(getSetting("NICKNAME_MAX_CHARS")) || 24,
@@ -53,6 +90,39 @@ function registerAppRoutes(app, deps) {
         chatdeskConfigured: Boolean(REMOTE_CHANNELS?.enabled),
         proxyConfigured: Boolean(REMOTE_CHANNELS?.proxyConfigured),
       },
+    });
+  });
+
+  // ─── What's new (OWNER-ONLY) ────────────────────────────────────────────────
+  //
+  // The per-version "what's new" payload (changelog popup + the "What's new"
+  // settings entry) is a privilege of the system owner alone. The server is
+  // the authority: non-owner sessions (admins, operators, users, anonymous)
+  // get 403/401 and the client never shows the popup or the settings entry
+  // for them.
+  app.get("/api/app/whats-new", async (req, res) => {
+    const rawSession = getSessionFromRequest ? getSessionFromRequest(req) : null;
+    const session =
+      rawSession && typeof rawSession.then === "function"
+        ? await rawSession
+        : rawSession;
+    if (!session || !session.id) {
+      return res.status(401).json({ error: "Not authenticated." });
+    }
+    const rawIsOwner = typeof isUserOwner === "function" ? isUserOwner(session.id) : false;
+    const isOwner =
+      rawIsOwner && typeof rawIsOwner.then === "function" ? await rawIsOwner : rawIsOwner;
+    if (!isOwner) {
+      return res.status(403).json({ error: "Owner access required.", code: "owner_only" });
+    }
+    const appMeta = readAppMeta({ fs, path, projectRootDir });
+    res.json({
+      version: appMeta.version,
+      normalizedVersion: appMeta.normalizedVersion,
+      channel: appMeta.channel,
+      changelog: appMeta.changelog,
+      changelogSections: appMeta.changelogSections,
+      currentChangelog: appMeta.currentChangelog,
     });
   });
 }

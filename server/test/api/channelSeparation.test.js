@@ -27,6 +27,7 @@ async function loginCookie(app, username = "alice", password = "secret123") {
 describe("channel separation at the API layer (direct vs support)", () => {
   const aliceId = "11111111-1111-4111-a111-111111111111";
   const bobId = "22222222-2222-4222-b222-222222222222";
+  const carolId = "44444444-4444-4444-8444-444444444444";
   const directChatId = "33333333-3333-4333-8333-333333333331";
   const supportChatId = "33333333-3333-4333-8333-333333333332";
   const deptId = 7;
@@ -57,6 +58,17 @@ describe("channel separation at the API layer (direct vs support)", () => {
         role: "operator",
         banned: false,
       },
+      {
+        id: carolId,
+        username: "carol",
+        password_hash: bcrypt.hashSync("secret123", 4),
+        nickname: "Carol",
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "user",
+        banned: false,
+      },
     ]);
 
     const { app } = makeApp({
@@ -77,6 +89,10 @@ describe("channel separation at the API layer (direct vs support)", () => {
           calls.markChatDepartment.push({ chatId, departmentId });
           return true;
         },
+        // 1.7.0-dev.8: the reused thread is re-tagged only when its recorded
+        // department differs from the request's entry department.
+        getChatDepartmentId: (chatId) => (chatId === supportChatId ? deptId : null),
+        setTicketDepartmentByChatId: () => true,
         getDepartmentById: (id) =>
           Number(id) === deptId
             ? { id: deptId, name: "Billing", description: "", active: 1 }
@@ -100,7 +116,7 @@ describe("channel separation at the API layer (direct vs support)", () => {
     const res = await request(app)
       .post("/api/chats/dm")
       .set("Cookie", cookie)
-      .send({ from: "alice", to: "bob" });
+      .send({ from: "alice", to: "carol" });
 
     expect(res.status).toBe(200);
     // The reuse response is explicit about the channel kind.
@@ -110,7 +126,7 @@ describe("channel separation at the API layer (direct vs support)", () => {
     // never returned here.
     expect(calls.findDmChat).toHaveLength(1);
     expect(calls.findDmChat[0].u1).toBe(aliceId);
-    expect(calls.findDmChat[0].u2).toBe(bobId);
+    expect(calls.findDmChat[0].u2).toBe(carolId);
     expect(calls.findDmChat[0].options).toEqual({ channel: "direct" });
   });
 
@@ -126,7 +142,7 @@ describe("channel separation at the API layer (direct vs support)", () => {
     const res = await request(app)
       .post("/api/chats/dm")
       .set("Cookie", cookie)
-      .send({ from: "alice", to: "bob" });
+      .send({ from: "alice", to: "carol" });
 
     expect(res.status).toBe(200);
     expect(calls.createChat).toHaveLength(1);
@@ -157,10 +173,9 @@ describe("channel separation at the API layer (direct vs support)", () => {
     const lookup = calls.findDmChat[0];
     expect(lookup.u1).toBe(aliceId);
     expect(lookup.u2).toBe(bobId);
-    expect(lookup.options).toEqual({
-      channel: "support",
-      departmentId: deptId,
-    });
+    // 1.7.0-dev.8: reuse keys on the customer↔operator pair — the department
+    // is the routing entry, not the thread identity.
+    expect(lookup.options).toEqual({ channel: "support" });
 
     // Reuse path: no new chat is created and no department re-tagging happens.
     expect(calls.createChat).toHaveLength(0);
@@ -193,5 +208,143 @@ describe("channel separation at the API layer (direct vs support)", () => {
     expect(calls.markChatDepartment).toEqual([
       { chatId: supportChatId, departmentId: deptId },
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Role boundary: the messenger NEVER crosses the support boundary.
+//
+//   customer (role 'user') ↔ staff (operator/owner)  →  TICKET ONLY.
+//   POST /api/chats/dm must refuse the pair (both directions) and point at
+//   the support-request flow. user↔user and staff↔staff stay messenger.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("dm role boundary: customers reach staff only via tickets", () => {
+  const customerId = "11111111-1111-4111-a111-111111111111";
+  const customerId2 = "44444444-4444-4444-8444-444444444444";
+  const operatorId = "22222222-2222-4222-b222-222222222222";
+  const operatorId2 = "55555555-5555-4555-8555-555555555555";
+
+  function createBoundaryApp() {
+    const calls = { findDmChat: [], createChat: [] };
+    const userStore = makeUserStore([
+      {
+        id: customerId,
+        username: "alice",
+        password_hash: bcrypt.hashSync("secret123", 4),
+        nickname: "Alice",
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "user",
+        banned: false,
+      },
+      {
+        id: customerId2,
+        username: "carol",
+        password_hash: bcrypt.hashSync("secret123", 4),
+        nickname: "Carol",
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "user",
+        banned: false,
+      },
+      {
+        id: operatorId,
+        username: "bob",
+        password_hash: bcrypt.hashSync("secret123", 4),
+        nickname: "Bob",
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "operator",
+        banned: false,
+      },
+      {
+        id: operatorId2,
+        username: "dan",
+        password_hash: bcrypt.hashSync("secret123", 4),
+        nickname: "Dan",
+        avatar_url: null,
+        color: "#10b981",
+        status: "online",
+        role: "operator",
+        banned: false,
+      },
+    ]);
+
+    const { app } = makeApp({
+      userStore,
+      deps: {
+        findDmChat: (u1, u2, options = {}) => {
+          calls.findDmChat.push({ u1, u2, options });
+          return null;
+        },
+        createChat: (name, type, options = {}) => {
+          calls.createChat.push({ name, type, options });
+          return "33333333-3333-4333-8333-333333333390";
+        },
+      },
+    });
+    return { app, calls };
+  }
+
+  test("customer → operator DM is refused with the support-only guidance", async () => {
+    const { app, calls } = createBoundaryApp();
+    const cookie = await loginCookie(app, "alice");
+
+    const res = await request(app)
+      .post("/api/chats/dm")
+      .set("Cookie", cookie)
+      .send({ from: "alice", to: "bob" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("support_only");
+    // The messenger flow must not even look up or create a chat.
+    expect(calls.findDmChat).toHaveLength(0);
+    expect(calls.createChat).toHaveLength(0);
+  });
+
+  test("operator → customer DM is refused too (both directions of the boundary)", async () => {
+    const { app, calls } = createBoundaryApp();
+    const cookie = await loginCookie(app, "bob");
+
+    const res = await request(app)
+      .post("/api/chats/dm")
+      .set("Cookie", cookie)
+      .send({ from: "bob", to: "alice" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("support_only");
+    expect(calls.createChat).toHaveLength(0);
+  });
+
+  test("customer ↔ customer DM stays a messenger flow", async () => {
+    const { app, calls } = createBoundaryApp();
+    const cookie = await loginCookie(app, "alice");
+
+    const res = await request(app)
+      .post("/api/chats/dm")
+      .set("Cookie", cookie)
+      .send({ from: "alice", to: "carol" });
+
+    expect(res.status).toBe(200);
+    expect(calls.createChat).toHaveLength(1);
+    expect(calls.createChat[0].options).toEqual({ channel: "direct" });
+  });
+
+  test("staff ↔ staff DM stays a messenger flow", async () => {
+    const { app, calls } = createBoundaryApp();
+    const cookie = await loginCookie(app, "bob");
+
+    const res = await request(app)
+      .post("/api/chats/dm")
+      .set("Cookie", cookie)
+      .send({ from: "bob", to: "dan" });
+
+    expect(res.status).toBe(200);
+    expect(calls.createChat).toHaveLength(1);
+    expect(calls.createChat[0].options).toEqual({ channel: "direct" });
   });
 });

@@ -29,6 +29,7 @@ chatdesk-deploy
 | 1 | 📥 Install ChatDesk | Full guided install: dependencies, build, Nginx, SSL, and `.env`. |
 | 2 | 🔄 Update ChatDesk | Update inside the current channel, or downgrade to a specific version, rebuild, and restart (optional pre-update backup). |
 | 3 | ♻️ Restart ChatDesk | Restart the `chatdesk.service`. |
+| r | 🛠️ Rebuild & Restart | Re-run the full source finalization pipeline **without pulling new code**: install server/worker/client dependencies, rebuild the client, synchronize the database schema, refresh systemd units, restart services and reload nginx. Use after pulling source by hand, after an aborted update, or whenever the running services may be out of sync with the source tree (the Update option only rebuilds when the remote has newer commits). |
 | 4 | 🔀 Switch Test / Stable channel | Move the installation between the Test (dev) and Stable (main) channels through the full update pipeline. |
 | 5 | ⚙️ Edit Settings (.env) | Change ports, uploads, retention, sign-up, and other env values, then rebuild/apply. |
 | 6 | 🗃️ Manage Database | Open the database submenu (see below). |
@@ -136,7 +137,7 @@ Choose **Update ChatDesk** (Option 2) from the menu to update or downgrade your 
 
 1. **Database backup**: The script offers to create a timestamped backup before touching application files.
 2. **GitHub mode**:
-   - **Update**: If updates are available on `origin/main`, the script automatically pulls them (`git pull --ff-only`), installs dependencies, runs database migrations, and restarts services.
+   - **Update**: If updates are available on `origin/main`, the script automatically pulls them (`git pull --ff-only`), installs dependencies, runs database migrations, and restarts services. Local source modifications that would block the fast-forward (typically the tracked `package-lock.json` files rewritten by `npm install` on the server) are **auto-stashed** before every pull — recoverable via `git stash list` inside the install directory — so updates never abort with "local changes would be overwritten".
    - **Downgrade**: If the repository is already up to date, it prompts `Do you want to downgrade? [y/N]`. If confirmed, you can specify any valid version (semver tag like `v0.11.4`, custom tag, branch, or commit SHA). The script checks out that reference, runs migrations, and rebuilds.
 3. **Offline mode**:
    - **Update**: If the `VERSION` file in the provided zip archive is newer than the installed version, it updates files and rebuilds.

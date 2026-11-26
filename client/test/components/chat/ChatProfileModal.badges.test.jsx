@@ -138,7 +138,20 @@ describe("ChatProfileModal — user profile header badges", () => {
       .toBeInTheDocument();
   });
 
-  test("shows Admin badge for admin user", async () => {
+  test("shows Operator badge for operator user", async () => {
+    render(
+      <ChatProfileModal
+        {...BASE_MODAL_PROPS}
+        chat={makeDmChat()}
+        targetUser={makeTargetUser({ role: "operator" })}
+      />,
+    );
+    await expect
+      .element(page.getByLabelText("Support Operator"))
+      .toBeInTheDocument();
+  });
+
+  test("renders nothing for the retired 'admin' role (migration 047)", async () => {
     render(
       <ChatProfileModal
         {...BASE_MODAL_PROPS}
@@ -148,7 +161,13 @@ describe("ChatProfileModal — user profile header badges", () => {
     );
     await expect
       .element(page.getByLabelText("Server Admin"))
-      .toBeInTheDocument();
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByLabelText("Server Owner"))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByLabelText("Support Operator"))
+      .not.toBeInTheDocument();
   });
 
   test("shows Owner badge via user_role alias", async () => {
@@ -194,17 +213,17 @@ describe("ChatProfileModal — user profile header badges", () => {
       .toBeInTheDocument();
   });
 
-  test("shows both Verified and Admin badge for verified admin", async () => {
+  test("shows both Verified and Operator badge for verified operator", async () => {
     render(
       <ChatProfileModal
         {...BASE_MODAL_PROPS}
         chat={makeDmChat()}
-        targetUser={makeTargetUser({ verified: true, role: "admin" })}
+        targetUser={makeTargetUser({ verified: true, role: "operator" })}
       />,
     );
     await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
     await expect
-      .element(page.getByLabelText("Server Admin"))
+      .element(page.getByLabelText("Support Operator"))
       .toBeInTheDocument();
   });
 
@@ -232,17 +251,17 @@ describe("ChatProfileModal — user profile header badges", () => {
       <ChatProfileModal
         {...BASE_MODAL_PROPS}
         chat={makeDmChat()}
-        targetUser={makeTargetUser({ verified: true, role: "admin" })}
+        targetUser={makeTargetUser({ verified: true, role: "operator" })}
       />,
     );
     const verified = page.getByLabelText("Verified");
-    const admin = page.getByLabelText("Server Admin");
+    const operator = page.getByLabelText("Support Operator");
     await expect.element(verified).toBeInTheDocument();
-    await expect.element(admin).toBeInTheDocument();
+    await expect.element(operator).toBeInTheDocument();
     const verifiedEl = verified.element();
-    const adminEl = admin.element();
+    const operatorEl = operator.element();
     expect(
-      verifiedEl.compareDocumentPosition(adminEl) &
+      verifiedEl.compareDocumentPosition(operatorEl) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -345,8 +364,8 @@ describe("ChatProfileModal — member list row badges", () => {
     await expect.element(page.getByLabelText("Verified")).toBeInTheDocument();
   });
 
-  test("shows Admin badge in member row when user_role='admin'", async () => {
-    const member = makeMember({ user_role: "admin" });
+  test("shows Operator badge in member row when user_role='operator'", async () => {
+    const member = makeMember({ user_role: "operator" });
     render(
       <ChatProfileModal
         {...BASE_MODAL_PROPS}
@@ -366,8 +385,8 @@ describe("ChatProfileModal — member list row badges", () => {
       .toBeInTheDocument();
   });
 
-  test("shows both badges in member row for verified admin", async () => {
-    const member = makeMember({ user_verified: 1, user_role: "admin" });
+  test("shows both badges in member row for verified operator", async () => {
+    const member = makeMember({ user_verified: 1, user_role: "operator" });
     render(
       <ChatProfileModal
         {...BASE_MODAL_PROPS}
