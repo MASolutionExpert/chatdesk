@@ -64,6 +64,7 @@ function registerMessageRoutes(app, deps) {
     probeVideoMetadata,
     removeUploadedFiles,
     removePendingPresignedUploads,
+    getPendingPresignedUploads,
     requireSession,
     requireSessionUsernameMatch,
     writeAdminAuditLog,
@@ -1148,6 +1149,90 @@ function registerMessageRoutes(app, deps) {
           }
         }
 
+        // ── Security: validate presigned keys BEFORE the size-quota check ──
+        // Every presigned storage key must have been issued by THIS server
+        // (POST /api/uploads/presign) for THIS user — the client's
+        // storageKeys payload is otherwise fully attacker-controlled (path
+        // traversal thumb keys, other users' object keys, fake sizes).
+        const pendingPresignedKeys = presignedFiles.map((item) => {
+          const k =
+            typeof item === "string"
+              ? item
+              : (item?.storageKey || item?.storage_key || item?.key || "");
+          return String(k || "").trim();
+        });
+        const hasPresignedKeys = pendingPresignedKeys.some(Boolean);
+        const pendingByKey = new Map();
+        if (hasPresignedKeys && typeof getPendingPresignedUploads === "function") {
+          const pendingRows = getPendingPresignedUploads(pendingPresignedKeys);
+          const resolvedRows =
+            pendingRows && typeof pendingRows.then === "function"
+              ? await pendingRows
+              : pendingRows;
+          for (const row of Array.isArray(resolvedRows) ? resolvedRows : []) {
+            const rowKey = String(row?.storage_key || row?.storageKey || "").trim();
+            if (rowKey) pendingByKey.set(rowKey, row);
+          }
+        }
+
+        // Session user may consume keys issued to them; keys recorded without
+        // a user (legacy rows / server-side records) stay usable only until
+        // they age out of the pending table.
+        const sessionUserIdForUpload = String(session?.userId ?? user?.id ?? "");
+        const assertPresignedKeyAllowed = (key) => {
+          const pending = pendingByKey.get(key);
+          if (!pending) {
+            throw new Error(
+              "One or more uploads were not issued by the server for this session or have expired. Please re-attach the files and try again.",
+            );
+          }
+          const pendingUserId = pending.user_id == null ? null : String(pending.user_id);
+          if (pendingUserId !== null && pendingUserId !== sessionUserIdForUpload) {
+            throw new Error(
+              "One or more uploads were not issued by the server for this session or have expired. Please re-attach the files and try again.",
+            );
+          }
+          return pending;
+        };
+
+        // Enforce key validity here (before any quota math) so an attacker
+        // cannot learn anything about the chat/quota state via unissued keys.
+        if (hasPresignedKeys) {
+          for (const statKey of new Set(pendingPresignedKeys.filter(Boolean))) {
+            assertPresignedKeyAllowed(statKey);
+          }
+        }
+
+        // Best-effort true-size lookup (HEAD on the object) so a client
+        // claiming "0 bytes" cannot bypass the per-message total-size quota.
+        // When the driver cannot stat (or errors), the claimed size is used
+        // so uploads stay available.
+        const trueSizeByKey = new Map();
+        const providerForStat = deps.storageProvider;
+        if (
+          hasPresignedKeys &&
+          providerForStat &&
+          typeof providerForStat.stat === "function"
+        ) {
+          for (const statKey of new Set(pendingPresignedKeys.filter(Boolean))) {
+            try {
+              const statResult = providerForStat.stat(statKey);
+              const resolvedStat =
+                statResult && typeof statResult.then === "function"
+                  ? await statResult
+                  : statResult;
+              const trueSize = Number(
+                resolvedStat?.sizeBytes ?? resolvedStat?.size ?? 0,
+              );
+              if (Number.isFinite(trueSize) && trueSize > 0) {
+                trueSizeByKey.set(statKey, trueSize);
+              }
+            } catch (_) {
+              // Availability first: keep the claimed size when HEAD fails.
+            }
+          }
+        }
+
         const localBytes = uploadedFiles.reduce(
           (sum, file) => sum + Number(file.size || 0),
           0,
@@ -1156,21 +1241,30 @@ function registerMessageRoutes(app, deps) {
         const presignedBytes = presignedFiles.reduce((sum, item, index) => {
           const meta =
             fileMeta[uploadedFiles.length + index] || fileMeta[index] || {};
-          const sz = Number(
-            (typeof item === "object" && item !== null
-              ? (item.sizeBytes ??
-                item.size_bytes ??
-                item.fileSize ??
-                item.file_size ??
-                item.size)
-              : null) ??
-              meta.sizeBytes ??
-              meta.size_bytes ??
-              meta.fileSize ??
-              meta.file_size ??
-              meta.size ??
-              0,
-          );
+          const rawKey =
+            typeof item === "string"
+              ? item
+              : (item?.storageKey || item?.storage_key || item?.key || "");
+          const keyStr = String(rawKey || "").trim();
+          const szFromObject = keyStr && trueSizeByKey.has(keyStr)
+            ? trueSizeByKey.get(keyStr)
+            : null;
+          const sz = szFromObject ??
+            Number(
+              (typeof item === "object" && item !== null
+                ? (item.sizeBytes ??
+                  item.size_bytes ??
+                  item.fileSize ??
+                  item.file_size ??
+                  item.size)
+                : null) ??
+                meta.sizeBytes ??
+                meta.size_bytes ??
+                meta.fileSize ??
+                meta.file_size ??
+                meta.size ??
+                0,
+            );
           return sum + (Number.isFinite(sz) && sz > 0 ? sz : 0);
         }, 0);
 
@@ -1261,6 +1355,8 @@ function registerMessageRoutes(app, deps) {
             throw new Error("Invalid storage key for file.");
           }
 
+          assertPresignedKeyAllowed(String(key).trim());
+
           const rawName =
             (typeof item === "object" && item !== null
               ? (item.originalName || item.original_name || item.name || item.filename)
@@ -1298,7 +1394,9 @@ function registerMessageRoutes(app, deps) {
             throw new Error("Invalid file type for selected upload option.");
           }
 
-          const sizeBytes = Number(
+          // Claimed size first, overridden by the pre-fetched HEAD result —
+          // see trueSizeByKey above.
+          let sizeBytes = Number(
             (typeof item === "object" && item !== null
               ? (item.sizeBytes ?? item.size_bytes ?? item.fileSize ?? item.file_size ?? item.size)
               : null) ??
@@ -1309,6 +1407,9 @@ function registerMessageRoutes(app, deps) {
               meta.size ??
               0,
           );
+          if (trueSizeByKey.has(String(key).trim())) {
+            sizeBytes = trueSizeByKey.get(String(key).trim());
+          }
 
           const widthPx = safeSanitizePositiveInt(
             (typeof item === "object" && item !== null
@@ -1352,29 +1453,16 @@ function registerMessageRoutes(app, deps) {
               : JSON.stringify(rawWaveform)
             : null;
 
-          const thumbStorageKey =
-            (typeof item === "object" && item !== null
-              ? (item.thumbStorageKey || item.thumb_storage_key)
-              : null) ||
-            meta.thumbStorageKey ||
-            meta.thumb_storage_key ||
-            null;
+          // Thumbnails are generated server-side by the media worker and
+          // recorded through the completion webhook — a client-supplied thumb
+          // key is a path-traversal/impersonation vector and is dropped.
+          const thumbStorageKey = null;
 
-          const storageDriver =
-            (typeof item === "object" && item !== null
-              ? (item.storageDriver || item.storage_driver)
-              : null) ||
-            meta.storageDriver ||
-            meta.storage_driver ||
-            (deps.storageProvider?.type || "remote");
+          // Driver + encryption are properties of THIS server's storage
+          // configuration, not of the client payload.
+          const storageDriver = deps.storageProvider?.type || "remote";
 
-          const encryptionType =
-            (typeof item === "object" && item !== null
-              ? (item.encryptionType || item.encryption_type)
-              : null) ||
-            meta.encryptionType ||
-            meta.encryption_type ||
-            "none";
+          const encryptionType = "none";
 
           const storageProcessingMode = String(
             deps.storageProcessingMode || process.env.STORAGE_PROCESSING_MODE || "auto",
@@ -1391,10 +1479,9 @@ function registerMessageRoutes(app, deps) {
             !isAlreadyTranscoded &&
             transcodeVideosSetting;
 
-          let rawItemStatus =
-            typeof item === "object" && item !== null
-              ? (item.processingStatus || item.processing_status)
-              : null;
+          // Processing status is decided by the server only — a client
+          // marking a video "ready" used to skip transcoding entirely.
+          let rawItemStatus = null;
           if (isVideo && !transcodeVideosSetting) {
             rawItemStatus = "ready";
           }

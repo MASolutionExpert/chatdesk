@@ -493,8 +493,12 @@ function sqliteUp(ctx) {
   }
 
   if (tableExists("push_subscriptions")) {
-    db.run(`CREATE TABLE push_subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT, auth TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`);
-    db.run(`INSERT INTO push_subscriptions_new (id, user_id, endpoint, p256dh, auth, created_at, updated_at) SELECT ps.id, u.uuid, ps.endpoint, ps.p256dh, ps.auth, ps.created_at, ps.updated_at FROM push_subscriptions ps LEFT JOIN users u ON u.id = ps.user_id WHERE u.uuid IS NOT NULL`);
+    // NOTE: `message_preview` (added by migration 028) MUST be carried over —
+    // rebuilding without it silently dropped the column on every SQLite
+    // install (fresh AND upgraded), breaking web push entirely
+    // ("table push_subscriptions has no column named message_preview").
+    db.run(`CREATE TABLE push_subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT, auth TEXT, message_preview INTEGER NOT NULL DEFAULT 1, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`);
+    db.run(`INSERT INTO push_subscriptions_new (id, user_id, endpoint, p256dh, auth, message_preview, created_at, updated_at) SELECT ps.id, u.uuid, ps.endpoint, ps.p256dh, ps.auth, COALESCE(ps.message_preview, 1), ps.created_at, ps.updated_at FROM push_subscriptions ps LEFT JOIN users u ON u.id = ps.user_id WHERE u.uuid IS NOT NULL`);
   }
 
   if (tableExists("remote_channel_sources")) {

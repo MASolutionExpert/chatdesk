@@ -239,7 +239,7 @@ describe("PostgreSQL Promise mode - Chat Mute, Unmute, and Hide endpoints", () =
     // Editing is moderator-only now; this test exercises the async
     // Promise-mode plumbing, so alice acts as an operator here.
     const userStore = makeUserStore([{ ...alice, role: "operator" }]);
-    const { app } = makeApp({
+    const appObj = makeApp({
       userStore,
       deps: {
         findChatById: (cid) =>
@@ -252,6 +252,12 @@ describe("PostgreSQL Promise mode - Chat Mute, Unmute, and Hide endpoints", () =
           Promise.resolve("55555555-5555-4555-8555-555555555555"),
         editMessage: () => Promise.resolve(originalMessage.id),
       },
+    });
+    const app = appObj.app;
+    // Presigned keys are validated against pending_presigned_uploads now.
+    appObj.deps.recordPendingPresignedUpload({
+      storageKey: "uploads/doc123.pdf",
+      userId: alice.id,
     });
 
     const cookie = await loginCookie(app, "alice");

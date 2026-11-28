@@ -50,7 +50,13 @@ describe("POST /api/messages/upload with storageKeys", () => {
     appObj.sessionStore.createSession(userId, sessionToken);
   });
 
+  // Presigned storage keys must be recorded server-side (the upload endpoint
+  // now validates them against pending_presigned_uploads for this user).
+  const recordPending = (app, key, ownerId) =>
+    app.deps.recordPendingPresignedUpload({ storageKey: key, userId: ownerId });
+
   test("accepts storageKeys array and attaches files to created message", async () => {
+    recordPending(appObj, "uploads/doc123.pdf", userId);
     const res = await request(appObj.app)
       .post("/api/messages/upload")
       .set("Cookie", [`sid=${sessionToken}`])
@@ -74,6 +80,7 @@ describe("POST /api/messages/upload with storageKeys", () => {
   });
 
   test("accepts storageKeys as JSON stringified array or object array", async () => {
+    recordPending(appObj, "uploads/image.png", userId);
     const res = await request(appObj.app)
       .post("/api/messages/upload")
       .set("Cookie", [`sid=${sessionToken}`])
@@ -117,6 +124,10 @@ describe("POST /api/messages/upload with storageKeys", () => {
   });
 
   test("rejects when file count exceeds maxFiles limit", async () => {
+    recordPending(appObj, "uploads/file1.png", userId);
+    recordPending(appObj, "uploads/file2.png", userId);
+    recordPending(appObj, "uploads/file3.png", userId);
+    recordPending(appObj, "uploads/file4.png", userId);
     const res = await request(appObj.app)
       .post("/api/messages/upload")
       .set("Cookie", [`sid=${sessionToken}`])
@@ -136,6 +147,7 @@ describe("POST /api/messages/upload with storageKeys", () => {
   });
 
   test("rejects when total presigned size exceeds maxTotalBytes limit", async () => {
+    recordPending(appObj, "uploads/huge.zip", userId);
     const res = await request(appObj.app)
       .post("/api/messages/upload")
       .set("Cookie", [`sid=${sessionToken}`])
@@ -165,6 +177,7 @@ describe("POST /api/messages/upload with storageKeys", () => {
     });
     const uId = customApp.userStore.createUser("testuser", "pass", "Test", null, "#fff");
     customApp.sessionStore.createSession(uId, sessionToken);
+    recordPending(customApp, "uploads/malware.exe", uId);
 
     const res = await request(customApp.app)
       .post("/api/messages/upload")
@@ -196,6 +209,7 @@ describe("POST /api/messages/upload with storageKeys", () => {
     });
     const uId = customApp.userStore.createUser("testuser2", "pass", "Test", null, "#fff");
     customApp.sessionStore.createSession(uId, sessionToken);
+    recordPending(customApp, "uploads/clip.mp4", uId);
 
     const res = await request(customApp.app)
       .post("/api/messages/upload")

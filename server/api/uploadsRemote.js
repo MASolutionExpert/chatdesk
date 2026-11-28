@@ -38,6 +38,8 @@ export function registerRemoteUploadRoutes(app, deps) {
       null,
     requireSession,
     getSessionFromRequest,
+    findMessageById = deps.findMessageById,
+    isMember = deps.isMember,
     storageEncryption = defaultStorageEncryption,
     enqueueVideoTranscodeJob = deps.enqueueVideoTranscodeJob,
     listMessageFilesByMessageIds = deps.listMessageFilesByMessageIds,
@@ -220,7 +222,11 @@ export function registerRemoteUploadRoutes(app, deps) {
           try {
             recordPendingPresignedUpload({
               storageKey: finalStorageKey,
-              userId: session?.userId || null,
+              // Session shape: getSessionCombined returns the users row — the
+              // user id is `session.id` (session.userId only exists in test
+              // harnesses). Binding the key to its issuer is what lets the
+              // message-upload endpoint reject other users' keys.
+              userId: session?.userId ?? session?.id ?? null,
             });
           } catch (_) {}
         } else if (typeof adminRun === "function") {
@@ -228,7 +234,7 @@ export function registerRemoteUploadRoutes(app, deps) {
             callAdminRun(
               dbKnex("pending_presigned_uploads").insert({
                 storage_key: finalStorageKey,
-                user_id: session?.userId || null,
+                user_id: session?.userId ?? session?.id ?? null,
                 created_at: new Date().toISOString(),
               }),
             );
@@ -347,7 +353,7 @@ export function registerRemoteUploadRoutes(app, deps) {
         try {
           recordPendingPresignedUpload({
             storageKey: finalStorageKey,
-            userId: session?.userId || null,
+            userId: session?.userId ?? session?.id ?? null,
           });
         } catch (_) {}
       } else if (typeof adminRun === "function") {
@@ -355,7 +361,7 @@ export function registerRemoteUploadRoutes(app, deps) {
           callAdminRun(
             dbKnex("pending_presigned_uploads").insert({
               storage_key: finalStorageKey,
-              user_id: session?.userId || null,
+              user_id: session?.userId ?? session?.id ?? null,
               created_at: new Date().toISOString(),
             }),
           );
@@ -507,6 +513,12 @@ export function registerRemoteUploadRoutes(app, deps) {
 
   // GET /api/uploads/thumbs/:fileId — serves video thumbnails.
   app.get("/api/uploads/thumbs/:fileId", async (req, res) => {
+    // Security: thumbnails must only be readable by members of the chat the
+    // parent message lives in — the route previously served (and decrypted)
+    // any file row to ANY unauthenticated caller.
+    const session = await authenticateSession(req, res);
+    if (!session) return;
+
     const fileId = req.params?.fileId;
     if (!fileId) return res.status(404).end();
 
@@ -521,8 +533,54 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
     if (!file) return res.status(404).end();
 
+    const sessionUserId = session.userId ?? session.id ?? session.user_id ?? null;
+    const fileMessageId = file.message_id || file.messageId || null;
+    if (!fileMessageId) return res.status(404).end();
+
+    let message = null;
+    if (typeof findMessageById === "function") {
+      const rawMessage = findMessageById(fileMessageId);
+      message =
+        rawMessage && typeof rawMessage.then === "function"
+          ? await rawMessage
+          : rawMessage;
+    }
+    if (!message && typeof adminGetRow === "function") {
+      const rawMessage = callAdminGetRow(
+        dbKnex("chat_messages").where("id", fileMessageId).first(),
+      );
+      message =
+        rawMessage && typeof rawMessage.then === "function"
+          ? await rawMessage
+          : rawMessage;
+    }
+    const chatId = message?.chat_id || message?.chatId || null;
+    if (!chatId) return res.status(404).end();
+
+    // Chat membership gates the thumbnail. The instance owner (and staff
+    // moderation roles) may inspect any chat's media without membership.
+    const staffRoles = new Set(["owner", "admin"]);
+    const sessionRole = String(session.role || "").toLowerCase();
+    if (!staffRoles.has(sessionRole)) {
+      if (typeof isMember !== "function") {
+        return res.status(403).end();
+      }
+      const rawIsMember = isMember(chatId, sessionUserId);
+      const memberCheck =
+        rawIsMember && typeof rawIsMember.then === "function"
+          ? await rawIsMember
+          : rawIsMember;
+      if (!memberCheck) return res.status(403).end();
+    }
+
     const thumbKey = file.thumb_storage_key || file.thumbStorageKey;
     if (!thumbKey) return res.status(404).end();
+
+    // Security: reject traversal-shaped keys outright — thumb keys must stay
+    // inside the upload root. Combined with the resolved-path containment
+    // check below, a poisoned thumb_storage_key can no longer read arbitrary
+    // server files (e.g. "../secret.env" or "/etc/passwd").
+    if (String(thumbKey).includes("..")) return res.status(404).end();
 
     const enc = storageEncryption || defaultStorageEncryption;
     const sendJpeg = (buf) => {
@@ -537,14 +595,31 @@ export function registerRemoteUploadRoutes(app, deps) {
 
     // Local disk first (covers local-driver deployments).
     const localPaths = [];
+    const resolvedRoot =
+      depUploadRootDir && depPath && typeof depPath.resolve === "function"
+        ? depPath.resolve(depUploadRootDir)
+        : null;
+    const isInsideUploadRoot = (candidate) => {
+      if (!resolvedRoot || !depPath || typeof depPath.resolve !== "function") {
+        return false;
+      }
+      const resolved = depPath.resolve(candidate);
+      return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + depPath.sep);
+    };
     if (depUploadRootDir && depPath && typeof depPath.join === "function") {
-      localPaths.push(depPath.join(depUploadRootDir, String(thumbKey)));
+      const joined = depPath.join(depUploadRootDir, String(thumbKey));
+      if (isInsideUploadRoot(joined)) {
+        localPaths.push(joined);
+      }
       const base =
         typeof depPath.basename === "function"
           ? depPath.basename(String(thumbKey))
           : String(thumbKey).split("/").pop();
       if (base && base !== String(thumbKey)) {
-        localPaths.push(depPath.join(depUploadRootDir, base));
+        const baseJoined = depPath.join(depUploadRootDir, base);
+        if (isInsideUploadRoot(baseJoined)) {
+          localPaths.push(baseJoined);
+        }
       }
     }
     for (const candidate of localPaths) {

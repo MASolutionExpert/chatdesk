@@ -326,35 +326,57 @@ export function createWebSocketGateway({
 
   if (server) {
     server.on("upgrade", (request, socket, head) => {
-      const urlObj = new URL(
-        request.url,
-        `http://${request.headers.host || "localhost"}`,
-      );
-      const pathname = urlObj.pathname;
-      if (pathname === "/ws" || pathname === "/api/ws") {
-        let token = urlObj.searchParams.get("token") || urlObj.searchParams.get("sid");
-        if (!token) {
-          const cookieHeader = request.headers.cookie || "";
-          const matches = cookieHeader.match(/sid=([^;]+)/);
-          if (matches) token = decodeURIComponent(matches[1]);
+      // Security hardening: this handler runs on EVERY upgrade request before
+      // any authentication. A malformed URL or cookie (e.g. `Cookie: sid=%E0`)
+      // used to throw an uncaught URIError/SyntaxError here and kill the whole
+      // process. Everything below is wrapped, and on any failure the socket is
+      // destroyed instead of crashing the server.
+      try {
+        const urlObj = new URL(
+          request.url,
+          `http://${request.headers.host || "localhost"}`,
+        );
+        const pathname = urlObj.pathname;
+        if (pathname === "/ws" || pathname === "/api/ws") {
+          let token = urlObj.searchParams.get("token") || urlObj.searchParams.get("sid");
+          if (!token) {
+            const cookieHeader = request.headers.cookie || "";
+            // Anchored match: a bare /sid=/ also matched `admin_sid=` — while
+            // impersonating, both cookies ride the same header and the parked
+            // owner's session could be picked instead of the impersonated one.
+            const matches = cookieHeader.match(/(?:^|;\s*)sid=([^;]+)/);
+            if (matches) {
+              // Safe decode: a cookie value is attacker-controlled input and
+              // may contain invalid percent-escapes.
+              try {
+                token = decodeURIComponent(matches[1]);
+              } catch (_) {
+                token = matches[1];
+              }
+            }
+          }
+
+          const rawSession =
+            token && getSessionFromToken ? getSessionFromToken(token) : null;
+
+          const processSession = (session) => {
+            wss.handleUpgrade(request, socket, head, (ws) => {
+              wss.emit("connection", ws, request, session);
+            });
+          };
+
+          if (rawSession && typeof rawSession.then === "function") {
+            rawSession.then(processSession).catch(() => {
+              processSession(null);
+            });
+          } else {
+            processSession(rawSession);
+          }
         }
-
-        const rawSession =
-          token && getSessionFromToken ? getSessionFromToken(token) : null;
-
-        const processSession = (session) => {
-          wss.handleUpgrade(request, socket, head, (ws) => {
-            wss.emit("connection", ws, request, session);
-          });
-        };
-
-        if (rawSession && typeof rawSession.then === "function") {
-          rawSession.then(processSession).catch(() => {
-            processSession(null);
-          });
-        } else {
-          processSession(rawSession);
-        }
+      } catch (err) {
+        try {
+          socket.destroy();
+        } catch (_) {}
       }
     });
   }

@@ -319,6 +319,52 @@ export class RemoteStorageProvider extends StorageProvider {
   }
 
   /**
+   * Stat an object via HeadObjectCommand.
+   * Used by the message-upload path to verify the TRUE size of a
+   * client-attached object (clients can lie about sizeBytes to bypass the
+   * per-message total-size quota).
+   * @param {string} fileKey
+   * @returns {Promise<{sizeBytes: number, contentType: string|null}|null>}
+   *   null when the object does not exist or the HEAD could not be performed.
+   */
+  async stat(fileKey) {
+    const cleanKey = String(fileKey || "").replace(/^\//, "");
+    const command = new HeadObjectCommand({
+      Bucket: this.bucket,
+      Key: cleanKey,
+    });
+    try {
+      const response = await this.client.send(command);
+      const size = Number(response?.ContentLength ?? 0);
+      return {
+        sizeBytes: Number.isFinite(size) && size > 0 ? size : 0,
+        contentType: response?.ContentType || null,
+      };
+    } catch (err) {
+      if (
+        err.name === "NotFound" ||
+        err.name === "NoSuchKey" ||
+        err.$metadata?.httpStatusCode === 404
+      ) {
+        return null;
+      }
+      try {
+        const signedUrl = await getSignedUrl(this.client, command, { expiresIn: 300 });
+        const head = await this._sendPresignedRequest(signedUrl, "HEAD");
+        const size = Number(
+          head?.headers?.["content-length"] ?? head?.contentLength ?? 0,
+        );
+        return {
+          sizeBytes: Number.isFinite(size) && size > 0 ? size : 0,
+          contentType: head?.headers?.["content-type"] || null,
+        };
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  /**
    * Download a remote object directly to a local file path.
    * @param {string} fileKey
    * @param {string} destPath

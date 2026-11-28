@@ -3363,6 +3363,27 @@ export function listPendingPresignedUploads(cutoffIso = null) {
 }
 
 /**
+ * Look up pending presigned upload records by exact storage keys.
+ * Security-critical: POST /api/messages/upload must only attach files whose
+ * storage keys were issued by THIS server (via POST /api/uploads/presign) for
+ * THIS user — client-supplied keys/thumbs/metadata are otherwise attacker
+ * controlled (path traversal thumb keys, stolen object keys, fake sizes).
+ * Returns an array of pending rows (storage_key, user_id, created_at,
+ * expires_at) — empty array for empty input.
+ * @param {string[]|string} storageKeys
+ * @returns {Array<object>|Promise<Array<object>>}
+ */
+export function getPendingPresignedUploads(storageKeys = []) {
+  const keys = (Array.isArray(storageKeys) ? storageKeys : [storageKeys])
+    .map((k) => (typeof k === "string" ? k.trim() : ""))
+    .filter(Boolean);
+  if (!keys.length) return [];
+  return getAll(
+    dbKnex("pending_presigned_uploads").select("*").whereIn("storage_key", keys),
+  );
+}
+
+/**
  * Rewrite exact storage-key references after the legacy object-storage
  * layout migration (avatars/* + uploads/* → uploads/avatars/* +
  * uploads/messages/*). All SQL lives here per repo convention.

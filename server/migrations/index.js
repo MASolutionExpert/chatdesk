@@ -46,6 +46,7 @@ import { migration045Tickets } from "./045-tickets.js";
 import { migration046SessionsImpersonatedBy } from "./046-sessions-impersonated-by.js";
 import { migration047RoleAdminToOperator } from "./047-role-admin-to-operator.js";
 import { migration048RolePermissions } from "./048-role-permissions.js";
+import { migration049PushMessagePreviewRestore } from "./049-push-message-preview-restore.js";
 
 export const migrations = [
   migration001InitialSchema,
@@ -96,4 +97,5 @@ export const migrations = [
   migration046SessionsImpersonatedBy,
   migration047RoleAdminToOperator,
   migration048RolePermissions,
+  migration049PushMessagePreviewRestore,
 ];

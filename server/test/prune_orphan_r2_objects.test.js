@@ -61,6 +61,10 @@ describe("Task 5: Server — prune orphan R2 objects", () => {
           const keySet = new Set(keyArr.map((k) => (typeof k === "string" ? k : k?.storageKey || k?.storage_key)));
           pendingStore = pendingStore.filter((r) => !keySet.has(r.storage_key));
         },
+        getPendingPresignedUploads: (keys) => {
+          const keySet = new Set((Array.isArray(keys) ? keys : [keys]).map((k) => String(k).trim()));
+          return pendingStore.filter((r) => keySet.has(r.storage_key));
+        },
       },
     });
 

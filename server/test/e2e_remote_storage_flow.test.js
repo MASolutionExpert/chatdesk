@@ -415,7 +415,9 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           uploadType: "media",
           presignedFiles: [
             {
-              storageKey: "uploads/remote_video.mp4",
+              // Must be the exact key the server issued above — the upload
+              // endpoint now validates presigned keys server-side.
+              storageKey: presignRes.body.storageKey,
               originalName: "remote_video.mp4",
               mimeType: "video/mp4",
               sizeBytes: 5000000,

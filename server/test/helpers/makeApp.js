@@ -269,6 +269,10 @@ export function makeApp(overrides = {}) {
         }
       }
     },
+    getPendingPresignedUploads: (keys = []) => {
+      const keySet = new Set((Array.isArray(keys) ? keys : [keys]).map((k) => (typeof k === "string" ? String(k).trim() : "")));
+      return pendingUploadsStore.filter((rec) => keySet.has(rec.storage_key));
+    },
     listPendingPresignedUploads: () => pendingUploadsStore,
     pruneOrphanRemoteObjects: async (options = {}) => {
       const provider = options.storageProvider || defaultStorageProvider;
