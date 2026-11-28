@@ -4,6 +4,7 @@ import { createMembershipService } from "../lib/services/membershipService.js";
 import { createDeletionService } from "../lib/services/deletionService.js";
 import { normalizeChatDeskSource, normalizeTelegramSource, resolveChatDeskSource } from "../lib/remoteChannels.js";
 import { resolveThumbUrl } from "../lib/thumbUrl.js";
+import { getDefaultPermission } from "../lib/permissions.js";
 import { validateUuidParams, validateUuidBody } from "../lib/uuidMiddleware.js";
 
 function registerChatRoutes(app, deps) {
@@ -23,6 +24,10 @@ function registerChatRoutes(app, deps) {
     deleteUserById,
     emitChatEvent,
     emitSseEvent,
+    // SSE/WS member cache invalidation (sse.js) — see invalidateChatMembers.
+    // Optional: when absent, the helper falls back to the invalidateMembers
+    // helper attached to the wired emitChatEvent function by createSseHub.
+    invalidateMembers,
     ensureSavedChatForUser,
     ensureAvatarExists,
     findChatById,
@@ -80,15 +85,25 @@ function registerChatRoutes(app, deps) {
   } = deps;
 
   // Permission gate helper (see departments.js): denies with 403 when the
-  // actor's account role lacks the registry permission; fails open only
-  // when the permission service is not wired (legacy dep stubs).
+  // actor's account role lacks the registry permission. A THROWING permission
+  // service (DB error, role_permissions table missing) must fail CLOSED, not
+  // open — previously `allowed = true` in the catch block silently granted
+  // every denied action. The owner keeps working (registry rule), and when
+  // the service is not wired at all (legacy dep stubs) the registry defaults
+  // apply so behaviour matches the pre-1.7.0 hard-coded checks.
   async function requirePermission(res, role, permissionKey, message) {
-    if (typeof hasPermission !== "function") return true;
-    let allowed = true;
-    try {
-      allowed = await hasPermission(role, permissionKey);
-    } catch {
-      allowed = true;
+    const normalizedRole = String(role || "").toLowerCase();
+    let allowed;
+    if (typeof hasPermission === "function") {
+      try {
+        allowed = await hasPermission(normalizedRole, permissionKey);
+      } catch {
+        allowed = normalizedRole === "owner"; // fail closed for everyone else
+      }
+    } else {
+      allowed =
+        normalizedRole === "owner" ||
+        getDefaultPermission(normalizedRole, permissionKey);
     }
     if (!allowed) {
       res.status(403).json({ error: message, code: "permission_denied" });
@@ -99,6 +114,26 @@ function registerChatRoutes(app, deps) {
 
   const resolveMaybePromise = async (value) =>
     value && typeof value.then === "function" ? await value : value;
+
+  // Member cache invalidation (F: removed/left members kept receiving SSE/WS
+  // chat events for up to the 8 s member-cache TTL, and newly added members
+  // missed them). createSseHub exposes invalidateMembers(chatId); the WS
+  // gateway shares the same cache, so one call fixes both transports. Never
+  // breaks the request — invalidation is best-effort.
+  const invalidateChatMembers = (chatId) => {
+    const invalidate =
+      typeof invalidateMembers === "function"
+        ? invalidateMembers
+        : typeof emitChatEvent?.invalidateMembers === "function"
+          ? emitChatEvent.invalidateMembers
+          : null;
+    if (!invalidate) return;
+    try {
+      invalidate(chatId);
+    } catch {
+      // best-effort — cache expiry bounds any staleness anyway
+    }
+  };
 
   // Ticket threads (migration 045): support-channel chats — in their classic
   // DM shape AND in the referred support-group shape (a referred ticket is
@@ -955,6 +990,7 @@ function registerChatRoutes(app, deps) {
           emitSseEvent(ev.targetUsername, ev.payload);
         } catch (_) {}
       });
+      invalidateChatMembers(chatId);
     }
     const rawUnhideAgain = unhideChat(user.id, chatId);
     if (rawUnhideAgain && typeof rawUnhideAgain.then === "function") await rawUnhideAgain;
@@ -1106,6 +1142,19 @@ function registerChatRoutes(app, deps) {
     const rawMembers = listChatMembers(chatId);
     const members = (rawMembers && typeof rawMembers.then === "function" ? await rawMembers : rawMembers) || [];
 
+    // Invite-token policy mirrors GET /invite-link: only the chat owner may
+    // see the private invite token, unless the owner enabled member invites.
+    // Any member (or public visitor) used to get the token here, which
+    // bypassed the owner-only rule and leaked shareable private-group links.
+    const isPreviewOwner = members.some(
+      (member) =>
+        member.id === user.id &&
+        String(member.role || "").toLowerCase() === "owner",
+    );
+    const allowMemberInvites = Boolean(Number(chat.allow_member_invites || 0));
+    const previewInviteToken =
+      isPreviewOwner || allowMemberInvites ? chat.invite_token || "" : "";
+
     return res.json({
       id: chat.id,
       type: chat.type === "channel" ? "channel" : "group",
@@ -1114,7 +1163,7 @@ function registerChatRoutes(app, deps) {
       visibility: chat.group_visibility || "public",
       color: chat.group_color || "#10b981",
       avatarUrl: normalizeGroupAvatarUrl(chat.group_avatar_url),
-      inviteToken: chat.invite_token || "",
+      inviteToken: previewInviteToken,
       membersCount: members.length,
       isMember: Boolean(isMemberFlag),
     });
@@ -1367,6 +1416,9 @@ function registerChatRoutes(app, deps) {
 
     const updated = await resolveMaybePromise(findChatById(chatId));
     const baseOrigin = resolveClientBaseOrigin(req);
+    // The member sync above may have added or dropped members — refresh the
+    // shared SSE/WS member cache so the new list is used immediately.
+    invalidateChatMembers(chatId);
     emitChatListChangedToChatParticipants(chatId);
     return res.json({
       ok: true,
@@ -1438,6 +1490,7 @@ function registerChatRoutes(app, deps) {
         if (result.avatarFileToRemove) {
           removeAvatarByUrl(result.avatarFileToRemove);
         }
+        invalidateChatMembers(chatId);
         return res.json({ ok: true, deleted: true });
       }
       // Ownership transfer on leave. For ticket threads (referred tickets)
@@ -1469,6 +1522,7 @@ function registerChatRoutes(app, deps) {
 
     await resolveMaybePromise(removeChatMember(chatId, user.id));
     await resolveMaybePromise(markChatMemberLeft(chatId, user.id));
+    invalidateChatMembers(chatId);
     if (chat.type === "group") {
       const body = `[[system:left:${user.nickname || user.username}]]`;
       const messageId = await resolveMaybePromise(createMessage(
@@ -1571,6 +1625,7 @@ function registerChatRoutes(app, deps) {
     if (result.avatarFileToRemove) {
       removeAvatarByUrl(result.avatarFileToRemove);
     }
+    invalidateChatMembers(chatId);
     result.sseEvents.forEach((ev) => {
       try {
         emitSseEvent(ev.targetUsername, ev.payload);
@@ -1640,6 +1695,7 @@ function registerChatRoutes(app, deps) {
 
     await resolveMaybePromise(removeChatMember(chatId, target.id));
     await resolveMaybePromise(markGroupMemberRemoved(chatId, target.id, actor.id));
+    invalidateChatMembers(chatId);
     if (chat.type === "group") {
       const body = `[[system:removed:${target.nickname || target.username}]]`;
       const messageId = await resolveMaybePromise(createMessage(
@@ -1986,6 +2042,7 @@ function registerChatRoutes(app, deps) {
     if (!alreadyMember) {
       await resolveMaybePromise(clearChatMemberLeft(chatId, user.id));
       await resolveMaybePromise(addChatMember(chatId, user.id, "member"));
+      invalidateChatMembers(chatId);
       if (chat.type === "group") {
         const body = `[[system:joined:${user.nickname || user.username}]]`;
         await resolveMaybePromise(createMessage(

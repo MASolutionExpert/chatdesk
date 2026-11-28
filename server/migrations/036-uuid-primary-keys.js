@@ -8,6 +8,14 @@ import { generateUuid } from "../lib/uuidUtils.js";
  *   - PostgreSQL: In-place ALTER COLUMN TYPE with FK constraint management.
  *
  * Idempotency: if `users.id` is already TEXT, skip.
+ *
+ * ATOMICITY: both paths run inside a transaction (SQLite BEGIN/COMMIT; PG via
+ * ctx.transaction → a single knex trx connection). DDL is transactional on
+ * both engines, so a crash/failure midway rolls back to the pre-migration
+ * state and a retry is possible. Without this, a PG failure left FK columns
+ * TEXT while users.id was still INTEGER (every rerun then failed permanently
+ * on `text = integer`), and a SQLite crash between DROP TABLE users and RENAME
+ * left only the users_new copy — which the rerun's cleanup then destroyed.
  */
 export const migration036UuidPrimaryKeys = {
   version: 36,
@@ -25,9 +33,9 @@ export const migration036UuidPrimaryKeys = {
 // =============================================================================
 
 async function postgresUp(ctx) {
-  const { db, getAll, hasColumn } = ctx;
+  const { getAll } = ctx;
 
-  // ─── Idempotency guard ─────────────────────────────────────────────────
+  // ─── Idempotency guard (runs OUTSIDE the transaction) ───────────────────
   const colInfo = await getAll(
     "SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id'",
   );
@@ -38,6 +46,22 @@ async function postgresUp(ctx) {
   ) {
     return; // Already migrated
   }
+
+  // ─── Transactional body ──────────────────────────────────────────────────
+  // The destructive conversion must run on ONE connection: knex .raw() pulls
+  // from the pool, so BEGIN/COMMIT sent as plain statements would land on
+  // arbitrary clients. ctx.transaction (provided by the migration runners in
+  // db.js / scripts/_db-admin.js) binds every statement to a single trx.
+  if (typeof ctx.transaction === "function") {
+    return ctx.transaction((txCtx) => postgresUpInner(txCtx));
+  }
+  // Fallback for contexts without transaction support (older custom tooling):
+  // proceed without a wrapper rather than refusing to migrate.
+  return postgresUpInner(ctx);
+}
+
+async function postgresUpInner(ctx) {
+  const { db, getAll, hasColumn } = ctx;
 
   // ─── Phase 1: Add uuid columns and backfill ────────────────────────────
   if (!hasColumn("users", "uuid")) {
@@ -56,6 +80,11 @@ async function postgresUp(ctx) {
 
   // ─── Phase 2: Create temporary mapping tables ──────────────────────────
   // These let us convert FK integer values -> UUID text in referencing tables.
+  // Pre-drop first: under the non-transactional fallback path a previous
+  // failed run may have left the TEMP tables alive on the pooled session.
+  await db.run("DROP TABLE IF EXISTS _map_users");
+  await db.run("DROP TABLE IF EXISTS _map_chats");
+  await db.run("DROP TABLE IF EXISTS _map_messages");
   await db.run("CREATE TEMP TABLE _map_users (old_id INTEGER PRIMARY KEY, new_id TEXT NOT NULL)");
   await db.run("INSERT INTO _map_users (old_id, new_id) SELECT id, uuid FROM users");
 
@@ -292,9 +321,9 @@ async function backfillNullUuidsPg(db, getAll, table) {
 // =============================================================================
 
 function sqliteUp(ctx) {
-  const { db, getAll, hasColumn, tableExists } = ctx;
+  const { db, getAll, tableExists } = ctx;
 
-  // ─── Idempotency guard ───────────────────────────────────────────────
+  // ─── Idempotency guard (runs OUTSIDE the transaction) ────────────────
   if (tableExists("users")) {
     const tableInfo = getAll("PRAGMA table_info(users)");
     const rows = Array.isArray(tableInfo) ? tableInfo : [];
@@ -307,7 +336,35 @@ function sqliteUp(ctx) {
     }
   }
 
-  // Clean up leftover _new tables from interrupted runs
+  // ─── Transactional body ──────────────────────────────────────────────
+  // The whole destructive rebuild runs in one transaction so a failure
+  // midway rolls back to the pre-migration state and a retry is possible.
+  // NB: PRAGMA foreign_keys is a no-op INSIDE a transaction — it must be
+  // toggled outside, before BEGIN / after COMMIT.
+  db.run("PRAGMA foreign_keys = OFF");
+  db.run("BEGIN IMMEDIATE");
+  try {
+    sqliteUpInner(ctx);
+    db.run("COMMIT");
+  } catch (err) {
+    try {
+      db.run("ROLLBACK");
+    } catch {
+      // ignore rollback failures — the enclosing runner reports the error
+    }
+    throw err;
+  } finally {
+    db.run("PRAGMA foreign_keys = ON");
+  }
+}
+
+function sqliteUpInner(ctx) {
+  const { db, getAll, hasColumn, tableExists } = ctx;
+
+  // Clean up leftover _new tables from interrupted runs. If the ORIGINAL
+  // table is missing but its _new copy survived (a crash between DROP and
+  // RENAME in a pre-transactional run), RENAME the copy back instead of
+  // dropping the only remaining copy of the data.
   const newTables = [
     "users_new", "chats_new", "chat_messages_new", "chat_members_new",
     "chat_left_members_new", "hidden_chat_messages_new", "chat_message_reads_new",
@@ -315,8 +372,13 @@ function sqliteUp(ctx) {
     "chat_mutes_new", "hidden_chats_new", "group_removed_members_new",
     "sessions_new",
   ];
+  const rescuable = new Set(["users", "chats", "chat_messages"]);
   for (const t of newTables) {
-    if (tableExists(t)) {
+    if (!tableExists(t)) continue;
+    const original = t.replace(/_new$/, "");
+    if (!tableExists(original) && rescuable.has(original)) {
+      db.run(`ALTER TABLE ${t} RENAME TO ${original}`);
+    } else {
       db.run(`DROP TABLE ${t}`);
     }
   }
@@ -527,7 +589,8 @@ function sqliteUp(ctx) {
   }
 
   // ─── Phase 7: Drop old tables, rename new tables ─────────────────────
-  db.run("PRAGMA foreign_keys = OFF");
+  // (PRAGMA foreign_keys toggling moved to the transactional wrapper in
+  // sqliteUp — it is a no-op inside a transaction.)
 
   if (tableExists("sessions") && tableExists("sessions_new")) {
     db.run("DROP TABLE sessions");
@@ -578,8 +641,6 @@ function sqliteUp(ctx) {
   db.run("ALTER TABLE chats_new RENAME TO chats");
   db.run("DROP TABLE users");
   db.run("ALTER TABLE users_new RENAME TO users");
-
-  db.run("PRAGMA foreign_keys = ON");
 
   // ─── Phase 8: Recreate indexes ──────────────────────────────────────
   db.run("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)");

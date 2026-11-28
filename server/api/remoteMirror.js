@@ -1,4 +1,8 @@
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import {
+  resolveServedUploadContentType,
+  shouldServeInline,
+} from "../lib/uploadContentTypes.js";
 
 /**
  * remoteMirror.js — server side of the Option A media handoff.
@@ -55,7 +59,23 @@ function registerRemoteMirrorRoutes(app, deps) {
     } catch {
       return res.status(404).json({ error: "Not found." });
     }
-    res.setHeader("Content-Type", entry.mimeType || "application/octet-stream");
+    // Same safe-serving policy as the message upload routes
+    // (server/api/uploadsRemote.js): entry.mimeType is client-controlled
+    // metadata — never echo it verbatim. The served Content-Type is derived
+    // from the stored filename/reference, and anything outside the safe
+    // inline policy (XML/HTML/script-ish types) is forced to attachment so
+    // mirrored bytes can never execute on the app origin. Safe
+    // image/video/audio/pdf inline serving is preserved.
+    const storedRef = entry.storedName || entry.originalName || "";
+    const storedMime = entry.mimeType || "";
+    res.setHeader(
+      "Content-Type",
+      resolveServedUploadContentType(storedRef, storedMime),
+    );
+    if (!shouldServeInline(storedRef, storedMime)) {
+      res.setHeader("Content-Disposition", "attachment");
+    }
+    res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Length", String(bytes.length));
     return res.send(bytes);
   });

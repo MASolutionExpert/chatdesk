@@ -73,6 +73,8 @@ nano .env
 
 :::info Using PostgreSQL with Docker
 ChatDesk defaults to SQLite (`DB_CLIENT=sqlite3`). To use PostgreSQL instead, edit `.env` to set `DB_CLIENT=postgres` along with your `POSTGRES_*` environment variables, or uncomment the optional `postgres` service and `postgres-data` volume block in `docker-compose.yaml`.
+
+Two security rules apply: `POSTGRES_PASSWORD` is mandatory (the compose file fails fast instead of falling back to a known default), and the optional `postgres` service publishes `5432` on `127.0.0.1` only — the app reaches it over the internal compose network, so the port never needs to be exposed to other machines.
 :::
 
 :::info Media Worker Container

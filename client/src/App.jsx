@@ -34,15 +34,55 @@ const PWA_INSTALL_DISMISS_KEY = 'chatdesk-pwa-install-dismissed'
 const PWA_PERMISSIONS_PROMPT_KEY = 'chatdesk-pwa-permissions-prompt'
 const ROUTE_CHUNK_TELEMETRY_KEY = 'chatdesk-route-chunk-telemetry-v1'
 const CHUNK_RECOVERY_ATTEMPT_KEY = 'chatdesk-chunk-recovery-attempted'
-const loadAuthPage = () => import('./pages/AuthPage.jsx')
-const loadChatPage = () => import('./pages/ChatPage.jsx')
-const loadInvitePage = () => import('./pages/InvitePage.jsx')
-const loadAdminPage = () => import('./pages/AdminPage.jsx')
+// Caps how many times the stale-shell recovery may reload the page per
+// session — a persistently failing chunk must not loop forever.
+const CHUNK_RECOVERY_ATTEMPTS_KEY = 'chatdesk-chunk-recovery-attempts'
+const CHUNK_RECOVERY_MAX_ATTEMPTS = 2
+// After this grace window without a successful chunk load the one-shot guard
+// is cleared again, so a later (genuinely stale-shell) chunk failure can still
+// trigger recovery exactly once more per attempt slot.
+const CHUNK_RECOVERY_GRACE_MS = 30000
+
+// A successful lazy-chunk load proves the shell is healthy: clear the one-shot
+// recovery guard so a later, unrelated chunk failure can still recover.
+function markRouteChunkLoaded() {
+  try {
+    window.sessionStorage.removeItem(CHUNK_RECOVERY_ATTEMPT_KEY)
+  } catch {
+    // ignore storage failures
+  }
+}
+
+const loadAuthPage = () =>
+  import('./pages/AuthPage.jsx').then((mod) => {
+    markRouteChunkLoaded()
+    return mod
+  })
+const loadChatPage = () =>
+  import('./pages/ChatPage.jsx').then((mod) => {
+    markRouteChunkLoaded()
+    return mod
+  })
+const loadInvitePage = () =>
+  import('./pages/InvitePage.jsx').then((mod) => {
+    markRouteChunkLoaded()
+    return mod
+  })
+const loadAdminPage = () =>
+  import('./pages/AdminPage.jsx').then((mod) => {
+    markRouteChunkLoaded()
+    return mod
+  })
+const SupportPickerPage = lazy(() =>
+  import('./pages/SupportPickerPage.jsx').then((mod) => {
+    markRouteChunkLoaded()
+    return mod
+  }),
+)
 const AuthPage = lazy(loadAuthPage)
 const ChatPage = lazy(loadChatPage)
 const InvitePage = lazy(loadInvitePage)
 const AdminPage = lazy(loadAdminPage)
-const SupportPickerPage = lazy(() => import('./pages/SupportPickerPage.jsx'))
 
 function getPreloadMode() {
   if (typeof navigator === 'undefined') return 'eager'
@@ -121,8 +161,29 @@ function isChunkLoadFailure(error) {
 export default function App() {
   async function recoverFromStaleShell() {
     if (typeof window === 'undefined') return
+
+    // Cap the total number of recoveries per session. A chunk that keeps
+    // failing (bad deploy, missing lazy route) must not reload forever.
+    let recoveryAttempts = 0
+    try {
+      recoveryAttempts = Number(
+        window.sessionStorage.getItem(CHUNK_RECOVERY_ATTEMPTS_KEY) || '0',
+      )
+    } catch {
+      recoveryAttempts = 0
+    }
+    if (recoveryAttempts >= CHUNK_RECOVERY_MAX_ATTEMPTS) return
+
     if (window.sessionStorage.getItem(CHUNK_RECOVERY_ATTEMPT_KEY) === '1') return
     window.sessionStorage.setItem(CHUNK_RECOVERY_ATTEMPT_KEY, '1')
+    try {
+      window.sessionStorage.setItem(
+        CHUNK_RECOVERY_ATTEMPTS_KEY,
+        String(recoveryAttempts + 1),
+      )
+    } catch {
+      // ignore storage failures
+    }
 
     try {
       if ('serviceWorker' in navigator) {
@@ -435,8 +496,20 @@ export default function App() {
     }
   }, [])
 
+  // The one-shot chunk-recovery guard is deliberately NOT cleared on mount:
+  // clearing it here turned a persistently failing chunk into an infinite
+  // reload loop (reload → mount clears guard → fail → unregister SW → reload).
+  // It is cleared by markRouteChunkLoaded() on a successful lazy chunk load,
+  // or after a grace window below.
   useEffect(() => {
-    window.sessionStorage.removeItem(CHUNK_RECOVERY_ATTEMPT_KEY)
+    const graceTimer = window.setTimeout(() => {
+      try {
+        window.sessionStorage.removeItem(CHUNK_RECOVERY_ATTEMPT_KEY)
+      } catch {
+        // ignore storage failures
+      }
+    }, CHUNK_RECOVERY_GRACE_MS)
+    return () => window.clearTimeout(graceTimer)
   }, [])
 
   useEffect(() => {

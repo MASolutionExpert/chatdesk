@@ -88,6 +88,26 @@ export async function acquireLocalMedia(wantsVideo) {
 }
 
 /**
+ * Stop screen-share tracks — the screen's video track and, when the picker
+ * granted it, the display-audio track. Both must be stopped on teardown or
+ * the display-audio track keeps capturing after hang-up. stop() failures are
+ * swallowed (tracks may already be stopped by the browser).
+ */
+export function stopScreenShareTracks(screenTrack, screenAudioTrack) {
+  if (screenTrack) {
+    screenTrack.onended = null;
+    try {
+      screenTrack.stop();
+    } catch (_) {}
+  }
+  if (screenAudioTrack) {
+    try {
+      screenAudioTrack.stop();
+    } catch (_) {}
+  }
+}
+
+/**
  * Put an outgoing video track on the peer connection. An existing video
  * sender (the camera, or a sender left over from an earlier share) is reused
  * with replaceTrack so no renegotiation is needed. Otherwise the video
@@ -376,12 +396,12 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   const releaseScreenShare = useCallback(() => {
     const track = screenTrackRef.current;
     screenTrackRef.current = null;
-    if (track) {
-      track.onended = null;
-      try {
-        track.stop();
-      } catch (_) {}
-    }
+    // The display-audio track must be stopped too, and the sender ref reset:
+    // otherwise the track keeps capturing after hang-up and the next call's
+    // share would call replaceTrack on a sender from a closed peer connection.
+    const screenAudioTrack = screenAudioSenderRef.current?.track;
+    stopScreenShareTracks(track, screenAudioTrack);
+    screenAudioSenderRef.current = null;
     videoSenderRef.current = null;
   }, []);
 
@@ -633,6 +653,14 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       }
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
         if (pc.connectionState === "failed") {
+          // The 5s "disconnected" grace timer must not outlive this point:
+          // browsers transition connected → disconnected → failed, and the
+          // timer would otherwise fire mid-restart and end the call before
+          // the ICE restart gets its full recovery window.
+          if (disconnectTimerRef.current) {
+            clearTimeout(disconnectTimerRef.current);
+            disconnectTimerRef.current = null;
+          }
           void logIceDiagnostics(pc, "failed");
           // One automatic ICE restart before giving up — see the refs above.
           // Both sides may attempt it at once; the polite/impolite offer
@@ -1202,13 +1230,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
     const audioTrack = screenAudioSenderRef.current?.track;
     const sender = videoSenderRef.current;
     screenTrackRef.current = null;
-    track.onended = null;
-    try {
-      track.stop();
-    } catch (_) {}
-    try {
-      audioTrack?.stop();
-    } catch (_) {}
+    stopScreenShareTracks(track, audioTrack);
     setIsScreenSharing(false);
     const pc = peerConnectionRef.current;
     if (sender && pc && pc.signalingState !== "closed") {

@@ -18,10 +18,16 @@ import {
 import { ChatDeskIcon, TelegramIcon } from "../../../icons/BrandIcons.jsx";
 import { hasPersian } from "../../../utils/fontUtils.js";
 import { getAvatarInitials } from "../../../utils/avatarInitials.js";
-import { formatCompactCount, formatDayLabel } from "../../../utils/chatFormat.js";
+import {
+  formatCompactCount,
+  formatDayLabel,
+  getSystemEventLine,
+} from "../../../utils/chatFormat.js";
 import ContextMenuSurface from "../../context-menu/ContextMenuSurface.jsx";
 import { MessageFiles } from "../media/MessageFiles.jsx";
 import {
+  isMarkdownHighlighterReady,
+  MARKDOWN_HLJS_READY_EVENT,
   renderMarkdownBlock,
   renderMarkdownInlinePlain,
 } from "../../../utils/markdown.js";
@@ -108,6 +114,8 @@ const getSystemEventSignature = (systemEvent) => {
   ].join("::");
 };
 
+// System event pills are localized at render time from _systemEvent.type (the
+// loader stores only the raw event type + member name) — see chatFormat.js.
 const getMessageRenderSignature = (msg) => {
   if (!msg) return "";
   return [
@@ -331,16 +339,41 @@ export const MessageItem = memo(function MessageItem({
     onOpenMentionRef.current = onOpenMention;
   }, [onOpenMention]);
   const messageIdentity = getMessageIdentity(msg);
+  // Bumped when highlight.js finishes loading, so messages that were rendered
+  // before it arrived (plain escaped code) re-parse with highlighting.
+  const [hljsReadyTick, setHljsReadyTick] = useState(0);
   const markdownHtml = useMemo(() => {
     const cacheKey = `${messageIdentity}::${bodyText}::${Number(
       msg?.edited || 0,
     )}::${msg?._edited ? 1 : 0}`;
     const cached = readCachedHtml(messageBodyHtmlCache, cacheKey);
     if (cached !== null) return cached;
-    return writeCachedHtml(messageBodyHtmlCache, cacheKey, renderMarkdownBlock(bodyText));
-  }, [bodyText, messageIdentity, msg?._edited, msg?.edited]);
+    const highlighterReadyBeforeRender = isMarkdownHighlighterReady();
+    const html = renderMarkdownBlock(bodyText);
+    // Un-highlighted code output must not be cached: once highlight.js loads,
+    // the same body has to re-parse (markdown.js clears its cache on load and
+    // fires MARKDOWN_HLJS_READY_EVENT, which bumps hljsReadyTick above).
+    if (
+      !highlighterReadyBeforeRender &&
+      typeof html === "string" &&
+      html.includes("sb-code-block")
+    ) {
+      return html;
+    }
+    return writeCachedHtml(messageBodyHtmlCache, cacheKey, html);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyText, messageIdentity, msg?._edited, msg?.edited, hljsReadyTick]);
   const hasMarkdownCodeBlock =
     typeof markdownHtml === "string" && markdownHtml.includes("sb-code-block");
+  const systemEventLine = getSystemEventLine(msg?._systemEvent, t);
+
+  useEffect(() => {
+    if (!hasMarkdownCodeBlock) return;
+    const onHighlighterReady = () => setHljsReadyTick((tick) => tick + 1);
+    window.addEventListener(MARKDOWN_HLJS_READY_EVENT, onHighlighterReady);
+    return () =>
+      window.removeEventListener(MARKDOWN_HLJS_READY_EVENT, onHighlighterReady);
+  }, [hasMarkdownCodeBlock]);
 
   useEffect(() => {
     const container = messageBodyRef.current;
@@ -952,18 +985,12 @@ export const MessageItem = memo(function MessageItem({
             <span className="min-w-0 truncate">
               <span
                 className={`min-w-0 truncate ${
-                  hasPersian(msg?._systemEvent?.name) ? "font-fa sb-fa-baseline-fix" : ""
+                  hasPersian(systemEventLine) ? "font-fa sb-fa-baseline-fix" : ""
                 }`}
                 dir="auto"
                 style={{ unicodeBidi: "isolate" }}
               >
-                {msg?._systemEvent?.name || t("chat.chat.aMember")}
-              </span>{" "}
-              <span
-                dir="ltr"
-                style={{ unicodeBidi: "isolate" }}
-              >
-                {msg?._systemEvent?.suffix || ""}
+                {systemEventLine}
               </span>
             </span>
           </span>

@@ -101,3 +101,20 @@ export const formatCompactCount = (value) => {
   const next = (count / 1_000_000_000).toFixed(1);
   return `${next.replace(/\.0$/, "")}B`;
 };
+
+/**
+ * Build the localized system-event pill line from the raw event stored on the
+ * message (`_systemEvent.type` + member name, see useMessagesLoader). Kept
+ * out of the component so both en + fa dictionaries and the renderer stay
+ * unit-testable; MessageItem renders the result with dir="auto".
+ */
+export const getSystemEventLine = (systemEvent, t) => {
+  if (!systemEvent) return "";
+  const memberName = systemEvent?.name || t("chat.chat.aMember");
+  const type = String(systemEvent?.type || "").toLowerCase();
+  if (type === "referred") return t("chat.system.referred", { name: memberName });
+  if (type === "left") return t("chat.system.left", { name: memberName });
+  if (type === "removed") return t("chat.system.removed", { name: memberName });
+  if (type) return t("chat.system.joined", { name: memberName });
+  return "";
+};

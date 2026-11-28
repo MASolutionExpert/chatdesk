@@ -1,4 +1,5 @@
 import path from "node:path";
+import { dbKnex } from "../db/knex.js";
 
 function registerProfileRoutes(app, deps) {
   const {
@@ -30,6 +31,12 @@ function registerProfileRoutes(app, deps) {
     requireSession,
     requireSessionUsernameMatch,
     storageEncryption,
+    // Session revocation on password change (review F7): parse the sid
+    // cookie to keep the current device logged in, delete every OTHER
+    // session row of the user through the raw primitives.
+    parseCookies,
+    deleteSession,
+    adminGetAll,
     storeAvatarFile = deps.storeAvatarFile,
     updateUserPassword,
     updateUserProfile,
@@ -371,6 +378,25 @@ function registerProfileRoutes(app, deps) {
 
     const passwordHash = bcrypt.hashSync(newPassword, 10);
     await updateUserPassword(user.id, passwordHash);
+
+    // Revoke the user's OTHER sessions (review F7): a password change must
+    // also evict a thief's live access. The device that performed the
+    // change (the sid cookie on this request) stays logged in.
+    try {
+      const currentToken = String(parseCookies?.(req)?.sid || "");
+      const rawRows = adminGetAll?.(
+        dbKnex("sessions").select("token").where("user_id", user.id),
+      );
+      const rows =
+        rawRows && typeof rawRows.then === "function" ? await rawRows : rawRows;
+      for (const row of rows || []) {
+        const token = String(row?.token || "");
+        if (!token || token === currentToken) continue;
+        await deleteSession?.(token);
+      }
+    } catch (_) {
+      // Best effort — the password itself was already changed.
+    }
 
     res.json({ ok: true });
   });

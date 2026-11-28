@@ -146,7 +146,34 @@ no-tls
 no-dtls
 log-file=/var/log/turnserver.log
 simple-log
+
+# Relay targets: deny peers on private / infrastructure networks. Without
+# these, any client holding the shared credential could relay traffic into
+# the host's private network or the cloud metadata endpoint (169.254.169.254).
+# IPv4 reserved / private ranges:
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+# IPv6 unique-local, link-local and IPv4-mapped equivalents:
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=::ffff:0:0-::ffff:ffff:ffff
+# coturn built-in peer filters
+no-loopback-peers
+no-multicast-peers
 ```
+
+:::warning Do not set `listening-ip` to your public IP on NAT'd VMs
+`listening-ip` must be an address that exists on a local interface. On NAT'd
+cloud VMs (AWS EC2, GCP, most VPS providers) the public IP is not bound to an
+interface, so coturn fails to start. Do not set `listening-ip` at all — coturn
+binds to all interfaces — and only set `external-ip=` to advertise the public
+address.
+:::
 
 :::info WebRTC & Encryption
 WebRTC media traffic is end-to-end encrypted via SRTP/DTLS by default. Plain `turn:...:3478` with UDP provides the lowest latency and optimal relay performance. If you require TLS encapsulation over port `5349` (`turns:`), obtain an SSL certificate (e.g. Let's Encrypt), open port `5349` (`tcp`/`udp`), and configure `cert` and `pkey` paths in `turnserver.conf`.

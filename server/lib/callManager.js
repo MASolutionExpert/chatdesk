@@ -670,6 +670,20 @@ export function createCallManager(deps) {
     return { status: 200, ok: true };
   }
 
+  // Signal relay allowlist: the only payload keys a call participant may
+  // push to their peer. Derived from what callManager's own call flow puts
+  // into signal payloads (offer/answer SDP, ICE candidates, camera and
+  // screen-share state — see the /api/calls routes and the WS gateway's
+  // call_signal action). Without it, `...payload` used to spread AFTER
+  // type/chatId, so a participant could override the envelope and forge
+  // arbitrary realtime events (e.g. `{type:'chat_message', username:'ceo'}`).
+  const ALLOWED_SIGNAL_KEYS = new Set([
+    "sdp",
+    "candidate",
+    "cameraOff",
+    "sharing",
+  ]);
+
   async function relaySignal({ user, chatId, signalType, payload = {} }) {
     if (!user?.username) {
       return { status: 401, error: "Not authenticated" };
@@ -686,10 +700,19 @@ export function createCallManager(deps) {
 
     const peer = peerUsernameOf(call, user.username);
     if (typeof emitToUser === "function" && peer) {
+      // Spread the (allowlisted) payload FIRST so the event envelope always
+      // wins — the wire format stays exactly what the client's signal
+      // handlers expect: { type, chatId, ...signalKeys }.
+      const filteredPayload = {};
+      for (const [signalKey, signalValue] of Object.entries(payload || {})) {
+        if (ALLOWED_SIGNAL_KEYS.has(signalKey)) {
+          filteredPayload[signalKey] = signalValue;
+        }
+      }
       emitToUser(peer, {
+        ...filteredPayload,
         type: `call:${signalType}`,
         chatId: call.chatId,
-        ...payload,
       });
     }
 

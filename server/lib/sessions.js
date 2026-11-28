@@ -3,6 +3,18 @@ export function createSessionHelpers({
   touchSession,
   isProduction,
 }) {
+  const decodeCookieValue = (value) => {
+    // A single malformed percent-escape (e.g. `foo=%E0%A4%A`) must not make
+    // decodeURIComponent throw and turn every authenticated endpoint into a
+    // 500 — the browser keeps sending that cookie, so the user would stay
+    // locked out. Fall back to the raw value instead.
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  };
+
   const parseCookies = (req) => {
     const cookieHeader = req.headers.cookie;
     if (!cookieHeader) return {};
@@ -11,7 +23,7 @@ export function createSessionHelpers({
       const [name, ...rest] = cookie.trim().split("=");
       if (!name) return acc;
 
-      acc[name] = decodeURIComponent(rest.join("="));
+      acc[name] = decodeCookieValue(rest.join("="));
 
       return acc;
     }, {});

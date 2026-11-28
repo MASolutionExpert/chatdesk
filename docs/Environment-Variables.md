@@ -26,7 +26,7 @@ nano .env
 | `POSTGRES_HOST` | `string` | `127.0.0.1` | PostgreSQL database host. |
 | `POSTGRES_PORT` | `integer` | `5432` | PostgreSQL database port. |
 | `POSTGRES_USER` | `string` | `postgres` | PostgreSQL username. |
-| `POSTGRES_PASSWORD` | `string` | `postgres` | PostgreSQL password. |
+| `POSTGRES_PASSWORD` | `string` | — | PostgreSQL password. **Required when `DB_CLIENT=postgres`** — no default is provided; never run with the known `postgres` default. Generate one (e.g. `openssl rand -hex 16`). |
 | `POSTGRES_DB` | `string` | `chatdesk` | PostgreSQL database name. |
 | `POSTGRES_URL` | `string` | `null` | Optional full PostgreSQL connection string URL. |
 | `POSTGRES_SSL` | `boolean` | `false` | Enable SSL for PostgreSQL connections. |

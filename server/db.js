@@ -186,7 +186,7 @@ export async function restoreDatabase(fileBuffer) {
   });
 }
 
-function createPreMigrationBackup(fromVersion, toVersion) {
+async function createPreMigrationBackup(fromVersion, toVersion) {
   if (isPostgresMode()) {
     // Postgres has no local db file to check — always attempt the backup.
     return createPostgresPreMigrationBackup(fromVersion, toVersion);
@@ -204,6 +204,22 @@ function createPreMigrationBackup(fromVersion, toVersion) {
       backupDir,
       `chatdesk-pre-migration-v${fromVersion}-to-v${toVersion}-${stamp}.db`,
     );
+
+    // A bare copyFileSync of the main database file misses un-checkpointed
+    // -wal contents (the DB runs in WAL mode), so the "pre-migration backup"
+    // could be stale or torn exactly when it matters. Prefer better-sqlite3's
+    // online backup API (consistent snapshot that includes WAL contents);
+    // under the sql.js fallback the in-memory image is authoritative and may
+    // be newer than the file on disk, so export it directly.
+    if (betterDb) {
+      await betterDb.backup(backupPath);
+      return backupPath;
+    }
+    if (db && typeof db.export === "function") {
+      fs.writeFileSync(backupPath, Buffer.from(db.export()));
+      return backupPath;
+    }
+
     fs.copyFileSync(dbPath, backupPath);
     return backupPath;
   } catch (error) {
@@ -464,11 +480,21 @@ function runWithoutSave(sqlOrBuilder, params = []) {
     stmt.run(...normalizedParams);
     return;
   }
+  if (!db) return;
   const stmt = db.prepare(sql);
 
   stmt.bind(normalizedParams);
   stmt.step();
   stmt.free();
+
+  // sql.js fallback: every write through this helper must mark the in-memory
+  // image dirty, otherwise saveDatabase() skips the flush (its early-return
+  // fires when the file already existed at boot) and the writes are lost on
+  // restart. Callers that manage their own transactions still call
+  // saveDatabase() explicitly after COMMIT/RELEASE — scheduling is harmless
+  // there because the debounced write only persists the committed state.
+  databaseDirty = true;
+  scheduleDatabaseSave();
 }
 
 function getLastInsertId() {
@@ -872,6 +898,58 @@ async function runDatabaseMigrations() {
     setUserColor,
   };
 
+  // Transactional wrapper used by destructive migrations (e.g. 036). On
+  // Postgres the statements must all run on ONE connection — knex .raw() uses
+  // the pool and may hand each statement a different client — so the callback
+  // receives a context whose db/getAll are bound to trx. On SQLite the driver
+  // is a single synchronous connection, so the same context is handed through
+  // and the migration manages BEGIN/COMMIT itself.
+  migrationContext.transaction = (callback) => {
+    if (!isPostgresMode()) {
+      return Promise.resolve(callback(migrationContext));
+    }
+    return dbKnex.transaction(async (trx) => {
+      const txContext = {
+        db: {
+          run: (sql, params = []) => {
+            const { sql: normSql, params: normParams } =
+              normalizeSqlForPostgres(sql, params);
+            return trx
+              .raw(normSql, normParams)
+              .then((res) => {
+                updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+                if (typeof res?.rowCount === "number") return res.rowCount;
+                const rows = getPostgresRows(res);
+                return rows.length;
+              });
+          },
+          exec: (sql) => {
+            const { sql: normSql } = normalizeSqlForPostgres(sql, []);
+            return trx.raw(normSql).then((res) => {
+              updateSchemaSetsFromSql(sql, tablesSet, columnsSet);
+              return res;
+            });
+          },
+          prepare: () => null,
+        },
+        getAll: (sql, params = []) => {
+          const { sql: normSql, params: normParams } =
+            normalizeSqlForPostgres(sql, params);
+          return trx.raw(normSql, normParams).then(getPostgresRows);
+        },
+        isPostgres: true,
+        tableExists: (name) =>
+          tablesSet.has(String(name || "").toLowerCase()),
+        hasColumn: (tableName, columnName) =>
+          columnsSet.has(
+            `${String(tableName || "").toLowerCase()}.${String(columnName || "").toLowerCase()}`,
+          ),
+        setUserColor,
+      };
+      return callback(txContext);
+    });
+  };
+
   const orderedMigrations = [...migrations].sort(
     (a, b) => a.version - b.version,
   );
@@ -883,9 +961,10 @@ async function runDatabaseMigrations() {
   const startingVersion = await getSchemaVersion();
 
   if (startingVersion < latestVersion) {
-    // createPreMigrationBackup handles both SQLite (file copy) and Postgres
-    // (best-effort pg_dump) internally.
-    createPreMigrationBackup(startingVersion, latestVersion);
+    // createPreMigrationBackup handles both SQLite (WAL-safe online backup)
+    // and Postgres (best-effort pg_dump) internally. Awaited so migrations
+    // can never start while the backup snapshot is still being written.
+    await createPreMigrationBackup(startingVersion, latestVersion);
   }
 
   let appliedMigration = false;
@@ -943,6 +1022,27 @@ async function runDatabaseMigrations() {
   if (currentVersion < latestVersion) {
     await setSchemaVersion(latestVersion);
     appliedMigration = true;
+  }
+
+  // Storage-layer guarantee for the first-registration owner election (see
+  // createUser): a partial UNIQUE index makes `users.role = 'owner'` a
+  // database-enforced singleton, so a race between hasAnyUser() and
+  // createUser() during first setup can never create two owners — neither on
+  // SQLite nor on PostgreSQL. Idempotent; runs on every boot so both fresh
+  // installs and installs predating this change get the backstop. Failure
+  // (e.g. a legacy install that somehow already has 2 owner rows) is logged,
+  // not fatal — createUser()'s conditional insert still guards the runtime
+  // path.
+  try {
+    await run(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_owner ON users(role) WHERE role = 'owner'",
+    );
+  } catch (err) {
+    console.warn(
+      `[db-migrations] Could not create idx_users_single_owner (owner singleton backstop): ${
+        err?.message || err
+      }`,
+    );
   }
 
   if (appliedMigration) {
@@ -1045,6 +1145,68 @@ export function createUser(
   const role = typeof options === "string" ? options : (options?.role || "user");
   const verified = typeof options === "object" && options?.verified ? 1 : 0;
   const status = (typeof options === "object" && options?.status) || "online";
+
+  // ── Owner singleton guard (first-registration race) ─────────────────────
+  // The registration flow decides 'owner' from a hasAnyUser() check that is
+  // stale under concurrency (two parallel first signups both saw "no users").
+  // The write layer enforces the singleton itself:
+  //   1. a single-statement INSERT ... SELECT ... WHERE NOT EXISTS (atomic on
+  //      SQLite and PostgreSQL), and
+  //   2. the partial UNIQUE index idx_users_single_owner created at boot as a
+  //      hard backstop for interleaved concurrent inserts.
+  // A losing concurrent signup gets a clear error instead of a silent second
+  // owner.
+  if (role === "owner") {
+    const OWNER_EXISTS_ERROR =
+      "An owner account already exists — only one owner is allowed.";
+    const ownerGuardInsert = () =>
+      // Single statement: INSERT ... SELECT ... WHERE NOT EXISTS(owner).
+      // Atomic on SQLite and PostgreSQL alike; with idx_users_single_owner in
+      // place, even two interleaved concurrent inserts cannot both win.
+      run(
+        `INSERT INTO users
+           (id, username, nickname, avatar_url, color, password_hash,
+            role, verified, status, last_seen)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')
+         WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'owner')`,
+        [
+          id,
+          username,
+          nickname,
+          avatarUrl,
+          nextColor,
+          passwordHash,
+          role,
+          verified,
+          status,
+        ],
+      );
+
+    const inserted = (res) => {
+      const count = Number(res);
+      if (count > 0) return id;
+      throw new Error(OWNER_EXISTS_ERROR);
+    };
+
+    const existingOwner = getRow(
+      dbKnex("users").select("id").where({ role: "owner" }).first(),
+    );
+    if (existingOwner && typeof existingOwner.then === "function") {
+      // Postgres: chain the guard query and the conditional insert.
+      return existingOwner.then((ownerRow) => {
+        if (ownerRow?.id) throw new Error(OWNER_EXISTS_ERROR);
+        return ownerGuardInsert().then(inserted);
+      });
+    }
+    if (existingOwner?.id) {
+      throw new Error(OWNER_EXISTS_ERROR);
+    }
+    const insertRes = ownerGuardInsert();
+    if (insertRes && typeof insertRes.then === "function") {
+      return insertRes.then(inserted);
+    }
+    return inserted(insertRes);
+  }
 
   const res = run(
     dbKnex("users").insert({
@@ -1856,7 +2018,10 @@ export function releaseStaleRemoteChannelQueueItems(staleBeforeIso) {
   const staleClause = isPostgresMode()
     ? `AND NULLIF(locked_at, '')::timestamptz <= ?::timestamptz`
     : `AND julianday(locked_at) <= julianday(?)`;
-  run(
+  // Must return run()'s result: on Postgres the query is a promise — dropping
+  // it meant callers could not await the release (racing with subsequent
+  // reads) and a rejected query became an unhandled rejection.
+  return run(
     `UPDATE remote_channel_queue
      SET status = 'retry',
          locked_at = NULL,
@@ -2381,7 +2546,10 @@ export async function getChatMemberRole(chatId, userId) {
 }
 
 export function setChatMemberRole(chatId, userId, role = "member") {
-  run(
+  // Must return run()'s result: on Postgres the caller cannot otherwise await
+  // the update (role-change raced with the following reads) and a rejected
+  // query had no handler (unhandled rejection → process crash).
+  return run(
     dbKnex("chat_members")
       .where({ chat_id: chatId, user_id: userId })
       .update({ role: String(role || "member") }),
@@ -2432,6 +2600,11 @@ async function deleteChatByIdPostgres(chatId) {
       })
       .del();
     await trx("remote_channel_sources").where("chat_id", chatId).del();
+    // Tickets ride 1:1 on the chat (tickets.chat_id UNIQUE) — without this
+    // delete the ghost ticket keeps the chat counted by getSupportReport and
+    // pickOperatorForDepartment, and a later re-creation of the chat cannot
+    // get a new ticket because of the UNIQUE constraint.
+    await trx("tickets").where("chat_id", chatId).del();
     await trx("chats").where("id", chatId).del();
 
     return { storedNames };
@@ -2489,6 +2662,8 @@ function deleteChatByIdSqlite(chatId) {
         .del(),
     );
     runWithoutSave(dbKnex("remote_channel_sources").where("chat_id", chatId).del());
+    // See deleteChatByIdPostgres: tickets must go with their chat.
+    runWithoutSave(dbKnex("tickets").where("chat_id", chatId).del());
     runWithoutSave(dbKnex("chats").where("id", chatId).del());
     runWithoutSave(`RELEASE ${savepoint}`);
     saveDatabase();
@@ -2563,12 +2738,21 @@ async function deleteUserByIdPostgres(userId) {
           this.select("id").from("chat_messages").where("chat_id", chatId);
         })
         .del();
+      // Hidden-for-me marks by OTHER users against this chat's messages must
+      // go too — BEFORE the messages themselves, while the message ids can
+      // still be resolved. Otherwise the rows survive as orphans.
+      await trx("hidden_chat_messages")
+        .whereIn("message_id", function () {
+          this.select("id").from("chat_messages").where("chat_id", chatId);
+        })
+        .del();
       await trx("chat_messages").where("chat_id", chatId).del();
       await trx("chat_members").where("chat_id", chatId).del();
       await trx("chat_mutes").where("chat_id", chatId).del();
       await trx("chat_left_members").where("chat_id", chatId).del();
       await trx("group_removed_members").where("chat_id", chatId).del();
       await trx("hidden_chats").where("chat_id", chatId).del();
+      await trx("tickets").where("chat_id", chatId).del();
       await trx("chats").where("id", chatId).del();
     }
 
@@ -2684,12 +2868,23 @@ function deleteUserByIdSqlite(userId) {
             })
             .del(),
         );
+        // Hidden-for-me marks by OTHER users against this chat's messages go
+        // BEFORE the messages themselves, while the message ids can still be
+        // resolved — otherwise the rows survive as orphans.
+        runWithoutSave(
+          dbKnex("hidden_chat_messages")
+            .whereIn("message_id", function () {
+              this.select("id").from("chat_messages").where("chat_id", chatId);
+            })
+            .del(),
+        );
         runWithoutSave(dbKnex("chat_messages").where("chat_id", chatId).del());
         runWithoutSave(dbKnex("chat_members").where("chat_id", chatId).del());
         runWithoutSave(dbKnex("chat_mutes").where("chat_id", chatId).del());
         runWithoutSave(dbKnex("chat_left_members").where("chat_id", chatId).del());
         runWithoutSave(dbKnex("group_removed_members").where("chat_id", chatId).del());
         runWithoutSave(dbKnex("hidden_chats").where("chat_id", chatId).del());
+        runWithoutSave(dbKnex("tickets").where("chat_id", chatId).del());
         runWithoutSave(dbKnex("chats").where("id", chatId).del());
       });
     }
@@ -2879,6 +3074,10 @@ export function listChatsForUser(userId) {
     .leftJoin("remote_channel_sources as rcs", function () {
       this.on("rcs.chat_id", "=", "mc.id").andOn("rcs.enabled", "=", dbKnex.raw("1"));
     })
+    // Cross-dialect "chats with messages first, empty chats last": SQLite puts
+    // NULLs last on DESC, PostgreSQL puts them FIRST — without the IS NULL
+    // flag, empty chats float to the top of the chat list on Postgres.
+    .orderByRaw("last_vm.created_at IS NULL ASC")
     .orderBy("last_vm.created_at", "desc")
     .orderBy("last_vm.id", "desc")
     .orderBy("mc.created_at", "desc");
@@ -3177,11 +3376,16 @@ export function ensureSavedChatForUser(userId) {
           addChatMember(existing.id, userId, "owner");
         }
         if (String(existing.group_visibility || "").toLowerCase() !== "private") {
-          run(
+          // Chain the update into the returned promise so a Postgres rejection
+          // is not dropped as an unhandled rejection.
+          const visibilityRes = run(
             dbKnex("chats")
               .where("id", existing.id)
               .update({ group_visibility: "private" }),
           );
+          if (visibilityRes && typeof visibilityRes.then === "function") {
+            return visibilityRes.then(() => existing);
+          }
         }
         return existing;
       };
@@ -3246,7 +3450,8 @@ export function findMessageById(messageId) {
 }
 
 export function setMessageExpiresAt(messageId, expiresAt = null) {
-  run(
+  // Return run()'s result so Postgres callers can await and rejections surface.
+  return run(
     dbKnex("chat_messages")
       .where("id", messageId)
       .update({ expires_at: expiresAt || null }),
@@ -3254,7 +3459,8 @@ export function setMessageExpiresAt(messageId, expiresAt = null) {
 }
 
 export function editMessage(messageId, editedBody) {
-  run(
+  // Return run()'s result so Postgres callers can await and rejections surface.
+  return run(
     dbKnex("chat_messages")
       .where("id", messageId)
       .update({
@@ -3265,7 +3471,8 @@ export function editMessage(messageId, editedBody) {
 }
 
 export function hideMessageForUser(messageId, userId) {
-  run(
+  // Return run()'s result so Postgres callers can await and rejections surface.
+  return run(
     dbKnex("hidden_chat_messages")
       .insert({
         message_id: messageId,
@@ -3280,7 +3487,8 @@ export function hideMessageForUser(messageId, userId) {
 }
 
 export function hideMessageForEveryone(messageId) {
-  run(
+  // Return run()'s result so Postgres callers can await and rejections surface.
+  return run(
     dbKnex("chat_messages")
       .where("id", messageId)
       .update({
@@ -3372,7 +3580,9 @@ export function recordPendingPresignedUpload({ storageKey, userId = null, expire
   const key = String(storageKey).trim();
   if (!key) return null;
   const nowIso = new Date().toISOString();
-  run(
+  // Propagate run()'s result without changing the resolved value: on Postgres
+  // the insert is a promise — dropping it lost both the await and rejections.
+  const insertRes = run(
     dbKnex("pending_presigned_uploads").insert({
       storage_key: key,
       user_id: userId || null,
@@ -3380,7 +3590,11 @@ export function recordPendingPresignedUpload({ storageKey, userId = null, expire
       expires_at: expiresAt || null,
     }),
   );
-  return { storage_key: key, user_id: userId, created_at: nowIso, expires_at: expiresAt };
+  const result = { storage_key: key, user_id: userId, created_at: nowIso, expires_at: expiresAt };
+  if (insertRes && typeof insertRes.then === "function") {
+    return insertRes.then(() => result);
+  }
+  return result;
 }
 
 export function removePendingPresignedUploads(storageKeys = []) {
@@ -3388,9 +3602,13 @@ export function removePendingPresignedUploads(storageKeys = []) {
     .map((k) => (typeof k === "string" ? k.trim() : (k?.storageKey || k?.storage_key || k?.key || "")))
     .filter(Boolean);
   if (!keys.length) return 0;
-  run(
+  // Propagate run()'s result without changing the resolved value.
+  const delRes = run(
     dbKnex("pending_presigned_uploads").whereIn("storage_key", keys).del(),
   );
+  if (delRes && typeof delRes.then === "function") {
+    return delRes.then(() => keys.length);
+  }
   return keys.length;
 }
 
@@ -5268,6 +5486,7 @@ const RESET_TABLES = [
   "remote_channel_provider_state",
   "push_subscriptions",
   "sessions",
+  "tickets",
   "chats",
   "users",
 ];
@@ -5319,7 +5538,8 @@ export function dbGetSetting(key) {
 }
 
 export function dbSetSetting(key, value) {
-  run(
+  // Return run()'s result so Postgres callers can await and rejections surface.
+  return run(
     dbKnex("app_settings")
       .insert({ key: String(key), value: String(value) })
       .onConflict("key")
@@ -5328,7 +5548,8 @@ export function dbSetSetting(key, value) {
 }
 
 export function dbDeleteSetting(key) {
-  run(dbKnex("app_settings").where({ key: String(key) }).del());
+  // Return run()'s result so Postgres callers can await and rejections surface.
+  return run(dbKnex("app_settings").where({ key: String(key) }).del());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5339,6 +5560,11 @@ export function dbDeleteSetting(key) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SUPPORT_ROLES = ["operator", "owner"];
+
+// Bind-parameter budget for the support report's chat-id IN lists. 500 is far
+// below every practical limit (SQLite historical default 999 / 32766, PG
+// 65535) while keeping statement caches useful.
+const SUPPORT_REPORT_IN_CHUNK = 500;
 
 export function listDepartments({ activeOnly = true } = {}) {
   const qb = dbKnex("departments")
@@ -6074,18 +6300,29 @@ export async function getSupportReport({ departmentId = null, from = null, to = 
   // Full message history of the involved chats (aggregator applies ranges).
   // Chat ids are TEXT UUIDs since migration 036 — keep them raw; Number()
   // would turn every id into NaN and the IN clause would match no rows.
+  // The IN list is CHUNKED: large installations blow past the SQLite/PG
+  // bind-parameter limits with a single unbounded whereIn(chat_id, <all ids>).
   const chatIds = (chatRows || []).map((r) => r.id);
-  const messageRows = chatIds.length
-    ? await getAll(
-        dbKnex("chat_messages")
-          .whereIn("chat_id", chatIds)
-          .select("chat_id", "user_id", "created_at")
-      )
-    : [];
+  const messageRows = [];
+  for (let i = 0; i < chatIds.length; i += SUPPORT_REPORT_IN_CHUNK) {
+    const chunk = chatIds.slice(i, i + SUPPORT_REPORT_IN_CHUNK);
+    const rows = await getAll(
+      dbKnex("chat_messages")
+        .whereIn("chat_id", chunk)
+        .select("chat_id", "user_id", "created_at"),
+    );
+    messageRows.push(...(rows || []));
+  }
 
   const ticketRows = await getAll(ticketQb);
 
-  const roleRows = await getAll(dbKnex("users").select("id", "role"));
+  // Author → role classification only needs STAFF roles (see
+  // lib/supportReport.js: STAFF_ROLES = {operator, owner}); every other author
+  // falls back to 'user'. Filtering here avoids loading the ENTIRE users table
+  // on large installs (previously: unbounded full-table scan).
+  const roleRows = await getAll(
+    dbKnex("users").select("id", "role").whereIn("role", SUPPORT_ROLES),
+  );
 
   return aggregateSupportReport({
     departments: reportDepartments,

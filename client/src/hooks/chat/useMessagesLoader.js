@@ -8,6 +8,25 @@ import { parseServerDate as defaultParseServerDate } from "../../utils/chatForma
 const SILENT_FETCH_TRACK_MAX_CHATS = 40;
 const SILENT_FETCH_MIN_INTERVAL_MS = 320;
 
+/**
+ * True when a finished message fetch is still the live request. Only the live
+ * request may reset the shared in-flight/spinner state — a superseded request
+ * (aborted or replaced by a newer one) must not touch it, otherwise the
+ * spinner ends early and the next silent refresh aborts the live request.
+ */
+export const isCurrentMessageFetch = (requestId, latestRequestId) =>
+  requestId === latestRequestId;
+
+/**
+ * True when the fetch's last message may overwrite the tail anchor
+ * (lastMessageIdRef). An empty tail-delta brings no id, and an afterId
+ * unread-anchor window ends mid-history — neither may clobber the anchor,
+ * or later hasNew/newFromSelf checks (scroll-to-bottom on new/own messages)
+ * silently fail.
+ */
+export const shouldTrackLastMessageId = (options, lastId) =>
+  Boolean(lastId) && !(Boolean(options?.afterId) && !options?.tailDelta);
+
 const isDocumentActive = () => {
   if (typeof document === "undefined") return false;
   return document.visibilityState === "visible" && document.hasFocus();
@@ -908,7 +927,14 @@ export function useMessagesLoader({
         lastMessageIdRef.current &&
         lastId !== lastMessageIdRef.current;
       const newFromSelf = hasNew && isMessageAuthoredByUser(lastMsg, user);
-      lastMessageIdRef.current = lastId;
+      // Only update the tail anchor with a real id from a non-anchor fetch:
+      // an empty tail-delta (nothing new) must not blank it out with null, and
+      // an afterId unread-anchor window ends mid-history, so its last message
+      // is not the chat's tail. Without this, later hasNew/newFromSelf checks
+      // fail and the "scroll to bottom" for new or own messages is skipped.
+      if (shouldTrackLastMessageId(options, lastId)) {
+        lastMessageIdRef.current = lastId;
+      }
 
       if (openingChatRef.current) {
         const firstUnreadIndex = nextMessages.findIndex(
@@ -1058,17 +1084,22 @@ export function useMessagesLoader({
       if (messageFetchAbortRef.current === controller) {
         messageFetchAbortRef.current = null;
       }
-      messageFetchInFlightRef.current = false;
-      if (queuedSilentMessageRefreshRef.current) {
-        const queuedChatId = String(queuedSilentMessageRefreshRef.current.chatId || "");
-        const lastAt = Number(lastSilentFetchByChatRef.current.get(queuedChatId) || 0);
-        const remainingMs = lastAt
-          ? Math.max(0, SILENT_FETCH_MIN_INTERVAL_MS - (Date.now() - lastAt))
-          : 0;
-        scheduleQueuedSilentMessageRefresh(remainingMs);
-      }
-      if (!options.silent) {
-        setLoadingMessages(false);
+      // Only the live request may reset the shared loading state: a superseded
+      // (aborted/replaced) request must not clear messageFetchInFlightRef or
+      // the spinner of the request that replaced it.
+      if (isCurrentMessageFetch(requestId, messageFetchRequestIdRef.current)) {
+        messageFetchInFlightRef.current = false;
+        if (queuedSilentMessageRefreshRef.current) {
+          const queuedChatId = String(queuedSilentMessageRefreshRef.current.chatId || "");
+          const lastAt = Number(lastSilentFetchByChatRef.current.get(queuedChatId) || 0);
+          const remainingMs = lastAt
+            ? Math.max(0, SILENT_FETCH_MIN_INTERVAL_MS - (Date.now() - lastAt))
+            : 0;
+          scheduleQueuedSilentMessageRefresh(remainingMs);
+        }
+        if (!options.silent) {
+          setLoadingMessages(false);
+        }
       }
     }
   }

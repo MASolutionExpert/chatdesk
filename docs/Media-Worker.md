@@ -123,7 +123,7 @@ This dedicated Alpine Linux-based image (~120 MB) comes pre-configured with Node
 docker run -d \
   --name chatdesk-media-worker \
   --restart unless-stopped \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   -e WORKER_PORT=8080 \
   -e WORKER_CONCURRENCY=2 \
   -e WEBHOOK_SECRET=your-secure-webhook-secret \
@@ -169,6 +169,10 @@ docker compose -f docker-compose.yaml up -d
 ```
 
 The pre-built `masolutionexpert/chatdesk-worker:latest` image will be pulled automatically. (If you prefer to build from source locally, uncomment the `build:` section in `worker/docker-compose.yaml`).
+
+:::warning `WEBHOOK_SECRET` is mandatory
+The worker's compose file refuses to start (`WEBHOOK_SECRET is required`) when the secret is empty, and it publishes the API port on `127.0.0.1` only. The worker's HTTP API accepts transcode/mirror jobs with an arbitrary callback URL, so an unauthenticated, publicly reachable worker is an SSRF vector into your network. Use the same high-entropy secret on both the ChatDesk server and the worker. If (and only if) the worker runs on a dedicated host and is fronted by TLS/reverse proxy with its own authentication, set `WORKER_BIND=0.0.0.0` in the worker's `.env` to expose the port on all interfaces.
+:::
 
 ### 3. Deploying on Cloud Platforms (Render, Railway, Fly.io, Koyeb)
 

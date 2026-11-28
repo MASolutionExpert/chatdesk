@@ -838,6 +838,14 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   const [groupAvatarPreview, setGroupAvatarPreview] = useState("");
   const [groupAvatarMarkedForRemoval, setGroupAvatarMarkedForRemoval] = useState(false);
   const [pendingGroupAvatarFile, setPendingGroupAvatarFile] = useState(null);
+  // Unmount-only cleanup reads the picked avatar through this ref: the cleanup
+  // effect below must NOT depend on `pendingGroupAvatarFile`, otherwise its
+  // cleanup runs on every pick/clear and revokes live composer/message blob
+  // URLs (voice-note and attachment previews would break mid-session).
+  const pendingGroupAvatarFileRef = useRef(null);
+  useEffect(() => {
+    pendingGroupAvatarFileRef.current = pendingGroupAvatarFile;
+  }, [pendingGroupAvatarFile]);
   const [pendingAvatarFile, setPendingAvatarFile] = useState(null);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -1279,7 +1287,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     }
     setMentionProfile({
       kind: String(targetChat.type || "group").toLowerCase(),
-      chatId: Number(targetChat.id || 0),
+      chatId: targetChat.id || 0,
       name: targetChat.name || t("chat.chat.fallbackName"),
       username: targetChat.group_username || "",
       visibility: targetChat.group_visibility || "public",
@@ -1384,8 +1392,10 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
         const isSaved = chat?.type === "saved";
         return {
           ...chat,
+          // Message ids are UUID strings — never coerce them through Number()
+          // (Number(uuid) is NaN, which would silently keep the stale id).
           last_message_id:
-            Number(messageId || 0) || chat?.last_message_id || null,
+            messageId || chat?.last_message_id || null,
           last_message: previewBody || chat?.last_message || "",
           last_message_files: previewFiles,
           last_time: previewTime,
@@ -1592,8 +1602,8 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       if (pendingVoiceMessageRef.current?.previewUrl) {
         URL.revokeObjectURL(pendingVoiceMessageRef.current.previewUrl);
       }
-      if (pendingGroupAvatarFile?.previewUrl) {
-        URL.revokeObjectURL(pendingGroupAvatarFile.previewUrl);
+      if (pendingGroupAvatarFileRef.current?.previewUrl) {
+        URL.revokeObjectURL(pendingGroupAvatarFileRef.current.previewUrl);
       }
       messageBlobUrlsRef.current.forEach((url) => {
         try {
@@ -1605,7 +1615,9 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
       messageBlobUrlsRef.current.clear();
       clearUnreadAlignTimers();
     };
-  }, [pendingGroupAvatarFile]);
+    // Unmount-only: reading the avatar through a ref keeps live blob URLs
+    // intact while the session runs (see the ref declaration above).
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -1854,10 +1866,17 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
           setMessages((prev) =>
             prev.length ? prev : normalizeMessagesForRender(idbCached.messages),
           );
-          setHasOlderMessages(Boolean(idbCached?.hasOlderMessages));
-          lastMessageIdRef.current =
-            Number(idbCached?.lastMessageId || 0) || lastMessageIdRef.current;
-          setLoadingMessages(false);
+          // The async IDB read can resolve after the server load has already
+          // applied — only let the cache own the pagination/spinner state when
+          // nothing is loaded yet, so it can never overwrite server state.
+          if (!(messagesRef.current || []).length) {
+            setHasOlderMessages(Boolean(idbCached?.hasOlderMessages));
+            // lastMessageId is a UUID string — do not pass it through Number()
+            // (Number(uuid) is NaN, so the id would silently be dropped).
+            lastMessageIdRef.current =
+              idbCached?.lastMessageId || lastMessageIdRef.current;
+            setLoadingMessages(false);
+          }
         })();
       }
         void (async () => {

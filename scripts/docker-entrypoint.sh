@@ -48,7 +48,26 @@ should_start_local_worker() {
 
 if should_start_local_worker; then
   echo "[entrypoint] Starting local ChatDesk Media Worker on port ${WORKER_PORT}..."
-  WORKER_PORT="${WORKER_PORT}" PORT="${WORKER_PORT}" DATA_DIR="${DATA_DIR:-/app/data}" node /app/worker/index.js &
+  # Simple supervision: the loop restarts the worker if it crashes, so a
+  # backgrounded one-shot `node ... &` cannot leave media processing silently
+  # dead until the next container restart. The loop itself runs in the
+  # background; signal handling is unaffected — PID 1 is still the exec'd
+  # server process below, and stopping the container kills the whole process
+  # tree (the sleep/loop children never outlive it).
+  #
+  # The loop exits as soon as the exec'd server process (our parent, unchanged
+  # PID across exec) is gone, so it never outlives the main service — this
+  # also keeps 'run ...' style tests (bats) from hanging on open pipes.
+  (
+    set +e
+    parent_pid="$PPID"
+    while :; do
+      WORKER_PORT="${WORKER_PORT}" PORT="${WORKER_PORT}" DATA_DIR="${DATA_DIR:-/app/data}" node /app/worker/index.js
+      echo "[entrypoint] Local media worker exited (code=$?); restarting in 1s..." >&2
+      sleep 1
+      kill -0 "$parent_pid" 2>/dev/null || exit 0
+    done
+  ) &
 fi
 
 exec "$@"

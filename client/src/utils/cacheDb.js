@@ -13,13 +13,33 @@ const STORES = {
 
 let dbPromise;
 
+const resetDbPromise = (promise) => {
+  // Only clear the cached promise if it is still the one we own — a newer
+  // openDb() call may have replaced it already.
+  if (promise === undefined || dbPromise === promise) {
+    dbPromise = null;
+  }
+};
+
 export const isIdbAvailable = () =>
   typeof window !== "undefined" && typeof window.indexedDB !== "undefined";
 
 const openDb = () => {
   if (!isIdbAvailable()) return Promise.resolve(null);
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve) => {
+  let promise;
+  promise = new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (!value) {
+        // A failed open must not cache `null` permanently — drop the cached
+        // promise so the next call retries the open.
+        resetDbPromise(promise);
+      }
+      resolve(value);
+    };
     const request = window.indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -29,17 +49,47 @@ const openDb = () => {
         }
       });
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
+    request.onblocked = () => {
+      // Another tab still holds an older DB_VERSION open. Resolve null
+      // instead of leaving callers pending forever; the next call retries.
+      finish(null);
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      // A version bump requested elsewhere (or user data deletion) closes
+      // this connection — reset the cache so the next call reopens fresh.
+      db.onversionchange = () => {
+        try {
+          db.close();
+        } catch {
+          // ignore close failures
+        }
+        resetDbPromise(promise);
+      };
+      db.onclose = () => {
+        resetDbPromise(promise);
+      };
+      finish(db);
+    };
+    request.onerror = () => finish(null);
   });
-  return dbPromise;
+  return promise;
 };
 
 const withStore = async (storeName, mode, callback) => {
   const db = await openDb();
   if (!db) return null;
+  let tx;
+  try {
+    tx = db.transaction(storeName, mode);
+  } catch {
+    // The connection went stale/closed between open and use — reset it so
+    // the next call reopens, and resolve null instead of throwing (callers
+    // fire-and-forget these helpers with `void`).
+    dbPromise = null;
+    return null;
+  }
   return new Promise((resolve) => {
-    const tx = db.transaction(storeName, mode);
     const store = tx.objectStore(storeName);
     const result = callback(store, tx);
     tx.oncomplete = () => {

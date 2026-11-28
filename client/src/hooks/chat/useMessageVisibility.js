@@ -96,20 +96,31 @@ export function useMessageVisibility({
     const root = chatScrollRef?.current ?? null;
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        // Read current values from refs — no stale closures
-        if (!canMarkReadRef.current || !isAppActiveRef.current) return;
+        // Read current values from refs — no stale closures.
+        const active = Boolean(
+          canMarkReadRef.current && isAppActiveRef.current,
+        );
         for (const entry of entries) {
           const el = entry.target;
           const id = elementToIdRef.current.get(el);
           if (!id) continue;
-          if (entry.isIntersecting) {
-            if (!dwellTimersRef.current.has(id)) {
-              const timer = window.setTimeout(() => {
-                dwellTimersRef.current.delete(id);
-                reportSeen(id);
-              }, VISIBILITY_DWELL_MS);
-              dwellTimersRef.current.set(id, timer);
+          if (!entry.isIntersecting) {
+            // The message left the view: cancel its dwell timer so a message
+            // scrolled past quickly is never marked as read.
+            const timer = dwellTimersRef.current.get(id);
+            if (timer !== undefined) {
+              window.clearTimeout(timer);
+              dwellTimersRef.current.delete(id);
             }
+            continue;
+          }
+          if (!active) continue;
+          if (!dwellTimersRef.current.has(id)) {
+            const timer = window.setTimeout(() => {
+              dwellTimersRef.current.delete(id);
+              reportSeen(id);
+            }, VISIBILITY_DWELL_MS);
+            dwellTimersRef.current.set(id, timer);
           }
         }
       },
@@ -121,6 +132,24 @@ export function useMessageVisibility({
     );
     return observerRef.current;
   }, [chatScrollRef, reportSeen]);
+
+  // The observer only fires on threshold crossings. When the app becomes
+  // active (or the view becomes readable again), already-visible messages get
+  // no fresh callback — force one by unobserve/observe of every tracked
+  // element, otherwise those messages would never be marked seen.
+  const reobserveAll = useCallback(() => {
+    const observer = observerRef.current;
+    if (!observer) return;
+    for (const el of elementToIdRef.current.keys()) {
+      observer.unobserve(el);
+      observer.observe(el);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!canMarkReadInCurrentView || !isAppActive) return;
+    reobserveAll();
+  }, [canMarkReadInCurrentView, isAppActive, reobserveAll]);
 
   /**
    * Returns a ref callback for a message element, or null if the message

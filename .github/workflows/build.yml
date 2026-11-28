@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Verify VERSION, installer header and CHANGELOG are in sync
         run: bash scripts/verify-release-sync.sh
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install bats and openssl
         run: sudo apt-get install -y bats openssl
@@ -43,15 +43,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
 
       - name: Install server dependencies
-        run: npm install --prefix server
+        run: npm ci --prefix server
 
       - name: Run server tests
         run: npm test --prefix server
@@ -62,9 +62,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
@@ -73,7 +73,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Install worker dependencies
-        run: npm install --prefix worker
+        run: npm ci --prefix worker
 
       - name: Run worker tests
         run: npm test --prefix worker
@@ -84,15 +84,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
 
       - name: Install client dependencies
-        run: npm install --prefix client
+        run: npm ci --prefix client
 
       - name: Run client unit tests
         run: npm run test:unit --prefix client
@@ -103,15 +103,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
 
       - name: Install client dependencies
-        run: npm install --prefix client
+        run: npm ci --prefix client
 
       - name: Install Playwright browsers
         run: npx --prefix client playwright install --with-deps chromium firefox
@@ -129,21 +129,21 @@ jobs:
     needs: [test-scripts, test-server, test-worker, test-client-unit, test-client-browser]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 24
           cache: npm
 
       - name: Install root dependencies
-        run: npm install
+        run: npm ci
 
       - name: Install server dependencies
-        run: npm install --prefix server
+        run: npm ci --prefix server
 
       - name: Install client dependencies
-        run: npm install --prefix client
+        run: npm ci --prefix client
 
       - name: Build client
         run: npm run build --prefix client

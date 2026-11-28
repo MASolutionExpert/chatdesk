@@ -391,3 +391,67 @@ describe("POST /api/admin/users verified status", () => {
     }
   });
 });
+
+// ─── Stage 3 Medium (review F7): live session-revocation signals ──────────────
+
+describe("POST /api/admin/users/:id/ban — live revocation signal (F7)", () => {
+  function makeBanApp(extraDeps = {}) {
+    return makeAdminApp({
+      emitSseEvent: vi.fn(),
+      adminBanUser: () => {},
+      ...extraDeps,
+    });
+  }
+
+  test("banning a user emits session_revoked with reason 'banned' (mirrors the CLI ban path)", async () => {
+    const emitSseEvent = vi.fn();
+    const { app } = makeBanApp({ emitSseEvent });
+
+    const res = await request(app)
+      .post("/api/admin/users/b0000000-0000-4000-8000-000000000002/ban")
+      .set("Cookie", "sid=admin-session")
+      .send({ banned: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(emitSseEvent).toHaveBeenCalledWith(
+      "bob",
+      expect.objectContaining({ type: "session_revoked", reason: "banned" }),
+    );
+  });
+
+  test("unbanning does not emit session_revoked", async () => {
+    const emitSseEvent = vi.fn();
+    const { app } = makeBanApp({ emitSseEvent });
+
+    const res = await request(app)
+      .post("/api/admin/users/b0000000-0000-4000-8000-000000000002/ban")
+      .set("Cookie", "sid=admin-session")
+      .send({ banned: false });
+
+    expect(res.status).toBe(200);
+    expect(emitSseEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/admin/users/:id/reset-password — live revocation signal (F7)", () => {
+  test("resetting a password emits session_revoked with reason 'password_reset'", async () => {
+    const emitSseEvent = vi.fn();
+    const { app } = makeAdminApp({
+      emitSseEvent,
+      adminBanUser: () => {},
+    });
+
+    const res = await request(app)
+      .post("/api/admin/users/b0000000-0000-4000-8000-000000000002/reset-password")
+      .set("Cookie", "sid=admin-session")
+      .send({ password: "newpass123" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(emitSseEvent).toHaveBeenCalledWith(
+      "bob",
+      expect.objectContaining({ type: "session_revoked", reason: "password_reset" }),
+    );
+  });
+});

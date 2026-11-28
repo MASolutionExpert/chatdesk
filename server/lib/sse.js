@@ -83,6 +83,18 @@ export function createSseHub({ listChatMembers }) {
     return list;
   }
 
+  // Drop the cached member list for a chat so the next emitChatEvent /
+  // getCachedMembers re-reads the DB. Membership mutations (kick, leave,
+  // delete, join, ...) must call this, otherwise removed or left users keep
+  // receiving chat events for up to MEMBER_CACHE_TTL_MS and newly added
+  // members miss them entirely. The WS gateway reads the SAME cache through
+  // sseHub.getCachedMembers, so one invalidation fixes both transports.
+  function invalidateMembers(chatId) {
+    const key = String(chatId || "");
+    if (!key) return;
+    memberCache.delete(key);
+  }
+
   function addSseClient(username, res) {
     const key = String(username || "").toLowerCase();
     if (!key) return;
@@ -161,7 +173,7 @@ export function createSseHub({ listChatMembers }) {
     });
   }
 
-  return {
+  const hub = {
     addSseClient,
     removeSseClient,
     emitSseEvent,
@@ -169,6 +181,7 @@ export function createSseHub({ listChatMembers }) {
     onChatEvent,
     broadcastAll,
     getCachedMembers,
+    invalidateMembers,
     isUserConnected(username) {
       const key = String(username || "").toLowerCase();
       if (!key) return false;
@@ -176,4 +189,14 @@ export function createSseHub({ listChatMembers }) {
       return Boolean(clients?.size);
     },
   };
+
+  // index.js builds apiDeps by enumerating hub functions explicitly (it does
+  // not spread the module), so route modules only receive the destructured
+  // bound methods. Until the wiring adds `invalidateMembers` (a one-line
+  // follow-up: `apiDeps.invalidateMembers = sseHub.invalidateMembers`), the
+  // helper also rides on the already-wired emitChatEvent function object so
+  // membership routes can invalidate without any index.js change.
+  hub.emitChatEvent.invalidateMembers = invalidateMembers;
+
+  return hub;
 }

@@ -17,6 +17,7 @@
  */
 
 import { validateUuidParams } from "../lib/uuidMiddleware.js";
+import { getDefaultPermission } from "../lib/permissions.js";
 
 function registerDepartmentRoutes(app, deps) {
   const {
@@ -58,15 +59,28 @@ function registerDepartmentRoutes(app, deps) {
   } = deps;
 
   // Permission gate helper: denies with 403 when the actor's account role
-  // lacks the registry permission (owner short-circuits to true). Falls
-  // open only when the permission service itself is not wired.
+  // lacks the registry permission (owner short-circuits to true).
+  //
+  // Fail-closed semantics (review F6): if the permission service THROWS (DB
+  // error, missing role_permissions table) a non-owner is denied — a broken
+  // check must never silently grant access. The owner keeps working: the
+  // service short-circuits owner to true before any query, and if a custom
+  // service still throws, the owner is allowed in the catch path. When the
+  // service is not wired at all we fall back to the registry defaults (the
+  // pre-1.7 hard-coded behaviour) instead of failing open.
   async function requirePermission(res, role, permissionKey, message) {
-    if (typeof hasPermission !== "function") return true;
-    let allowed = true;
-    try {
-      allowed = await hasPermission(role, permissionKey);
-    } catch {
-      allowed = true; // fail-open on service errors; defaults preserve legacy behaviour
+    const normalizedRole = String(role || "").toLowerCase();
+    let allowed;
+    if (typeof hasPermission === "function") {
+      try {
+        allowed = await hasPermission(normalizedRole, permissionKey);
+      } catch {
+        allowed = normalizedRole === "owner"; // fail closed for everyone else
+      }
+    } else {
+      allowed =
+        normalizedRole === "owner" ||
+        getDefaultPermission(normalizedRole, permissionKey);
     }
     if (!allowed) {
       res.status(403).json({ error: message, code: "permission_denied" });
@@ -446,20 +460,20 @@ function registerDepartmentRoutes(app, deps) {
       if (!actor) {
         return res.status(404).json({ error: "User not found." });
       }
-      if (!isStaffRole(actor.role)) {
-        // Permission registry (1.7.0): 'ticket.refer' replaces the bare
-        // staff-role check — operators carry it by default, the owner
-        // always does, and admins can grant it to the user role.
-        if (
-          !(await requirePermission(
-            res,
-            actor.role,
-            "ticket.refer",
-            "You do not have permission to refer tickets.",
-          ))
-        ) {
-          return;
-        }
+      // Permission registry (1.7.0): 'ticket.refer' replaces the bare
+      // staff-role check. ALWAYS evaluate it (review F5) — a staff role is
+      // not a bypass: operators carry 'ticket.refer' by default but the
+      // permission matrix can turn it off per role, and the owner
+      // short-circuits to true inside the permission service.
+      if (
+        !(await requirePermission(
+          res,
+          actor.role,
+          "ticket.refer",
+          "You do not have permission to refer tickets.",
+        ))
+      ) {
+        return;
       }
 
       const rawChat = findChatById(req.params.chatId);
@@ -531,20 +545,20 @@ function registerDepartmentRoutes(app, deps) {
       if (!actor) {
         return res.status(404).json({ error: "User not found." });
       }
-      if (!isStaffRole(actor.role)) {
-        // Permission registry (1.7.0): 'ticket.refer' replaces the bare
-        // staff-role check — operators carry it by default, the owner
-        // always does, and admins can grant it to the user role.
-        if (
-          !(await requirePermission(
-            res,
-            actor.role,
-            "ticket.refer",
-            "You do not have permission to refer tickets.",
-          ))
-        ) {
-          return;
-        }
+      // Permission registry (1.7.0): 'ticket.refer' replaces the bare
+      // staff-role check. ALWAYS evaluate it (review F5) — a staff role is
+      // not a bypass: operators carry 'ticket.refer' by default but the
+      // permission matrix can turn it off per role, and the owner
+      // short-circuits to true inside the permission service.
+      if (
+        !(await requirePermission(
+          res,
+          actor.role,
+          "ticket.refer",
+          "You do not have permission to refer tickets.",
+        ))
+      ) {
+        return;
       }
 
       const rawChat = findChatById(req.params.chatId);

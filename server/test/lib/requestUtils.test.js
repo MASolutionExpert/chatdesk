@@ -40,6 +40,61 @@ describe("isLoopbackRequest", () => {
     const req = { socket: { remoteAddress: "203.0.113.5" }, ip: "127.0.0.1" };
     expect(isLoopbackRequest(req)).toBe(false);
   });
+
+  // ─── F3: loopback behind a reverse proxy ────────────────────────────────────
+  // The installer's nginx proxies to http://127.0.0.1:…, so EVERY internet
+  // request arrives with a loopback socket address. A reverse proxy that
+  // forwards traffic sets X-Forwarded-For / X-Real-IP — such a request must
+  // NOT count as local (otherwise /api/admin/db-tools with delete_db/reset_db
+  // would be internet-reachable with just the token).
+
+  test("returns false for loopback socket WITH X-Forwarded-For (behind nginx)", () => {
+    const req = {
+      socket: { remoteAddress: "127.0.0.1" },
+      headers: { "x-forwarded-for": "203.0.113.7" },
+    };
+    expect(isLoopbackRequest(req)).toBe(false);
+  });
+
+  test("returns false for loopback socket WITH X-Real-IP", () => {
+    const req = {
+      socket: { remoteAddress: "::1" },
+      headers: { "x-real-ip": "203.0.113.7" },
+    };
+    expect(isLoopbackRequest(req)).toBe(false);
+  });
+
+  test("returns false even when the forwarded header value is a loopback IP (spoof attempt)", () => {
+    const req = {
+      socket: { remoteAddress: "127.0.0.1" },
+      headers: { "x-forwarded-for": "127.0.0.1" },
+    };
+    expect(isLoopbackRequest(req)).toBe(false);
+  });
+
+  test("treats a whitespace-only forwarded header value as absent (still local)", () => {
+    const req = {
+      socket: { remoteAddress: "127.0.0.1" },
+      headers: { "x-forwarded-for": "  " },
+    };
+    expect(isLoopbackRequest(req)).toBe(true);
+  });
+
+  test("returns true for genuine direct loopback access (no forwarded headers)", () => {
+    expect(isLoopbackRequest({ socket: { remoteAddress: "127.0.0.1" }, headers: {} })).toBe(true);
+    expect(isLoopbackRequest({ socket: { remoteAddress: "::1" } })).toBe(true);
+    expect(isLoopbackRequest({ socket: { remoteAddress: "::ffff:127.0.0.1" }, headers: {} })).toBe(true);
+  });
+
+  test("X-Forwarded-Proto alone does not disqualify local access", () => {
+    // nginx on the same box terminating TLS also sets X-Forwarded-Proto; the
+    // proto header alone does not imply a forwarded client.
+    const req = {
+      socket: { remoteAddress: "127.0.0.1" },
+      headers: { "x-forwarded-proto": "https" },
+    };
+    expect(isLoopbackRequest(req)).toBe(true);
+  });
 });
 
 describe("parseUploadFileMetadata", () => {

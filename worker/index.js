@@ -269,12 +269,19 @@ export async function processTranscodeJob({
 }) {
   const defaultLocalCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
   const targetCallback = callbackUrl || defaultLocalCallback;
+  // A downloadUrl-only payload is legal (the /transcode validation accepts
+  // "fileId and storageKey (or storedName/downloadUrl)") but the storage key
+  // is still needed for the thumb / transcoded-object keys below — deriving
+  // it from fileId here turned a guaranteed TypeError crash into a working
+  // job.
+  const effectiveStorageKey =
+    storageKey || storedName || `worker-transcode-${fileId || "video"}.mp4`;
   const isEncrypted =
     String(encryptionType || "").toLowerCase() === "local" ||
     String(encryptionType || "").toLowerCase() === "aes-256-gcm" ||
     String(encryptionType || "").toLowerCase() === "app";
 
-  const ext = path.extname(storedName || storageKey || "video.mp4");
+  const ext = path.extname(storedName || effectiveStorageKey || "video.mp4");
   const inputPath = tempPath(ext || ".mp4");
   const outputPath = tempPath(".mp4");
   const thumbPath = tempPath(".jpg");
@@ -284,7 +291,7 @@ export async function processTranscodeJob({
     : storage;
 
   console.log(
-    `[worker] Starting transcode job for file ${fileId} (${storageKey})`,
+    `[worker] Starting transcode job for file ${fileId} (${effectiveStorageKey})`,
   );
 
   try {
@@ -359,7 +366,7 @@ export async function processTranscodeJob({
         if (thumbEncrypted) {
           console.log(`[worker] Thumbnail encrypted for file ${fileId}`);
         }
-        thumbStorageKey = `${storageKey.replace(/\.[^.]*$/, "")}-thumb.jpg`;
+        thumbStorageKey = `${effectiveStorageKey.replace(/\.[^.]*$/, "")}-thumb.jpg`;
         if (thumbUploadUrl) {
           const res = await fetch(thumbUploadUrl, {
             method: "PUT",
@@ -386,14 +393,14 @@ export async function processTranscodeJob({
         thumbStorageKey = null;
       }
 
-      let transcodedStorageKey = storageKey;
+      let transcodedStorageKey = effectiveStorageKey;
       if (usedTranscodedFile) {
         if (isEncrypted) {
           const rawOutput = fs.readFileSync(finalOutputPath);
           const encryptedOutput = encryptBuffer(rawOutput);
           fs.writeFileSync(finalOutputPath, encryptedOutput);
         }
-        transcodedStorageKey = `${storageKey.replace(/(\.[^.]*)?$/, "")}-h264-${crypto
+        transcodedStorageKey = `${effectiveStorageKey.replace(/(\.[^.]*)?$/, "")}-h264-${crypto
           .randomBytes(4)
           .toString("hex")}.mp4`;
 
@@ -449,25 +456,30 @@ export async function processTranscodeJob({
       //   transcoded copy is rolled back instead (best effort), so a broken
       //   callback endpoint cannot leak an unbounded number of orphaned
       //   duplicates. The original stays intact and the job can be retried.
-      if (usedTranscodedFile && transcodedStorageKey !== storageKey && !uploadUrl) {
+      if (usedTranscodedFile && transcodedStorageKey !== effectiveStorageKey && !uploadUrl) {
         if (callbackDelivered) {
-          try {
-            await effectiveStorage.deleteFile(storageKey);
-            console.log(
-              `[worker] Deleted original raw video ${storageKey} from storage (callback acknowledged)`,
-            );
-          } catch (deleteErr) {
-            console.warn(
-              "[worker] Failed to delete original raw video %s after callback:",
-              storageKey,
-              deleteErr?.message || deleteErr,
-            );
+          // Only delete the original when it actually lives in the worker's
+          // storage (a downloadUrl-only job has no storageKey to delete — the
+          // raw file belongs to whoever served the download).
+          if (storageKey) {
+            try {
+              await effectiveStorage.deleteFile(storageKey);
+              console.log(
+                `[worker] Deleted original raw video ${storageKey} from storage (callback acknowledged)`,
+              );
+            } catch (deleteErr) {
+              console.warn(
+                "[worker] Failed to delete original raw video %s after callback:",
+                storageKey,
+                deleteErr?.message || deleteErr,
+              );
+            }
           }
         } else {
           try {
             await effectiveStorage.deleteFile(transcodedStorageKey);
             console.warn(
-              `[worker] Callback for file ${fileId} was never delivered — kept the original raw video ${storageKey} (DB still points at it) and rolled back the orphaned transcoded copy ${transcodedStorageKey}`,
+              `[worker] Callback for file ${fileId} was never delivered — kept the original raw video ${storageKey || effectiveStorageKey} (DB still points at it) and rolled back the orphaned transcoded copy ${transcodedStorageKey}`,
             );
           } catch (rollbackErr) {
             console.warn(

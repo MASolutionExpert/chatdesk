@@ -32,6 +32,9 @@
     chatdesk_domain: "{{ external_domain | default('') }}"
     chatdesk_http_port: 80
     chatdesk_https_port: 443
+    # Docker apt repo architecture; derived from the target host instead of a
+    # hardcoded amd64 so arm64 hosts work too (x86_64 -> amd64, aarch64 -> arm64).
+    chatdesk_docker_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else ('arm64' if ansible_architecture == 'aarch64' else ansible_architecture) }}"
   tasks:
     - name: Install prerequisites
       ansible.builtin.apt:
@@ -46,14 +49,17 @@
           - python3
         update_cache: yes
 
-    - name: Add Docker's official GPG key
-      ansible.builtin.apt_key:
+    - name: Download Docker's official GPG key
+      # apt_key is deprecated (key on keyserver, root keyring); download the
+      # armored key into /usr/share/keyrings and reference it via signed-by.
+      ansible.builtin.get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
+        dest: /usr/share/keyrings/docker.asc
+        mode: "0644"
 
     - name: Add Docker repository
       ansible.builtin.apt_repository:
-        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        repo: "deb [arch={{ chatdesk_docker_arch }} signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
         state: present
 
     - name: Install Docker Engine

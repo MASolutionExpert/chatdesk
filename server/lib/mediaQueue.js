@@ -32,6 +32,9 @@ export function createMediaQueueManager({
   let bullWorker = null;
   const inMemoryQueue = [];
   const activeTimers = new Map();
+  // fileId -> latest BullMQ jobId for the delayed fallback check, so
+  // cancelFallbackCheck can remove the queued/delayed job from Bull.
+  const bullJobIds = new Map();
 
   function toSql(builder) {
     if (builder && typeof builder.toSQL === "function") {
@@ -45,11 +48,19 @@ export function createMediaQueueManager({
     const { fileId, storageKey, reason } = jobData;
     if (!fileId) return;
 
-    // Check DB status to see if remote provider already processed it
     const { sql: checkSql, params: checkParams } = toSql(
       dbKnex("chat_message_files").where("id", fileId).first(),
     );
-    const row = adminGetRow ? adminGetRow(checkSql, checkParams) : null;
+    // Check DB status to see if remote provider already processed it.
+    // adminGetRow returns a PROMISE on Postgres (getRow is async there) and a
+    // plain row on SQLite — awaiting both shapes is safe and was required:
+    // without the await, `row.processing_status` was undefined on PG so the
+    // "already processed" short-circuit never fired and `row.mime_type` was
+    // undefined → isVideo false → the file was marked 'ready' and a
+    // video:ready event was emitted while the worker was still transcoding.
+    const row = adminGetRow
+      ? await Promise.resolve(adminGetRow(checkSql, checkParams))
+      : null;
 
     if (!row) return;
     if (row.processing_status === "ready") return; // Already processed by remote compute
@@ -130,15 +141,19 @@ export function createMediaQueueManager({
 
   function enqueueJob(data, delayMs = 0) {
     if (bullQueue) {
-      bullQueue.add("process-media", data, { delay: delayMs });
+      // Unique jobId per schedule; the latest one is tracked per fileId so
+      // cancellation removes exactly the pending delayed job.
+      const jobId = `media-fallback-${data.fileId}-${Date.now()}`;
+      bullJobIds.set(String(data.fileId), jobId);
+      bullQueue.add("process-media", data, { delay: delayMs, jobId });
     } else {
       if (delayMs > 0) {
         const timer = setTimeout(() => {
-          activeTimers.delete(data.fileId);
+          activeTimers.delete(String(data.fileId));
           processMediaJob(data);
         }, delayMs);
         if (typeof timer.unref === "function") timer.unref();
-        activeTimers.set(data.fileId, timer);
+        activeTimers.set(String(data.fileId), timer);
       } else {
         inMemoryQueue.push(data);
         setImmediate(() => processMediaJob(data));
@@ -160,9 +175,19 @@ export function createMediaQueueManager({
   }
 
   function cancelFallbackCheck(fileId) {
-    if (activeTimers.has(fileId)) {
-      clearTimeout(activeTimers.get(fileId));
-      activeTimers.delete(fileId);
+    const key = String(fileId);
+    if (activeTimers.has(key)) {
+      clearTimeout(activeTimers.get(key));
+      activeTimers.delete(key);
+    }
+    // BullMQ path: actually remove the queued/delayed job. Best effort —
+    // if the job already started (or finished) removal is a no-op.
+    if (bullQueue) {
+      const jobId = bullJobIds.get(key);
+      if (jobId) {
+        bullJobIds.delete(key);
+        Promise.resolve(bullQueue.remove(jobId)).catch(() => {});
+      }
     }
   }
 
@@ -171,6 +196,7 @@ export function createMediaQueueManager({
       clearTimeout(timer);
     }
     activeTimers.clear();
+    bullJobIds.clear();
 
     if (bullWorker) await bullWorker.close();
     if (bullQueue) await bullQueue.close();

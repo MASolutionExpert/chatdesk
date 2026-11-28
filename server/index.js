@@ -748,10 +748,88 @@ async function createSessionCombined(userId, token, options = {}) {
   await redisSessionStore.createSession(userId, token);
 }
 
+// Server-side session expiry (review F2): the session cookie carries
+// Max-Age=14d, but nothing rejected or pruned sessions on the server, so a
+// leaked token worked forever. The TTL matches the cookie window by default
+// and is env-overridable. A session whose last_seen (fallback created_at)
+// is older than the TTL is rejected, its row deleted, and its Redis cache
+// entry dropped; a periodic prune removes such rows outright. If a row's
+// timestamps cannot be parsed the session is kept — the client cookie
+// Max-Age still bounds it, and we never lock users out over a bad clock.
+const SESSION_TTL_DAYS = (() => {
+  const raw = Number(process.env.SESSION_TTL_DAYS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 14;
+})();
+const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
+const SESSION_PRUNE_INTERVAL_MS = (() => {
+  const raw = Number(process.env.SESSION_PRUNE_INTERVAL_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 6 * 60 * 60 * 1000;
+})();
+
+function parseSessionTimestampMs(value) {
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isFinite(t) ? t : null;
+  }
+  if (typeof value !== "string" || !value.trim()) return null;
+  // SQLite stores 'YYYY-MM-DD HH:MM:SS' (UTC, no zone marker); Postgres
+  // TEXT stamps from CURRENT_TIMESTAMP::text end with a '+00' style offset.
+  let normalized = value.trim().replace(" ", "T");
+  normalized = normalized.replace(/([+-]\d{2})$/, "$1:00");
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(normalized)) normalized += "Z";
+  const t = Date.parse(normalized);
+  return Number.isFinite(t) ? t : null;
+}
+
+function isSessionRowExpired(row) {
+  const stamp =
+    parseSessionTimestampMs(row?.last_seen) ??
+    parseSessionTimestampMs(row?.created_at);
+  if (stamp === null) return false;
+  return stamp < Date.now() - SESSION_TTL_MS;
+}
+
+async function enforceSessionExpiry(session, token) {
+  if (!session) return null;
+  try {
+    const rawRow = adminGetRow(
+      dbKnex("sessions")
+        .select("last_seen", "created_at")
+        .where("token", token)
+        .first(),
+    );
+    const row = rawRow && typeof rawRow.then === "function" ? await rawRow : rawRow;
+    if (isSessionRowExpired(row)) {
+      await deleteSession(token);
+      await redisSessionStore.deleteSession(token);
+      return null;
+    }
+  } catch (_) {
+    // Age lookup failed — keep the session rather than lock the user out.
+  }
+  return session;
+}
+
 function getSessionCombined(token) {
-  const cached = redisSessionStore.getSession(token);
-  if (cached && typeof cached.then !== "function") return cached;
-  return getSession(token);
+  const rawSession = getSession(token);
+  if (rawSession && typeof rawSession.then === "function") {
+    return rawSession.then((session) => enforceSessionExpiry(session, token));
+  }
+  return enforceSessionExpiry(rawSession, token);
+}
+
+async function pruneExpiredSessions() {
+  // Cutoff in the SQLite text format; Postgres session stamps are TEXT too
+  // (migration 039 keeps CURRENT_TIMESTAMP::text defaults) and both formats
+  // sort lexically by chronological prefix.
+  const cutoff = new Date(Date.now() - SESSION_TTL_MS)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
+  const deleted = await run(
+    dbKnex("sessions").where("last_seen", "<", cutoff).del(),
+  );
+  return typeof deleted === "number" ? deleted : null;
 }
 
 async function touchSessionCombined(token) {
@@ -1594,6 +1672,26 @@ const textCleanupTimer = setInterval(async () => {
 
 if (typeof textCleanupTimer.unref === "function") {
   textCleanupTimer.unref();
+}
+
+// Server-side session prune (review F2): expired sessions are also deleted
+// lazily on lookup, but rows that are never presented again would linger
+// forever — sweep them on a fixed interval. Timer is unref'd so it never
+// keeps a test process alive, and failures never crash the server.
+try {
+  await pruneExpiredSessions();
+} catch (_) {
+  // best effort startup cleanup
+}
+const sessionPruneTimer = setInterval(async () => {
+  try {
+    await pruneExpiredSessions();
+  } catch (_) {
+    // keep server alive if prune fails
+  }
+}, SESSION_PRUNE_INTERVAL_MS);
+if (typeof sessionPruneTimer.unref === "function") {
+  sessionPruneTimer.unref();
 }
 
 // Defer the storage encryption backfill so it doesn't block the event loop

@@ -22,6 +22,10 @@ npm-debug.log*
 .idea
 .todo
 .env
+# Never bake env files (secrets) into image layers — covers .env in the root
+# and any subdirectory (client/, server/, worker/...). Nothing in the
+# Dockerfiles' COPY lists needs them; .env.example is dev documentation.
+**/.env*
 
 # Agent & AI tool configs
 AGENTS.md

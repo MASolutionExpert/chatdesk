@@ -263,7 +263,7 @@ export async function openDatabase(options = {}) {
     return USER_COLORS[index]
   }
 
-  const createPreMigrationBackup = (fromVersion, toVersion) => {
+  const createPreMigrationBackup = async (fromVersion, toVersion) => {
     if (isPostgres || isInMemory || !fileExists || !fs.existsSync(targetDbPath)) return
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true })
@@ -273,7 +273,32 @@ export async function openDatabase(options = {}) {
       backupDir,
       `chatdesk-pre-migration-v${fromVersion}-to-v${toVersion}-${stamp}.db`,
     )
+    // A bare copyFileSync of the main database file misses un-checkpointed
+    // -wal contents (the DB runs in WAL mode) — the pre-migration backup could
+    // be stale or torn exactly when it matters. Prefer better-sqlite3's online
+    // backup API; under the sql.js fallback the in-memory image is the
+    // authoritative state, so export it directly.
+    if (isBetter) {
+      try {
+        await db.backup(backupPath)
+        return backupPath
+      } catch (err) {
+        console.warn(
+          `[db-tools] Online backup failed (${err?.message || err}); using wal_checkpoint(TRUNCATE)+copy.`,
+        )
+      }
+      try {
+        db.pragma('wal_checkpoint(TRUNCATE)')
+      } catch {}
+      fs.copyFileSync(targetDbPath, backupPath)
+      return backupPath
+    }
+    if (db && typeof db.export === 'function') {
+      fs.writeFileSync(backupPath, Buffer.from(db.export()))
+      return backupPath
+    }
     fs.copyFileSync(targetDbPath, backupPath)
+    return backupPath
   }
 
   const schemaVersionBeforeMigrations = isPostgres
@@ -334,8 +359,62 @@ export async function openDatabase(options = {}) {
     hasColumn: (tableName, columnName) => isPostgres
       ? columnsSet.has(`${String(tableName || '').toLowerCase()}.${String(columnName || '').toLowerCase()}`)
       : hasColumn(tableName, columnName),
+    // Exposed for dialect-aware migrations (e.g. 036 checks ctx.isPostgres);
+    // without it a Postgres CLI run would silently take the SQLite code path.
+    isPostgres: isPostgres,
     getRandomUserColor,
     setUserColor: getRandomUserColor,
+  }
+
+  // Transactional wrapper used by destructive migrations (e.g. 036). On
+  // Postgres the statements must all run on ONE connection — knex .raw() uses
+  // the pool and may hand each statement a different client — so the callback
+  // receives a context whose db/getAll are bound to trx. On SQLite the driver
+  // is a single synchronous connection, so the same context is handed through
+  // and the migration manages BEGIN/COMMIT itself.
+  migrationContext.transaction = (callback) => {
+    if (!isPostgres) {
+      return Promise.resolve(callback(migrationContext))
+    }
+    return db.transaction(async (trx) => {
+      const txContext = {
+        db: {
+          run: (sql, params = []) => {
+            const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+            return trx
+              .raw(normSql, normParams)
+              .then((res) => {
+                updateSchemaSetsFromSql(sql, tablesSet, columnsSet)
+                if (typeof res?.rowCount === 'number') return res.rowCount
+                const rows = getPostgresRows(res)
+                return rows.length
+              })
+          },
+          exec: (sql) => {
+            const { sql: normSql } = normalizeSqlForPostgres(sql, [])
+            return trx.raw(normSql).then((res) => {
+              updateSchemaSetsFromSql(sql, tablesSet, columnsSet)
+              return res
+            })
+          },
+          prepare: () => null,
+        },
+        getAll: (sql, params = []) => {
+          const { sql: normSql, params: normParams } = normalizeSqlForPostgres(sql, params)
+          return trx.raw(normSql, normParams).then(getPostgresRows)
+        },
+        isPostgres: true,
+        tableExists: (name) => tablesSet.has(String(name || '').toLowerCase()),
+        hasColumn: (tableName, columnName) =>
+          columnsSet.has(
+            `${String(tableName || '').toLowerCase()}.${String(columnName || '').toLowerCase()}`,
+          ),
+        getRandomUserColor,
+        setUserColor: getRandomUserColor,
+        transaction: (nested) => Promise.resolve(nested(txContext)),
+      }
+      return callback(txContext)
+    })
   }
 
   if (!skipMigrations) {
@@ -344,7 +423,7 @@ export async function openDatabase(options = {}) {
       ? Math.max(...orderedMigrations.map((migration) => Number(migration.version) || 0))
       : 0
     if (!isInMemory && schemaVersionBeforeMigrations < latestVersion) {
-      createPreMigrationBackup(schemaVersionBeforeMigrations, latestVersion)
+      await createPreMigrationBackup(schemaVersionBeforeMigrations, latestVersion)
     }
     for (const migration of orderedMigrations) {
       const currentVersion = await getSchemaVersion()

@@ -5,9 +5,23 @@ export function isLoopbackRequest(req) {
   // remoteAddress reflects the actual TCP peer and cannot be forged.
   const source = String(req.socket?.remoteAddress || "");
 
-  return (
-    source === "::1" || source === "127.0.0.1" || source === "::ffff:127.0.0.1"
-  );
+  const isLoopback =
+    source === "::1" || source === "127.0.0.1" || source === "::ffff:127.0.0.1";
+
+  if (!isLoopback) return false;
+
+  // Behind the installer's nginx (proxy_pass http://127.0.0.1:…) every
+  // request arrives with a loopback socket address, so the socket check
+  // alone would treat the whole internet as local. A reverse proxy that
+  // forwards traffic sets X-Forwarded-For (or X-Real-IP) — if any of those
+  // headers are present the TCP peer is a proxy, not the end user, and the
+  // request must not be considered local. Only a genuinely direct loopback
+  // connection with no forwarded headers counts.
+  const forwardedHeaders = ["x-forwarded-for", "x-real-ip"];
+  return !forwardedHeaders.some((name) => {
+    const value = req.headers?.[name];
+    return value !== undefined && String(value).trim() !== "";
+  });
 }
 
 export function parseUploadFileMetadata(rawValue) {

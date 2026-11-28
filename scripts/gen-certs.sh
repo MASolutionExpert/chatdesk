@@ -56,6 +56,24 @@ fi
 
 echo "Generating self-signed certificate for CN=${CN} ..."
 
+# Emit an `IP:` SAN when the CN is an IP literal (browsers reject IP access
+# without an IP SAN), otherwise a `DNS:` SAN. Handles plain IPv4, plain IPv6
+# and bracketed IPv6 ("[::1]").
+SAN_HOST="${CN#\[}"
+SAN_HOST="${SAN_HOST%\]}"
+SAN_TYPE="DNS"
+if [[ "$SAN_HOST" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+  SAN_TYPE="IP"
+elif [[ "$SAN_HOST" == *:* && "$SAN_HOST" =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ ]]; then
+  SAN_TYPE="IP"
+fi
+
+if [[ "$SAN_TYPE" == "IP" ]]; then
+  SAN_LIST="IP:127.0.0.1,IP:${SAN_HOST},DNS:localhost"
+else
+  SAN_LIST="IP:127.0.0.1,DNS:localhost,DNS:${CN}"
+fi
+
 openssl req -x509 \
   -newkey rsa:2048 \
   -keyout "$CERTS_DIR/key.pem" \
@@ -63,7 +81,7 @@ openssl req -x509 \
   -days 365 \
   -nodes \
   -subj "/CN=${CN}" \
-  -addext "subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:${CN}" \
+  -addext "subjectAltName=${SAN_LIST}" \
   2>/dev/null
 
 echo ""

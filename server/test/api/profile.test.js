@@ -1,7 +1,7 @@
 import { describe, test, expect, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import { makeApp, makeUserStore } from "../helpers/makeApp.js";
+import { makeApp, makeSessionStore, makeUserStore } from "../helpers/makeApp.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -238,6 +238,62 @@ describe("PUT /api/password", () => {
   test("returns 200 on successful password change", async () => {
     const { app } = makeAppWithAlice({
       deps: { updateUserPassword: () => {} },
+    });
+    const cookie = await loginCookie(app);
+    const res = await request(app)
+      .put("/api/password")
+      .set("Cookie", cookie)
+      .send({
+        username: "alice",
+        currentPassword: "secret123",
+        newPassword: "newpass123",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  test("revokes the user's OTHER sessions but keeps the current device logged in (F7)", async () => {
+    const deleteSession = vi.fn();
+    const currentToken = "current-session-token";
+    const stolenToken = "stolen-session-token";
+    const sessionStore = makeSessionStore();
+    sessionStore.createSession(ALICE_ID, currentToken);
+    const { app } = makeAppWithAlice({
+      sessionStore,
+      deps: {
+        updateUserPassword: () => {},
+        deleteSession,
+        adminGetAll: () => [
+          { token: stolenToken },
+          { token: currentToken },
+        ],
+      },
+    });
+
+    const res = await request(app)
+      .put("/api/password")
+      .set("Cookie", `sid=${currentToken}`)
+      .send({
+        username: "alice",
+        currentPassword: "secret123",
+        newPassword: "newpass123",
+      });
+
+    expect(res.status).toBe(200);
+    // The thief's session is deleted; the current device's session survives.
+    expect(deleteSession).toHaveBeenCalledTimes(1);
+    expect(deleteSession).toHaveBeenCalledWith(stolenToken);
+    expect(deleteSession).not.toHaveBeenCalledWith(currentToken);
+  });
+
+  test("password change succeeds even when session revocation fails (best effort)", async () => {
+    const { app } = makeAppWithAlice({
+      deps: {
+        updateUserPassword: () => {},
+        adminGetAll: () => {
+          throw new Error("db down");
+        },
+      },
     });
     const cookie = await loginCookie(app);
     const res = await request(app)

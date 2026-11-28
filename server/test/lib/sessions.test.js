@@ -69,6 +69,27 @@ describe("parseCookies", () => {
     expect(parseCookies(req).data).toBe("a=b=c");
   });
 
+  test("falls back to the raw value for a malformed percent-escape (no URIError)", () => {
+    // F1: one malformed cookie on the domain used to make decodeURIComponent
+    // throw inside parseCookies → every authenticated endpoint returned 500
+    // and the browser (which keeps sending the cookie) locked the user out.
+    const req = makeReq({
+      headers: { cookie: "foo=%E0%A4%A; sid=abc123" },
+    });
+    const result = parseCookies(req);
+    expect(result.foo).toBe("%E0%A4%A"); // raw value, no throw
+    expect(result.sid).toBe("abc123"); // the valid session cookie survives
+  });
+
+  test("still decodes valid escapes in other cookies when one cookie is malformed", () => {
+    const req = makeReq({
+      headers: { cookie: "broken=%ZZ; sid=%74%6F%6B" },
+    });
+    const result = parseCookies(req);
+    expect(result.broken).toBe("%ZZ");
+    expect(result.sid).toBe("tok");
+  });
+
   test("trims whitespace around whole cookie string but not the name itself", () => {
     // The implementation trims the full cookie string, then splits on =.
     // "  sid  =xyz" → trim → "sid  =xyz" → name is "sid  " (with trailing spaces)

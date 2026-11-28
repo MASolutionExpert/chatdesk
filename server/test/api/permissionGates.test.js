@@ -506,3 +506,170 @@ describe("/api/me embeds the permission array", () => {
     expect(meUser.body.permissions).not.toContain("dm.message.delete_any");
   });
 });
+
+// ─── Stage 3 Medium fixes (external review F5/F6) ─────────────────────────────
+
+describe("ticket.refer gate applies to operators too (F5)", () => {
+  const referDeps = {
+    findChatById: () => ({ id: chatId, type: "dm", channel: "support", department_id: "d1" }),
+    listChatMembers: () => [],
+    listStaffReferCandidates: () => [],
+    listDepartments: () => [],
+    isMember: () => true,
+    getChatMemberRole: () => "member",
+    getTicketByChatId: () => ({ id: "t1", status: "open" }),
+    emitChatEvent: () => {},
+    emitSseEvent: () => {},
+  };
+
+  test("an operator with ticket.refer=false gets 403 on refer-candidates (matrix override respected)", async () => {
+    const { app } = makeApp({
+      userStore: makeUserStore([makeUser("operator")]),
+      deps: { ...referDeps, hasPermission: gate("ticket.refer", false) },
+    });
+    const cookie = await login(app);
+    const res = await request(app)
+      .get(`/api/support/tickets/${chatId}/refer-candidates`)
+      .query({ creator: "alice" })
+      .set("Cookie", cookie);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("permission_denied");
+  });
+
+  test("an operator with ticket.refer=false gets 403 on POST refer", async () => {
+    const convert = vi.fn();
+    const { app } = makeApp({
+      userStore: makeUserStore([makeUser("operator")]),
+      deps: {
+        ...referDeps,
+        convertSupportChatToGroup: convert,
+        hasPermission: gate("ticket.refer", false),
+      },
+    });
+    const cookie = await login(app);
+    const res = await request(app)
+      .post(`/api/support/tickets/${chatId}/refer`)
+      .set("Cookie", cookie)
+      .send({ creator: "alice", operatorUsername: "carol" });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("permission_denied");
+    expect(convert).not.toHaveBeenCalled();
+  });
+
+  test("an operator with ticket.refer enabled (registry default) still passes", async () => {
+    const store = makeUserStore([makeUser("operator")]);
+    const { app } = makeApp({
+      userStore: store,
+      deps: {
+        ...referDeps,
+        findUserByUsername: (username) =>
+          username === "carol"
+            ? { id: "c1", username: "carol", role: "operator", banned: false }
+            : store.findUserByUsername(username),
+        listStaffReferCandidates: () => [
+          { id: "c1", username: "carol", nickname: "Carol", role: "operator" },
+        ],
+        listDepartments: () => [{ id: "d1", name: "Billing", active: true }],
+        hasPermission: (role, key) =>
+          key === "ticket.refer" ? true : getDefaultPermission(role, key),
+      },
+    });
+    const cookie = await login(app);
+    const res = await request(app)
+      .get(`/api/support/tickets/${chatId}/refer-candidates`)
+      .query({ creator: "alice" })
+      .set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.candidates[0]?.username).toBe("carol");
+  });
+});
+
+describe("permission gates fail closed on service errors (F6)", () => {
+  const throwingService = async () => {
+    throw new Error("role_permissions table missing");
+  };
+
+  const referDeps = {
+    findChatById: () => ({ id: chatId, type: "dm", channel: "support", department_id: "d1" }),
+    listChatMembers: () => [],
+    listStaffReferCandidates: () => [
+      { id: "c1", username: "carol", nickname: "Carol", role: "operator" },
+    ],
+    listDepartments: () => [],
+    isMember: () => true,
+    getChatMemberRole: () => "member",
+    getTicketByChatId: () => ({ id: "t1", status: "open" }),
+    emitChatEvent: () => {},
+    emitSseEvent: () => {},
+  };
+
+  test("ticket.refer: a throwing permission service denies an operator (403, not fail-open)", async () => {
+    const { app } = makeApp({
+      userStore: makeUserStore([makeUser("operator")]),
+      deps: { ...referDeps, hasPermission: throwingService },
+    });
+    const cookie = await login(app);
+    const res = await request(app)
+      .get(`/api/support/tickets/${chatId}/refer-candidates`)
+      .query({ creator: "alice" })
+      .set("Cookie", cookie);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("permission_denied");
+  });
+
+  test("ticket.refer: the owner keeps working when the permission service throws", async () => {
+    const { app } = makeApp({
+      userStore: makeUserStore([makeUser("owner", "boss")]),
+      deps: { ...referDeps, hasPermission: throwingService },
+    });
+    const cookie = await login(app, "boss");
+    const res = await request(app)
+      .get(`/api/support/tickets/${chatId}/refer-candidates`)
+      .query({ creator: "boss" })
+      .set("Cookie", cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.candidates[0]?.username).toBe("carol");
+  });
+
+  test("call.voice: a throwing permission service denies an operator starting a call", async () => {
+    const callDeps = {
+      findChatById: () => ({ id: chatId, type: "dm" }),
+      isMember: () => true,
+      listCallHistoryForUser: () => [],
+      getSetting: (key) => (key === "CALL" || key === "CALL_VIDEO" ? true : null),
+    };
+    const { app } = makeApp({
+      userStore: makeUserStore([makeUser("operator")]),
+      deps: { ...callDeps, hasPermission: throwingService },
+    });
+    const cookie = await login(app);
+    const res = await request(app)
+      .post("/api/calls/start")
+      .set("Cookie", cookie)
+      .send({ chatId, type: "voice" });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("permission_denied");
+  });
+
+  test("ticket.create: a throwing permission service denies the ticket request", async () => {
+    const supportDeps = {
+      getDepartmentById: () => ({ id: "d1", name: "Billing", active: true }),
+      listDepartments: () => [],
+      findChatById: () => ({ id: chatId, type: "dm", channel: "support", department_id: "d1" }),
+      getChatMemberRole: () => "member",
+      emitChatEvent: () => {},
+      emitSseEvent: () => {},
+    };
+    const { app } = makeApp({
+      userStore: makeUserStore([makeUser("user")]),
+      deps: { ...supportDeps, hasPermission: throwingService },
+    });
+    const cookie = await login(app);
+    const res = await request(app)
+      .post("/api/support/request")
+      .set("Cookie", cookie)
+      .send({ departmentId: "d1", message: "Help me", creator: "alice" });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("permission_denied");
+  });
+});

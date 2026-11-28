@@ -18,6 +18,12 @@ const inlineCache = new Map();
 const inlinePlainCache = new Map();
 let hljsModule = null;
 let hljsLoadPromise = null;
+// Fired on window when highlight.js finishes loading so components that cache
+// rendered markdown can invalidate un-highlighted output (see MessageItem).
+export const MARKDOWN_HLJS_READY_EVENT = "chatdesk:markdown-hljs-ready";
+
+export const isMarkdownHighlighterReady = () => Boolean(hljsModule);
+
 const COPY_ICON_HTML = renderToStaticMarkup(
   createElement(Copy, {
     size: 14,
@@ -421,6 +427,19 @@ const loadHighlighter = () => {
   hljsLoadPromise = import("highlight.js/lib/common")
     .then((mod) => {
       hljsModule = mod?.default || mod || null;
+      if (hljsModule) {
+        // Anything rendered before the highlighter arrived is plain escaped
+        // code. Drop those cache entries so the next render re-parses with
+        // highlighting, and let listeners re-render.
+        blockCache.clear();
+        if (typeof window !== "undefined") {
+          try {
+            window.dispatchEvent(new CustomEvent(MARKDOWN_HLJS_READY_EVENT));
+          } catch {
+            // ignore environments without event dispatch
+          }
+        }
+      }
       return hljsModule;
     })
     .catch(() => null)
@@ -430,9 +449,7 @@ const loadHighlighter = () => {
   return hljsLoadPromise;
 };
 
-export const preloadMarkdownHighlighter = () => {
-  void loadHighlighter();
-};
+export const preloadMarkdownHighlighter = () => loadHighlighter();
 
 const shouldUseMarkdownParser = (raw) => {
   if (!raw) return false;
@@ -484,6 +501,7 @@ export const renderMarkdownBlock = (text) => {
     );
   }
   configureMarkdown();
+  const highlighterReadyBeforeParse = Boolean(hljsModule);
   const parsed = marked.parse(safeRaw);
   const parsedHtml = typeof parsed === "string" ? parsed : String(parsed || "");
   const limited = limitHtmlNesting(parsedHtml);
@@ -496,6 +514,12 @@ export const renderMarkdownBlock = (text) => {
       raw,
       fallbackBlockHtml(safeRaw, { restoreBlankLineMarkers: true }),
     );
+  }
+  if (!highlighterReadyBeforeParse && cleaned.includes("sb-code-block")) {
+    // highlight.js was not loaded yet, so code blocks were parsed plain.
+    // Do not cache this output — once the highlighter loads, a later render
+    // of the same text must re-parse (and produce highlighted output).
+    return cleaned;
   }
   return writeToCache(blockCache, raw, cleaned);
 };

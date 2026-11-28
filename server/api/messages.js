@@ -197,6 +197,33 @@ function registerMessageRoutes(app, deps) {
     return role === "owner";
   };
 
+  // Ticket lifecycle (migration 045): a CLOSED support ticket stops
+  // accepting messages — in ANY form (text send, file upload,
+  // edit-with-files, plain edit, forward). The conversation is archived, not
+  // deleted — either party can reopen it via
+  // POST /api/support/tickets/:chatId/reopen. Messenger (direct) chats have
+  // no ticket row and are never blocked. Shared guard so every write path
+  // enforces the same rule (the check used to exist only in POST
+  // /api/messages, leaving upload/edit/forward open). Returns false after
+  // responding with 403 { code: "ticket_closed" }.
+  const assertTicketNotClosed = async (chat, chatId, res) => {
+    if (!chat || String(chat.channel || "direct") !== "support") return true;
+    const rawTicket = getTicketByChatId(chatId);
+    const ticket =
+      rawTicket && typeof rawTicket.then === "function"
+        ? await rawTicket
+        : rawTicket;
+    if (ticket && ticket.status === "closed") {
+      res.status(403).json({
+        error:
+          "This support ticket is closed. Reopen it to continue the conversation.",
+        code: "ticket_closed",
+      });
+      return false;
+    }
+    return true;
+  };
+
   const messageRateLimitHandler = (_req, res) =>
     res.status(429).json({
       error: "Too many message requests. Please try again later.",
@@ -281,8 +308,21 @@ function registerMessageRoutes(app, deps) {
     const reusedFiles = sourceFiles.flatMap((file) => {
       const storedName = safeBasename(String(file?.stored_name || "").trim());
       if (!storedName) return [];
-      const sourcePath = path.join(uploadRootDir, storedName);
-      if (!fs.existsSync(sourcePath)) return [];
+      const driver = String(
+        file?.storage_driver || file?.storageDriver || "local",
+      ).toLowerCase();
+      const storageKey = file?.storage_key || file?.storageKey || null;
+      // Rows on a remote driver (s3/remote) have NO local bytes on this
+      // server — the object lives in the bucket, keyed by storageKey. The
+      // local-disk existence check used to drop those rows silently, so
+      // forwarding a message whose attachments were mirrored to S3/remote
+      // storage lost them. Only local rows are checked on disk, and a
+      // missing local file is still skipped gracefully (never crashes).
+      const isRemoteRow = (driver === "remote" || driver === "s3") && Boolean(storageKey);
+      if (!isRemoteRow) {
+        const sourcePath = path.join(uploadRootDir, storedName);
+        if (!fs.existsSync(sourcePath)) return [];
+      }
 
       return [
         {
@@ -297,6 +337,14 @@ function registerMessageRoutes(app, deps) {
             ? Number(file.duration_seconds)
             : null,
           expiresAt: file.expires_at || null,
+          // Preserve where the bytes actually live — a forwarded copy must
+          // resolve its URL the same way the source attachment does.
+          storageDriver: driver,
+          storageKey,
+          thumbStorageKey:
+            file.thumb_storage_key || file.thumbStorageKey || null,
+          encryptionType:
+            file.encryption_type || file.encryptionType || "none",
         },
       ];
     });
@@ -858,7 +906,31 @@ function registerMessageRoutes(app, deps) {
       return res.status(403).json({ error: "Not a member of this chat." });
     }
 
-    const rawAuthors = getMessageAuthors(messageIds);
+    // Cap + dedupe: a huge array would blow past the SQLite variable limit
+    // (500) and lets one request hammer the DB with thousands of ids.
+    const MAX_READ_COUNT_IDS = 200;
+    const requestedIds = Array.from(
+      new Set(
+        messageIds
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, MAX_READ_COUNT_IDS);
+
+    // Scope every id to THIS chat: membership in one chat must not reveal
+    // view counts for messages in other chats.
+    const scopedIds = [];
+    for (const id of requestedIds) {
+      const msg = await resolveMaybePromise(findMessageById(id));
+      if (msg && String(msg.chat_id || "") === String(chatId)) {
+        scopedIds.push(id);
+      }
+    }
+    if (!scopedIds.length) {
+      return res.json({ ok: true, counts: {} });
+    }
+
+    const rawAuthors = getMessageAuthors(scopedIds);
     const authors = (rawAuthors && typeof rawAuthors.then === "function" ? await rawAuthors : rawAuthors) || [];
     const messages = authors.reduce((acc, row) => {
       const id = row?.id;
@@ -866,8 +938,8 @@ function registerMessageRoutes(app, deps) {
       acc[id] = row;
       return acc;
     }, {});
-    
-    const rawRows = getMessageReadCounts(messageIds);
+
+    const rawRows = getMessageReadCounts(scopedIds);
     const rows = (rawRows && typeof rawRows.then === "function" ? await rawRows : rawRows) || [];
     const counts = rows.reduce((acc, row) => {
       const id = row?.message_id;
@@ -1102,6 +1174,13 @@ function registerMessageRoutes(app, deps) {
           return res.status(400).json({
             error: "A message cannot be edited and replied to at the same time.",
           });
+        }
+        // Ticket lifecycle (migration 045): a closed support ticket accepts
+        // no messages — including file uploads and edit-with-files. Shared
+        // guard, see assertTicketNotClosed above.
+        if (!(await assertTicketNotClosed(chat, chatId, res))) {
+          removeUploadedFiles(uploadedFiles);
+          return;
         }
         if (replyToMessageId) {
           const replyTarget = await resolveMaybePromise(findMessageById(replyToMessageId));
@@ -2078,21 +2157,12 @@ function registerMessageRoutes(app, deps) {
       }
     }
 
-    // Ticket lifecycle (migration 045): a CLOSED support ticket stops
-    // accepting messages. The conversation is archived, not deleted — either
-    // party can reopen it via POST /api/support/tickets/:chatId/reopen.
-    // Messenger (direct) chats have no ticket row and are never blocked.
-    if (String(chat.channel || "direct") === "support") {
-      const rawTicket = getTicketByChatId(chatId);
-      const ticket =
-        rawTicket && typeof rawTicket.then === "function" ? await rawTicket : rawTicket;
-      if (ticket && ticket.status === "closed") {
-        return res.status(403).json({
-          error:
-            "This support ticket is closed. Reopen it to continue the conversation.",
-          code: "ticket_closed",
-        });
-      }
+    // Ticket lifecycle (migration 045): shared guard, see
+    // assertTicketNotClosed above.
+    if (
+      !(await assertTicketNotClosed(chat, chatId, res))
+    ) {
+      return;
     }
 
     if (replyToMessageId) {
@@ -2230,6 +2300,11 @@ function registerMessageRoutes(app, deps) {
         "You do not have permission to edit messages.",
       ))
     ) {
+      return;
+    }
+    // Ticket lifecycle (migration 045): a closed support ticket accepts no
+    // message edits either. Shared guard, see assertTicketNotClosed above.
+    if (!(await assertTicketNotClosed(chat, chatId, res))) {
       return;
     }
 
@@ -2398,6 +2473,14 @@ function registerMessageRoutes(app, deps) {
     if (!forwardBody.trim()) {
       return res.status(400).json({ error: "Forwarded message body is required." });
     }
+    // The forwarded body is arbitrary client text — it used to bypass the
+    // MESSAGE_MAX_CHARS limit that POST /api/messages enforces.
+    const maxMessageChars = Math.max(1, Number(getSetting("MESSAGE_MAX_CHARS") || 4000));
+    if (forwardBody.length > maxMessageChars) {
+      return res.status(400).json({
+        error: `Message must be at most ${maxMessageChars} characters.`,
+      });
+    }
 
     const uniqueTargetChatIds = Array.from(
       new Set(
@@ -2409,6 +2492,14 @@ function registerMessageRoutes(app, deps) {
     if (!uniqueTargetChatIds.length) {
       return res.status(400).json({ error: "Choose at least one target chat." });
     }
+    // Fan-out cap: no limit existed, so one request could write into an
+    // unbounded number of chats.
+    const MAX_FORWARD_TARGETS = 50;
+    if (uniqueTargetChatIds.length > MAX_FORWARD_TARGETS) {
+      return res.status(400).json({
+        error: `You can forward to at most ${MAX_FORWARD_TARGETS} chats at once.`,
+      });
+    }
 
     const rawSourceFiles = listMessageFilesByMessageIds([sourceMessage.id]);
     const sourceFiles = rawSourceFiles && typeof rawSourceFiles.then === "function"
@@ -2419,6 +2510,14 @@ function registerMessageRoutes(app, deps) {
       : computeTextExpiryIso(new Date().toISOString());
 
     const forwardedIds = [];
+
+    // ── Validate EVERY target BEFORE writing anything ──
+    // The single loop used to validate+write per target and return 403/404
+    // midway, after earlier targets had already been written — a retry then
+    // created duplicate forwards. The client's forward modal treats any
+    // non-ok response as a whole-request failure (it never consumed partial
+    // results), so all-or-nothing is the correct contract.
+    const validatedTargets = [];
     for (const targetChatId of uniqueTargetChatIds) {
       const rawMemberCheck = isMember(targetChatId, user.id);
       const targetMemberCheck = rawMemberCheck && typeof rawMemberCheck.then === "function"
@@ -2443,7 +2542,31 @@ function registerMessageRoutes(app, deps) {
           });
         }
       }
+      // Permission registry (1.7.0): the same 'dm.send' gate as POST
+      // /api/messages applies to forwarded text landing in messenger DMs.
+      if (chatMessageScope(targetChat) === "dm") {
+        if (
+          !(await requirePermission(
+            res,
+            user.role,
+            "dm.send",
+            "You do not have permission to send direct messages.",
+          ))
+        ) {
+          return;
+        }
+      }
+      // Ticket lifecycle (migration 045): a closed support ticket accepts
+      // no forwarded messages either. Shared guard, see
+      // assertTicketNotClosed above.
+      if (!(await assertTicketNotClosed(targetChat, targetChatId, res))) {
+        return;
+      }
+      validatedTargets.push({ targetChatId, targetChat });
+    }
 
+    // ── Write phase: every target validated, nothing can fail validation ──
+    for (const { targetChatId, targetChat } of validatedTargets) {
       const rawNextMessageId = createMessage(
         targetChatId,
         user.id,

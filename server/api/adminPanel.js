@@ -344,18 +344,43 @@ function registerAdminPanelRoutes(app, deps) {
       }
 
       // 4. Role determination. The first claim mints the owner; any later
-      // claim (an owner already exists) becomes an operator — the retired
-      // "admin" role is no longer assignable.
+      // claim is refused. Previously ANY claim on an instance that already
+      // had an owner demoted the caller to operator — including the real
+      // owner re-claiming, which locked them out of their own panel — and
+      // two concurrent claims on an owner-less instance could both read
+      // "no owner" and mint two owners (review F4).
       const getRow = deps.getRow || deps.adminGetRow || adminGetRow;
       const existingOwner = await resolveMaybePromise(getRow("SELECT id FROM users WHERE role = 'owner' LIMIT 1"));
-      const targetRole = existingOwner ? "operator" : "owner";
 
-      // 5. Apply role change
-      await resolveMaybePromise(setUserRole(session.id, targetRole));
+      // (a) The caller is already the owner: idempotent no-op, never demote.
+      if (existingOwner && String(existingOwner.id) === String(session.id)) {
+        log(session, "admin.claim_success", { details: "Caller is already the owner — idempotent no-op", targetType: "user", targetLabel: session.username, status: "success" });
+        return res.json({ ok: true, role: "owner" });
+      }
 
-      log(session, "admin.claim_success", { details: `User promoted to ${targetRole} via admin API token`, targetType: "user", targetLabel: session.username, status: "success" });
+      // (c) A different owner exists: refuse instead of demoting anyone.
+      if (existingOwner) {
+        log(session, "admin.claim_failed", { details: "Owner already exists — claim refused", status: "failure" });
+        return res.status(409).json({ error: "An owner already exists. Ask the current owner to manage roles from the admin panel." });
+      }
 
-      return res.json({ ok: true, role: targetRole });
+      // (b) Atomic conditional promotion: the owner mint only lands if no
+      // owner row exists at the moment of the UPDATE. 0 affected rows means
+      // a concurrent claim won the race — refuse instead of co-minting.
+      const promoted = await resolveMaybePromise(
+        adminRun(
+          "UPDATE users SET role = 'owner' WHERE id = ? AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'owner')",
+          [session.id],
+        ),
+      );
+      if (!Number(promoted)) {
+        log(session, "admin.claim_failed", { details: "Lost the owner-claim race — another user claimed first", status: "failure" });
+        return res.status(409).json({ error: "An owner was just created by another claim. Ask them to manage roles from the admin panel." });
+      }
+
+      log(session, "admin.claim_success", { details: "User promoted to owner via admin API token", targetType: "user", targetLabel: session.username, status: "success" });
+
+      return res.json({ ok: true, role: "owner" });
     } catch (error) {
       return res.status(500).json({ error: error.message || "Failed to claim admin privileges" });
     }
@@ -1221,7 +1246,16 @@ function registerAdminPanelRoutes(app, deps) {
     await resolveMaybePromise(adminBanUser(userId, banned));
     // Banning revokes any elevated role; unbanning restores the default user role.
     await resolveMaybePromise(setUserRole(userId, "user"));
-    if (banned) await resolveMaybePromise(callAdminRun(dbKnex("sessions").where("user_id", userId).del()));
+    if (banned) {
+      await resolveMaybePromise(callAdminRun(dbKnex("sessions").where("user_id", userId).del()));
+      // Live revocation signal (review F7): deleting DB sessions alone leaves
+      // open WS/SSE streams delivering realtime messages. Mirrors the CLI ban
+      // path in admin.js — the connected client closes its session on receive.
+      emitSseEvent(user.username, {
+        type: "session_revoked",
+        reason: "banned",
+      });
+    }
     adminSave();
     log(session, banned ? "user.ban" : "user.unban", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true, banned });
@@ -1449,6 +1483,13 @@ function registerAdminPanelRoutes(app, deps) {
     await resolveMaybePromise(callAdminRun(dbKnex("users").where("id", userId).update({ password_hash: hash })));
     await resolveMaybePromise(callAdminRun(dbKnex("sessions").where("user_id", userId).del()));
     adminSave();
+    // Live revocation signal (review F7): every session of the user was just
+    // deleted — tell their still-open WS/SSE streams so they drop out
+    // immediately instead of receiving realtime messages on dead credentials.
+    emitSseEvent(user.username, {
+      type: "session_revoked",
+      reason: "password_reset",
+    });
     log(session, "user.reset_password", { targetType: "user", targetLabel: `@${user.username}` });
     res.json({ ok: true });
   });

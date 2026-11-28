@@ -146,14 +146,18 @@ sudo tee /etc/sudoers.d/chatdesk > /dev/null <<'EOF'
 # and read privileged logs without a password.
 chatdesk ALL=(root) NOPASSWD: /usr/bin/systemctl restart chatdesk.service
 chatdesk ALL=(root) NOPASSWD: /usr/bin/systemctl stop chatdesk.service
-chatdesk ALL=(root) NOPASSWD: /usr/bin/journalctl -u chatdesk *
-chatdesk ALL=(root) NOPASSWD: /usr/bin/journalctl -u chatdesk-worker *
 chatdesk ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/error.log
 chatdesk ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/access.log
 chatdesk ALL=(root) NOPASSWD: /usr/bin/nginx -t
 chatdesk ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx
 EOF
 sudo chmod 0440 /etc/sudoers.d/chatdesk
+```
+
+Service journal access is granted through **group membership** (not sudo), which avoids a root-escalation vector: a sudoers rule like `journalctl -u chatdesk *` would let the service user run arbitrary `journalctl` flags as root (`--vacuum-*`, `--file=`, `-D`) and, on systemd < 254, escape through the root pager. Add the user to the journal group instead:
+
+```bash
+sudo usermod -aG adm,systemd-journal chatdesk
 ```
 
 Without this step the **Restart service** and **Stop service** buttons in the admin panel will fail with a permissions error, and system logs (service journal, nginx) will not be visible in the Logs tab.

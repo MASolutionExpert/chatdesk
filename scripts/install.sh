@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.8.0-dev.2
+# chatdesk-deploy-version: 1.8.0-dev.3
 
 set -uo pipefail
 
@@ -111,7 +111,10 @@ DEFAULT_POSTGRES_HOST="127.0.0.1"
 DEFAULT_POSTGRES_PORT="5432"
 DEFAULT_POSTGRES_DB="chatdesk"
 DEFAULT_POSTGRES_USER="postgres"
-DEFAULT_POSTGRES_PASSWORD="postgres"
+# No default password: PostgreSQL must never be provisioned with the known
+# "postgres" default. A strong password is generated when the user does not
+# type one in (see prompt_database_choice / sync_values_from_env).
+DEFAULT_POSTGRES_PASSWORD=""
 DEFAULT_POSTGRES_URL=""
 DEFAULT_POSTGRES_SSL="false"
 POSTGRES_URL=""
@@ -1334,8 +1337,13 @@ prompt_database_choice() {
         POSTGRES_USER="${POSTGRES_USER%"${POSTGRES_USER##*[![:space:]]}"}"
         POSTGRES_USER="${POSTGRES_USER:-$DEFAULT_POSTGRES_USER}"
 
-        prompt_read "PostgreSQL Password [$DEFAULT_POSTGRES_PASSWORD]: " POSTGRES_PASSWORD
-        POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$DEFAULT_POSTGRES_PASSWORD}"
+        # Never install with the well-known "postgres" default. Generate a
+        # strong password and let the user override it by typing one in.
+        local generated_pg_password=""
+        generated_pg_password="$(generate_secret_hex 2>/dev/null || od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
+        POSTGRES_PASSWORD="$generated_pg_password"
+        prompt_read "PostgreSQL Password [press Enter to keep the generated one]: " POSTGRES_PASSWORD
+        POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-$generated_pg_password}"
 
         local default_ssl="no"
         if [[ "$POSTGRES_HOST" != "127.0.0.1" && "$POSTGRES_HOST" != "0.0.0.0" && "$POSTGRES_HOST" != "localhost" ]]; then
@@ -1632,6 +1640,12 @@ ensure_service_user_exists() {
 
   # Install a passwordless sudoers drop-in so the service process can
   # control its own systemd unit and read nginx/service logs via sudo -n.
+  # NOTE: journalctl is deliberately NOT granted via sudo. The service user is
+  # already in the systemd-journal group, which grants full read access to the
+  # journal (systemLogs.js tries direct journalctl first). A sudoers rule like
+  # "journalctl -u chatdesk *" would let the service user run arbitrary
+  # journalctl flags as root (--vacuum-*, --file=, -D) and, on systemd < 254,
+  # escape through the root pager — a local root-escalation vector.
   local sudoers_drop_in="/etc/sudoers.d/chatdesk"
   local sudoers_content="# ChatDesk — allow the service user to control its own unit
 # and read privileged logs without a password.
@@ -1639,8 +1653,6 @@ ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart ${SERVICE_NAME}
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl stop ${SERVICE_NAME}
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl restart ${WORKER_SERVICE_NAME}
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/systemctl stop ${WORKER_SERVICE_NAME}
-${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl -u ${SERVICE_NAME} *
-${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/journalctl -u ${WORKER_SERVICE_NAME} *
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/error.log
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/cat /var/log/nginx/access.log
 ${SERVICE_USER} ALL=(root) NOPASSWD: /usr/bin/cat /opt/chatdesk/logs/install.log
@@ -2614,7 +2626,9 @@ WEBHOOK_URL=http://127.0.0.1:${SERVER_PORT}/api/uploads/webhook/processed
 # the in-app Admin Panel after installation.
 EOF" || return 1
   # Substitute the placeholders with the real values (never via argv).
-  replace_env_value "$env_file" "POSTGRES_PASSWORD" "${POSTGRES_PASSWORD:-postgres}" || return 1
+  # POSTGRES_PASSWORD must never fall back to a known default ("postgres"):
+  # generate a strong one when the value is empty.
+  replace_env_value "$env_file" "POSTGRES_PASSWORD" "${POSTGRES_PASSWORD:-$(generate_secret_hex 2>/dev/null || od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')}" || return 1
   replace_env_value "$env_file" "POSTGRES_URL" "${POSTGRES_URL:-}" || return 1
   replace_env_value "$env_file" "STORAGE_ENCRYPTION_KEY" "$existing_storage_encryption_key" || return 1
   replace_env_value "$env_file" "ADMIN_API_TOKEN" "$existing_admin_api_token" || return 1
@@ -2773,7 +2787,12 @@ sync_values_from_env() {
   POSTGRES_PORT="$(get_existing_env_value "POSTGRES_PORT" "$DEFAULT_POSTGRES_PORT")"
   POSTGRES_DB="$(get_existing_env_value "POSTGRES_DB" "$DEFAULT_POSTGRES_DB")"
   POSTGRES_USER="$(get_existing_env_value "POSTGRES_USER" "$DEFAULT_POSTGRES_USER")"
-  POSTGRES_PASSWORD="$(get_existing_env_value "POSTGRES_PASSWORD" "$DEFAULT_POSTGRES_PASSWORD")"
+  # Keep the existing .env password; if there is none, generate a strong one
+  # (ensure_local_postgres_setup provisions the role with this value).
+  POSTGRES_PASSWORD="$(get_existing_env_value "POSTGRES_PASSWORD" "")"
+  if [[ -z "$POSTGRES_PASSWORD" ]]; then
+    POSTGRES_PASSWORD="$(generate_secret_hex 2>/dev/null || od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  fi
   POSTGRES_URL="$(get_existing_env_value "POSTGRES_URL" "$DEFAULT_POSTGRES_URL")"
   POSTGRES_SSL="$(get_existing_env_value "POSTGRES_SSL" "$DEFAULT_POSTGRES_SSL")"
   CURRENT_ENV_FILE="$env_file"
@@ -3265,6 +3284,11 @@ write_nginx_site_config() {
   local cert_line_path="$cert_path"
   local key_line_path="$key_path"
   local current_listen_line=""
+  # nginx add_header directives do NOT inherit into a location that defines its
+  # own (the /api/events block sets X-Accel-Buffering), so HSTS must also be
+  # emitted inside that location. Empty in http mode (never on the :80 block).
+  local hsts_events_line=""
+  [[ "$mode" == "ssl" ]] && hsts_events_line='    add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;'
 
   if [[ "$mode" == "http" && "$CERT_MODE" == "certbot" ]]; then
     listen_line="listen 80 default_server;"
@@ -3279,6 +3303,8 @@ write_nginx_site_config() {
   ssl_certificate_key ${key_path};
   ssl_session_cache shared:SSL:10m;
   ssl_session_timeout 1d;
+  # HSTS — HTTPS server block only (never on the :80 block).
+  add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
 EOF
 )
 
@@ -3356,6 +3382,8 @@ EOF
   ssl_certificate_key ${key_line_path};
   ssl_session_cache shared:SSL:10m;
   ssl_session_timeout 1d;
+  # HSTS — HTTPS server block only (never on the :80 block).
+  add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
 EOF
 )
       elif [[ "$mode" == "ssl" && "$CERT_MODE" == "files" ]]; then
@@ -3366,6 +3394,8 @@ EOF
   ssl_certificate_key ${key_line_path};
   ssl_session_cache shared:SSL:10m;
   ssl_session_timeout 1d;
+  # HSTS — HTTPS server block only (never on the :80 block).
+  add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
 EOF
 )
       fi
@@ -3389,6 +3419,7 @@ ${ssl_block}
     proxy_buffering off;
     proxy_cache off;
     add_header X-Accel-Buffering no;
+${hsts_events_line}
   }
 
   location / {
@@ -3428,6 +3459,7 @@ ${acme_block}
     proxy_buffering off;
     proxy_cache off;
     add_header X-Accel-Buffering no;
+${hsts_events_line}
   }
 
   location / {
@@ -3605,7 +3637,7 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Group=root
-ExecStart=${LEGO_BIN} run --accept-tos --email ${CERTBOT_EMAIL} --path ${LEGO_STATE_DIR} --http --http.webroot ${ACME_WEBROOT} --domains ${CERTBOT_IP_ADDRESS} --profile shortlived
+ExecStart=${LEGO_BIN} renew --days 3 --accept-tos --email ${CERTBOT_EMAIL} --path ${LEGO_STATE_DIR} --http --http.webroot ${ACME_WEBROOT} --domains ${CERTBOT_IP_ADDRESS} --profile shortlived
 ExecStartPost=/bin/bash -lc 'cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.crt" > "${CERT_INSTALL_DIR}/fullchain.pem" && if [[ -f "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" ]]; then cat "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.issuer.crt" >> "${CERT_INSTALL_DIR}/fullchain.pem"; fi && cp -Lf "${LEGO_STATE_DIR}/certificates/${CERTBOT_IP_ADDRESS}.key" "${CERT_INSTALL_DIR}/privkey.pem" && chmod 644 "${CERT_INSTALL_DIR}/fullchain.pem" && chmod 600 "${CERT_INSTALL_DIR}/privkey.pem" && systemctl reload nginx'
 
 [Install]
@@ -3788,6 +3820,25 @@ lt-cred-mech
 realm=${COTURN_REALM}
 user=${COTURN_USER}:${COTURN_PASSWORD}
 external-ip=${COTURN_EXTERNAL_IP}
+# Relay targets: never allow peers on internal / infrastructure networks.
+# Without these ranges any holder of the shared long-term credential can
+# relay traffic into the host's private network or the cloud metadata
+# endpoint (169.254.169.254) — an open proxy into internal services.
+# IPv4 reserved / private ranges:
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+# IPv6 unique-local, link-local and IPv4-mapped equivalents:
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=::ffff:0:0-::ffff:ffff:ffff
+# Belt-and-braces: coturn built-in peer filters.
+no-loopback-peers
+no-multicast-peers
 no-cli
 no-tls
 no-dtls

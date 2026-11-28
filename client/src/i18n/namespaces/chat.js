@@ -16,6 +16,14 @@ export const chat = {
       aMember: "A member",
       yourself: "yourself",
     },
+    // Group/system event pills — rendered from _systemEvent.type via t() so
+    // the line follows the UI language (see MessageItem).
+    system: {
+      joined: "{name} joined the group",
+      left: "{name} left the group",
+      removed: "{name} was removed from the group",
+      referred: "Ticket referred to {name}",
+    },
     presence: {
       lastSeen: {
         recently: "last seen recently",
@@ -274,6 +282,12 @@ export const chat = {
       deletedAccount: "حساب حذف‌شده",
       aMember: "یک عضو",
       yourself: "خودتان",
+    },
+    system: {
+      joined: "{name} به گروه پیوست",
+      left: "{name} گروه را ترک کرد",
+      removed: "{name} از گروه حذف شد",
+      referred: "تیکت به {name} ارجاع شد",
     },
     presence: {
       lastSeen: {

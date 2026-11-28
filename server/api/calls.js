@@ -1,6 +1,6 @@
 import { createCallManager } from "../lib/callManager.js";
 import { validateUuidBody } from "../lib/uuidMiddleware.js";
-import { callHistoryPermissionKey } from "../lib/permissions.js";
+import { callHistoryPermissionKey, getDefaultPermission } from "../lib/permissions.js";
 
 /**
  * Register HTTP routes for WebRTC call setup and signaling fallback.
@@ -76,23 +76,34 @@ export function registerCallRoutes(app, deps) {
     // Permission registry (1.7.0): 'call.voice' / 'call.video' gate who may
     // start calls (owner always allowed; operator/user configurable). The
     // instance-level CALL/CALL_VIDEO feature flags stay independent.
+    //
+    // Fail-closed semantics (review F6): if the permission service THROWS
+    // (DB error, missing role_permissions table) a non-owner is denied — a
+    // broken check must never silently grant access. The owner keeps
+    // working: the service short-circuits owner to true before any query,
+    // and if a custom service still throws, the owner is allowed here.
+    const callKey = type === "video" ? "call.video" : "call.voice";
+    const actorRole = String(user?.role || "").toLowerCase();
+    let allowed;
     if (typeof deps.hasPermission === "function") {
-      const callKey = type === "video" ? "call.video" : "call.voice";
-      let allowed = true;
       try {
-        allowed = await deps.hasPermission(user.role, callKey);
+        allowed = await deps.hasPermission(actorRole, callKey);
       } catch {
-        allowed = true; // fail-open on service errors; defaults preserve legacy
+        allowed = actorRole === "owner"; // fail closed for everyone else
       }
-      if (!allowed) {
-        return res.status(403).json({
-          error:
-            type === "video"
-              ? "You do not have permission to start video calls."
-              : "You do not have permission to start calls.",
-          code: "permission_denied",
-        });
-      }
+    } else {
+      // Permission service not wired: registry defaults (pre-1.7 behaviour).
+      allowed =
+        actorRole === "owner" || getDefaultPermission(actorRole, callKey);
+    }
+    if (!allowed) {
+      return res.status(403).json({
+        error:
+          type === "video"
+            ? "You do not have permission to start video calls."
+            : "You do not have permission to start calls.",
+        code: "permission_denied",
+      });
     }
     const result = await callManager.startCall({ user, chatId, type });
     if (result.error) {
@@ -264,13 +275,23 @@ export function registerCallRoutes(app, deps) {
       // per call kind — 'call.history.delete' (voice) vs
       // 'call.video.history.delete'. Owner always allowed; previously any
       // member could remove their own copy.
+      // Fail closed on service errors (review F6) — the owner stays working
+      // via the service's owner short-circuit (and the catch path below).
       const callDeleteKey = callHistoryPermissionKey(message.body);
-      if (callDeleteKey && typeof deps.hasPermission === "function") {
-        let allowed = true;
-        try {
-          allowed = await deps.hasPermission(user.role, callDeleteKey);
-        } catch {
-          allowed = true;
+      const actorRole = String(user?.role || "").toLowerCase();
+      if (callDeleteKey) {
+        let allowed;
+        if (typeof deps.hasPermission === "function") {
+          try {
+            allowed = await deps.hasPermission(actorRole, callDeleteKey);
+          } catch {
+            allowed = actorRole === "owner"; // fail closed for everyone else
+          }
+        } else {
+          // Permission service not wired: registry defaults (pre-1.7).
+          allowed =
+            actorRole === "owner" ||
+            getDefaultPermission(actorRole, callDeleteKey);
         }
         if (!allowed) {
           return res.status(403).json({
