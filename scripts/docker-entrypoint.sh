@@ -1,6 +1,19 @@
 #!/bin/sh
 set -e
 
+# Root-then-drop: if started as root (the image default, so legacy volumes
+# created by older root-run images can be repaired), fix /app/data ownership
+# and re-exec this script as the unprivileged chatdesk user. Never run the
+# workload itself as root. When the container is started with a non-root
+# `user:` (Compose), this branch is skipped entirely.
+if [ "$(id -u)" = "0" ]; then
+  if command -v gosu >/dev/null 2>&1; then
+    chown -R chatdesk:chatdesk /app/data 2>/dev/null || true
+    exec gosu chatdesk "$0" "$@"
+  fi
+  echo "[entrypoint] WARNING: running as root because gosu is unavailable." >&2
+fi
+
 WORKER_PORT="${WORKER_PORT:-8080}"
 STORAGE_PROCESSING_MODE="${STORAGE_PROCESSING_MODE:-auto}"
 START_LOCAL_WORKER="${START_LOCAL_WORKER:-auto}"

@@ -76,7 +76,7 @@ ChatDesk defaults to SQLite (`DB_CLIENT=sqlite3`). To use PostgreSQL instead, ed
 :::
 
 :::info Media Worker Container
-ChatDesk automatically spawns and manages a local Media Worker child process inside the all-in-one container (`MASolutionExpert/chatdesk:latest`) by default. For distributed or high-load setups, you can offload media processing to the dedicated standalone image (`MASolutionExpert/chatdesk-worker:latest`) or uncomment the optional `media-worker` service in `docker-compose.yaml`. See [Media Worker](./Media-Worker.md) for details.
+ChatDesk automatically spawns and manages a local Media Worker child process inside the all-in-one container (`masolutionexpert/chatdesk:latest`) by default. For distributed or high-load setups, you can offload media processing to the dedicated standalone image (`masolutionexpert/chatdesk-worker:latest`) or uncomment the optional `media-worker` service in `docker-compose.yaml`. See [Media Worker](./Media-Worker.md) for details.
 :::
 
 ## 4. Set up TLS certificates
@@ -120,13 +120,13 @@ docker compose restart nginx
 
 ## Runtime User and Persistent Data
 
-Docker deployments do not use `chatdesk.service`. ChatDesk runs as the user configured for the container (root in the current image unless Compose `user:` overrides it), and database commands run as that same container UID/GID:
+Docker deployments do not use `chatdesk.service`. The image ships a dedicated unprivileged user: the entrypoint starts the workload as `chatdesk` (UID/GID 10001) via `gosu`, repairing ownership of `/app/data` first if it was created by an older root-run image. Database commands run as that same container UID/GID:
 
 ```bash
 docker compose exec chatdesk npm --prefix /app/server run db:inspect
 ```
 
-To run the container as a specific non-root UID/GID, configure `user:` in your Compose service:
+To run the container as a specific non-root UID/GID instead, configure `user:` in your Compose service (the root-then-drop entrypoint phase is skipped when the container does not start as root):
 
 ```yaml
 services:
@@ -143,7 +143,17 @@ sudo chown -R chatdesk:chatdesk ./data
 
 ## Admin panel service control
 
-The admin panel's **Restart service** and **Stop service** actions work in Docker deployments by calling the Docker Engine API through the mounted socket (`/var/run/docker.sock`). The compose file sets `CHATDESK_CONTAINER_NAME=chatdesk` so the app knows which container to target.
+The admin panel's **Restart service** and **Stop service** actions work in Docker deployments by calling the Docker Engine API through the Docker socket (`/var/run/docker.sock`). For security reasons the socket is **not** mounted by default (an app compromise must not grant host-root-equivalent Docker access). To enable service control, create a `docker-compose.override.yaml` next to `docker-compose.yaml`:
+
+```yaml
+# docker-compose.override.yaml
+services:
+  chatdesk:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+The compose file sets `CHATDESK_CONTAINER_NAME=chatdesk` so the app knows which container to target.
 
 If you rename the container or use a custom name, set the env var to match:
 
@@ -153,12 +163,7 @@ environment:
   CHATDESK_CONTAINER_NAME: my-custom-name
 ```
 
-If you do not need service control from the admin panel, you can remove the socket mount from `docker-compose.yaml`:
-
-```yaml
-# Remove or comment out this line under chatdesk volumes:
-# - /var/run/docker.sock:/var/run/docker.sock
-```
+If you do not need service control from the admin panel, simply do not create the override above — the default `docker-compose.yaml` mounts no socket.
 
 ## Updating
 

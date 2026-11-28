@@ -188,6 +188,17 @@ const configureMarkdown = () => {
   configured = true;
 
   const renderer = new marked.Renderer();
+  // Raw HTML must never reach the DOM as markup, fence or no fence: it is
+  // escaped to visible text here and DOMPurify's FORBID_TAGS below act as a
+  // second layer. Markdown images (![alt](url)) keep working through the
+  // image renderer — only hand-written HTML tags are neutralised.
+  renderer.html = (token) => {
+    const raw =
+      token && typeof token === "object"
+        ? String(token.text ?? token.raw ?? "")
+        : String(token ?? "");
+    return escapeHtml(raw);
+  };
   renderer.link = (href, _title, text) => {
     const token = typeof href === "object" && href !== null ? href : null;
     const resolvedHref = token ? token.href : href;
@@ -317,6 +328,29 @@ const sanitize = (html) => {
       "data-mention",
       "data-copyable",
       "data-state",
+    ],
+    // Defense in depth on top of the escaping: anything interactive or
+    // style/phishing-capable is dropped outright, even if a future refactor
+    // stops escaping one of the code paths. `img` stays allowed on purpose
+    // (markdown images are a product feature); DOMPurify strips on* handlers
+    // and javascript: URLs from it by default.
+    FORBID_TAGS: [
+      "style",
+      "form",
+      "input",
+      "textarea",
+      "select",
+      "iframe",
+      "frame",
+      "frameset",
+      "object",
+      "embed",
+      "link",
+      "meta",
+      "base",
+      "script",
+      "noscript",
+      "template",
     ],
     ADD_TAGS: [
       "button",

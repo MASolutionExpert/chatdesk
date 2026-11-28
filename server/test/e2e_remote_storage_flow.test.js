@@ -40,6 +40,15 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         deps: {
           storageProvider: localProvider,
           storageProcessingMode: "local",
+          // Security contract (Stage 2): presign with a caller-supplied
+          // messageId must resolve to the session user's OWN message, and
+          // file downloads require a session + chat membership.
+          findMessageById: (id) => ({
+            id,
+            user_id: userId,
+            chat_id: "chat-e2e-local",
+          }),
+          isMember: () => true,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
@@ -109,10 +118,10 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       expect(completeRes.body.success).toBe(true);
       expect(completeRes.body.status).toBe("ready");
 
-      // 3. Download call
-      const downloadRes = await request(appObj.app).get(
-        `/api/uploads/file/${fileId}`,
-      );
+      // 3. Download call (session + membership required)
+      const downloadRes = await request(appObj.app)
+        .get(`/api/uploads/file/${fileId}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
       expect(downloadRes.status).toBe(200);
     });
@@ -176,12 +185,15 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         `/api/uploads/file/${uploadRes.body.fileId}`,
       );
 
-      // Verify download endpoint
-      const downloadRes = await request(appObj.app).get(
-        `/api/uploads/file/${uploadRes.body.fileId}`,
-      );
+      // Verify download endpoint. The multipart fallback inserts orphan
+      // rows (message_id = 0) — under the Stage 2 security contract they are
+      // intentionally unreachable via /api/uploads/file/:id (no parent
+      // message -> no chat membership to authorize), so the download 404s.
+      const downloadRes = await request(appObj.app)
+        .get(`/api/uploads/file/${uploadRes.body.fileId}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
-      expect(downloadRes.status).toBe(200);
+      expect(downloadRes.status).toBe(404);
     });
   });
 
@@ -239,6 +251,14 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
           storageProvider: mockRemoteProvider,
           storageProcessingMode: "remote",
           webhookSecret: "super-secret-webhook-key",
+          // Security contract (Stage 2): presign ownership + download
+          // session/membership gate.
+          findMessageById: (id) => ({
+            id,
+            user_id: userId,
+            chat_id: "chat-e2e-s3",
+          }),
+          isMember: () => true,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
@@ -332,10 +352,10 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       expect(updatedFile.processing_status).toBe("ready");
       expect(updatedFile.storage_key).toBe("transcoded/video_720p.mp4");
 
-      // 4. Download URL resolution (302 redirect)
-      const downloadRes = await request(appObj.app).get(
-        `/api/uploads/file/${fileId}`,
-      );
+      // 4. Download URL resolution (302 redirect, session + membership)
+      const downloadRes = await request(appObj.app)
+        .get(`/api/uploads/file/${fileId}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
       expect(downloadRes.status).toBe(302);
       expect(downloadRes.headers.location).toBe(

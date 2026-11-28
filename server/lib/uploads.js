@@ -1,5 +1,10 @@
 import rateLimit from "express-rate-limit";
 import { dbKnex } from "../db/knex.js";
+import {
+  SAFE_INLINE_MESSAGE_EXTENSIONS,
+  resolveServedUploadContentType,
+  shouldServeInline,
+} from "./uploadContentTypes.js";
 
 export function createUploadTools({
   fs,
@@ -27,21 +32,9 @@ export function createUploadTools({
     maxFileSizeBytes: fileUploadMaxSize,
   };
 
-  const SAFE_INLINE_MESSAGE_EXTENSIONS = new Set([
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-    ".bmp",
-    ".mp4",
-    ".mov",
-    ".webm",
-    ".mkv",
-    ".avi",
-    ".m4v",
-    ".pdf",
-  ]);
+  // SAFE_INLINE_MESSAGE_EXTENSIONS comes from ./uploadContentTypes.js — the
+  // single canonical inline allowlist shared with the /api/uploads/file/:id
+  // route in uploadsRemote.js.
 
   const DANGEROUS_FILE_EXTENSIONS = new Set([
     ".html",
@@ -433,21 +426,26 @@ export function createUploadTools({
         const originalName = buildDownloadFilename(row?.original_name);
         const fallbackName = buildAsciiFallbackFilename(originalName);
         const mimeType = String(row?.mime_type || "").trim();
-        const ext = path.extname(storedName).toLowerCase();
 
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         res.setHeader("Vary", "Accept-Encoding");
         res.setHeader("X-Content-Type-Options", "nosniff");
         res.setHeader("Accept-Ranges", "bytes");
 
-        if (mimeType) {
-          res.type(mimeType);
-        }
+        // Security: the stored mime_type is fully client-controlled (multipart
+        // mimetype / presign payload). Never echo it as the served Content-Type:
+        // derive the type from the stored filename extension and force
+        // Content-Disposition: attachment unless the file passes the safe
+        // inline policy (safe extension + non-XML/HTML mime). This blocks the
+        // `x.png` + `application/x-a+xml` stored-XSS pattern — Chromium parses
+        // any *+xml type as XML and would run XHTML scripts on the app origin —
+        // while keeping legitimate image/video/pdf inline serving intact.
+        res.type(resolveServedUploadContentType(storedName, mimeType));
 
         const forceDownload =
           String(req.query?.download || "").toLowerCase() === "1" ||
           String(req.query?.download || "").toLowerCase() === "true";
-        if (forceDownload || !SAFE_INLINE_MESSAGE_EXTENSIONS.has(ext)) {
+        if (forceDownload || !shouldServeInline(storedName, mimeType)) {
           const encoded = encodeURIComponent(originalName);
           res.setHeader(
             "Content-Disposition",

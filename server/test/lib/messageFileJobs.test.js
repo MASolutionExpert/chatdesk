@@ -13,7 +13,10 @@
  * 4. The retention value is read live via getSetting() — changing it after
  *    the jobs object is created takes effect immediately (no restart needed).
  */
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
+import realFs from "node:fs";
+import realPath from "node:path";
+import os from "node:os";
 import { createMessageFileJobs } from "../../lib/messageFileJobs.js";
 
 // ─── Minimal stub factory ─────────────────────────────────────────────────────
@@ -241,5 +244,148 @@ describe("cleanupMissingMessageFiles — remote storage must not be pruned", () 
 
     expect(result.changed).toBe(true);
     expect(adminRunSpy).toHaveBeenCalledWith("BEGIN");
+  });
+});
+
+// ─── removeLocalThumbFiles — path containment (Stage 2 HIGH [F1]) ─────────────
+
+/**
+ * Stage 2 fix: removeLocalThumbFiles unlinked path.join(uploadRootDir,
+ * thumb_storage_key) without any containment check. thumb_storage_key lives
+ * in the DB (written by the media-worker webhook), so a poisoned key like
+ * "../../.env" would let retention delete any file the server can write.
+ * The fix uses the basename plus a resolved-path containment check — exactly
+ * mirroring the Stage 1 defense in GET /api/uploads/thumbs/:fileId.
+ */
+describe("removeLocalThumbFiles — resolved-path containment", () => {
+  function makeRetentionJobs({ fileRows, expiredRows, stillReferencedRows }) {
+    const tmpBase = realFs.mkdtempSync(realPath.join(os.tmpdir(), "sb-thumb-retention-"));
+    const uploadRootDir = realPath.join(tmpBase, "upload-root");
+    realFs.mkdirSync(uploadRootDir, { recursive: true });
+
+    // adminGetAll call order (all synchronous):
+    //   1. expired files scan → expiredRows
+    //   2. shared-message ids by stored names → [{message_id}]
+    //   3. file rows for those messages → fileRows
+    //   4. removeLocalThumbFiles still-referenced check → stillReferencedRows
+    const queue = [
+      expiredRows,
+      fileRows.map((row) => ({ message_id: row.message_id })),
+      fileRows,
+      stillReferencedRows,
+    ];
+
+    const jobs = createMessageFileJobs({
+      getSetting: () => 7,
+      adminGetAll: () => queue.shift(),
+      adminGetRow: () => null,
+      adminRun: () => {},
+      adminSave: () => {},
+      listMessageFilesByMessageIds: () => [],
+      removeStoredFileNames: () => {},
+      uploadRootDir,
+      fs: realFs,
+      path: realPath,
+    });
+    return { jobs, tmpBase, uploadRootDir };
+  }
+
+  afterEach(() => {
+    for (const dir of realFs.readdirSync(os.tmpdir())) {
+      if (dir.startsWith("sb-thumb-retention-")) {
+        realFs.rmSync(realPath.join(os.tmpdir(), dir), { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("a traversal thumb key cannot delete files outside the upload root", () => {
+    const outsideEnv = realPath.join(os.tmpdir(), "sb-thumb-retention-outside.env");
+    realFs.writeFileSync(outsideEnv, "SUPER_SECRET=1");
+    try {
+      const { jobs, uploadRootDir } = makeRetentionJobs({
+        fileRows: [
+          {
+            message_id: "m-1",
+            stored_name: "doc.png",
+            storage_key: null,
+            storage_driver: "local",
+            thumb_storage_key: "../../" + realPath.basename(os.tmpdir()) + "/" + realPath.basename(outsideEnv),
+          },
+        ],
+        expiredRows: [{ stored_name: "doc.png" }],
+        stillReferencedRows: [],
+      });
+
+      const result = jobs.cleanupExpiredMessageFiles();
+      expect(result.removedLocalThumbs).toBe(0);
+      expect(realFs.existsSync(outsideEnv)).toBe(true);
+      void uploadRootDir;
+    } finally {
+      realFs.rmSync(outsideEnv, { force: true });
+    }
+  });
+
+  test("a traversal key also fails to delete via its basename outside the root", () => {
+    const { jobs, tmpBase } = makeRetentionJobs({
+      fileRows: [
+        {
+          message_id: "m-1",
+          stored_name: "doc.png",
+          storage_key: null,
+          storage_driver: "local",
+          thumb_storage_key: "../escaped.env",
+        },
+      ],
+      expiredRows: [{ stored_name: "doc.png" }],
+      stillReferencedRows: [],
+    });
+
+    // The attacker's target (outside the upload root) does not exist and must
+    // stay untouched; nothing is removed.
+    const result = jobs.cleanupExpiredMessageFiles();
+    expect(result.removedLocalThumbs).toBe(0);
+    expect(realFs.existsSync(realPath.join(tmpBase, "escaped.env"))).toBe(false);
+  });
+
+  test("a legitimate in-root thumb key is still deleted", () => {
+    const { jobs, uploadRootDir } = makeRetentionJobs({
+      fileRows: [
+        {
+          message_id: "m-1",
+          stored_name: "doc.png",
+          storage_key: null,
+          storage_driver: "local",
+          thumb_storage_key: "inside-thumb.jpg",
+        },
+      ],
+      expiredRows: [{ stored_name: "doc.png" }],
+      stillReferencedRows: [],
+    });
+
+    realFs.writeFileSync(realPath.join(uploadRootDir, "inside-thumb.jpg"), "jpg");
+    const result = jobs.cleanupExpiredMessageFiles();
+    expect(result.removedLocalThumbs).toBe(1);
+    expect(realFs.existsSync(realPath.join(uploadRootDir, "inside-thumb.jpg"))).toBe(false);
+  });
+
+  test("a thumb still referenced by a live row is not deleted", () => {
+    const { jobs, uploadRootDir } = makeRetentionJobs({
+      fileRows: [
+        {
+          message_id: "m-1",
+          stored_name: "doc.png",
+          storage_key: null,
+          storage_driver: "local",
+          thumb_storage_key: "shared-thumb.jpg",
+        },
+      ],
+      expiredRows: [{ stored_name: "doc.png" }],
+      stillReferencedRows: [{ thumb_storage_key: "shared-thumb.jpg" }],
+    });
+
+    realFs.writeFileSync(realPath.join(uploadRootDir, "shared-thumb.jpg"), "jpg");
+    const result = jobs.cleanupExpiredMessageFiles();
+    expect(result.removedLocalThumbs).toBe(0);
+    expect(realFs.existsSync(realPath.join(uploadRootDir, "shared-thumb.jpg"))).toBe(true);
   });
 });

@@ -202,12 +202,16 @@ export async function downloadWithRetry(
   throw lastErr;
 }
 
+// Returns true when the webhook was delivered (HTTP 2xx), false when it was
+// skipped (no URL) or every retry failed. Callers use this to decide whether
+// it is safe to act on the server's behalf — e.g. deleting the original raw
+// video, which the server's DB keeps pointing at until the webhook lands.
 async function notifyCallback(url, payload, secret, maxRetries = 5) {
   if (!url) {
     console.warn(
       `[worker] Callback notification skipped for file ${payload?.fileId}: no callbackUrl provided or configured.`,
     );
-    return;
+    return false;
   }
   const effectiveSecret = secret || WEBHOOK_SECRET || "";
   for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
@@ -226,7 +230,7 @@ async function notifyCallback(url, payload, secret, maxRetries = 5) {
         console.log(
           `[worker] Callback webhook delivered successfully to ${url} for file ${payload.fileId}`,
         );
-        return;
+        return true;
       }
       const errText = await res.text();
       console.warn(
@@ -247,9 +251,10 @@ async function notifyCallback(url, payload, secret, maxRetries = 5) {
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
+  return false;
 }
 
-async function processTranscodeJob({
+export async function processTranscodeJob({
   fileId,
   storageKey,
   storedName,
@@ -260,6 +265,7 @@ async function processTranscodeJob({
   downloadUrl,
   uploadUrl,
   thumbUploadUrl,
+  callbackMaxRetries = 5,
 }) {
   const defaultLocalCallback = `http://127.0.0.1:${process.env.PORT || process.env.SERVER_PORT || "5174"}/api/uploads/webhook/processed`;
   const targetCallback = callbackUrl || defaultLocalCallback;
@@ -411,13 +417,11 @@ async function processTranscodeJob({
           );
         }
 
-        // Delete the original raw file from remote storage to avoid storing duplicate orphaned video files
-        if (transcodedStorageKey !== storageKey && !uploadUrl) {
-          await effectiveStorage.deleteFile(storageKey);
-          console.log(
-            `[worker] Deleted original raw video ${storageKey} from storage`,
-          );
-        }
+        // NOTE: the original raw video is NOT deleted here. The server's DB
+        // still points at the original `storageKey` until the webhook below
+        // is acknowledged — deleting first used to lose the file whenever
+        // every callback retry failed. Deletion now happens after delivery
+        // (see below).
       }
 
       console.log("[worker] Process completed for file %s:", fileId, {
@@ -427,7 +431,7 @@ async function processTranscodeJob({
         transcoded: details.needsTranscode,
       });
 
-      await notifyCallback(targetCallback, {
+      const callbackDelivered = await notifyCallback(targetCallback, {
         fileId,
         status: "ready",
         transcodedStorageKey,
@@ -435,7 +439,45 @@ async function processTranscodeJob({
         width: Number(meta?.widthPx || meta?.width || 0) || null,
         height: Number(meta?.heightPx || meta?.height || 0) || null,
         duration: Number(meta?.durationSeconds || meta?.duration || 0) || null,
-      }, webhookSecret);
+      }, webhookSecret, callbackMaxRetries);
+
+      // Storage cleanup is bounded in BOTH directions:
+      // - Webhook delivered → the server DB now points at the transcoded
+      //   copy, so the original raw video is deleted (no duplicates).
+      // - Webhook never delivered → the server DB still points at the
+      //   ORIGINAL key; deleting it would lose the file. The just-uploaded
+      //   transcoded copy is rolled back instead (best effort), so a broken
+      //   callback endpoint cannot leak an unbounded number of orphaned
+      //   duplicates. The original stays intact and the job can be retried.
+      if (usedTranscodedFile && transcodedStorageKey !== storageKey && !uploadUrl) {
+        if (callbackDelivered) {
+          try {
+            await effectiveStorage.deleteFile(storageKey);
+            console.log(
+              `[worker] Deleted original raw video ${storageKey} from storage (callback acknowledged)`,
+            );
+          } catch (deleteErr) {
+            console.warn(
+              "[worker] Failed to delete original raw video %s after callback:",
+              storageKey,
+              deleteErr?.message || deleteErr,
+            );
+          }
+        } else {
+          try {
+            await effectiveStorage.deleteFile(transcodedStorageKey);
+            console.warn(
+              `[worker] Callback for file ${fileId} was never delivered — kept the original raw video ${storageKey} (DB still points at it) and rolled back the orphaned transcoded copy ${transcodedStorageKey}`,
+            );
+          } catch (rollbackErr) {
+            console.warn(
+              "[worker] Failed to roll back orphaned transcoded copy %s:",
+              transcodedStorageKey,
+              rollbackErr?.message || rollbackErr,
+            );
+          }
+        }
+      }
     } finally {
       decryptCleanup();
     }

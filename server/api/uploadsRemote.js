@@ -8,6 +8,10 @@ import { ensureBucketCorsForRequest } from "../lib/bucketCors.js";
 import { resolveWebhookCallbackUrl } from "../lib/webhookUrl.js";
 import { resolveThumbUrl } from "../lib/thumbUrl.js";
 import { readEnvBool } from "../settings/env.js";
+import {
+  resolveServedUploadContentType,
+  shouldServeInline,
+} from "../lib/uploadContentTypes.js";
 
 export function registerRemoteUploadRoutes(app, deps) {
   const {
@@ -105,6 +109,21 @@ export function registerRemoteUploadRoutes(app, deps) {
     handler: (_req, res) =>
       res.status(429).json({ error: "Too many upload requests. Please slow down." }),
   });
+
+  const loadMessageForOwnershipCheck = async (messageId) => {
+    let message = null;
+    if (typeof findMessageById === "function") {
+      const raw = findMessageById(messageId);
+      message = raw && typeof raw.then === "function" ? await raw : raw;
+    }
+    if (!message && typeof adminGetRow === "function") {
+      const raw = callAdminGetRow(
+        dbKnex("chat_messages").select("id", "user_id").where("id", messageId).first(),
+      );
+      message = raw && typeof raw.then === "function" ? await raw : raw;
+    }
+    return message;
+  };
 
   // POST /api/uploads/presign
   app.post("/api/uploads/presign", presignRateLimiter, async (req, res) => {
@@ -260,6 +279,26 @@ export function registerRemoteUploadRoutes(app, deps) {
       deps.MESSAGE_FILE_LIMITS?.maxFileSizeBytes ||
       (deps.getSetting ? deps.getSetting("FILE_UPLOAD_MAX_SIZE") : null) ||
       100 * 1024 * 1024;
+
+    // Security: a caller-supplied messageId must be the caller's OWN message.
+    // The route previously created chat_message_files rows on any messageId,
+    // letting any user inject attachments into anyone's message. The real
+    // client flow never sends messageId here (files are attached via
+    // POST /api/messages/upload with server-validated storage keys), so a
+    // strict ownership rule is safe; the check fails closed when the message
+    // cannot be loaded.
+    if (messageId) {
+      const targetMessage = await loadMessageForOwnershipCheck(messageId);
+      const sessionUserId = session?.userId ?? session?.id ?? session?.user_id ?? null;
+      const ownerMatches =
+        targetMessage &&
+        targetMessage.user_id != null &&
+        sessionUserId != null &&
+        String(targetMessage.user_id) === String(sessionUserId);
+      if (!ownerMatches) {
+        return res.status(403).json({ error: "Access denied." });
+      }
+    }
 
     if (!size || size <= 0 || size > maxLimit) {
       return res
@@ -944,6 +983,13 @@ export function registerRemoteUploadRoutes(app, deps) {
 
   // GET /api/uploads/file/:id
   app.get("/api/uploads/file/:id", async (req, res) => {
+    // Security (mirrors GET /api/uploads/thumbs/:fileId): file ids were
+    // enumerable, and the route previously served presigned URLs / decrypted
+    // bytes for ANY remote file to ANY unauthenticated caller. A session and
+    // chat-membership gate on the file's parent message is mandatory here.
+    const session = await authenticateSession(req, res);
+    if (!session) return;
+
     const idParam = req.params?.id;
     if (!idParam) return res.status(404).end();
 
@@ -964,6 +1010,62 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     if (!file) return res.status(404).end();
+
+    const sessionUserId = session.userId ?? session.id ?? session.user_id ?? null;
+    const fileMessageId = file.message_id || file.messageId || null;
+    if (!fileMessageId) return res.status(404).end();
+
+    let message = null;
+    if (typeof findMessageById === "function") {
+      const rawMessage = findMessageById(fileMessageId);
+      message =
+        rawMessage && typeof rawMessage.then === "function"
+          ? await rawMessage
+          : rawMessage;
+    }
+    if (!message && typeof adminGetRow === "function") {
+      const rawMessage = callAdminGetRow(
+        dbKnex("chat_messages").where("id", fileMessageId).first(),
+      );
+      message =
+        rawMessage && typeof rawMessage.then === "function"
+          ? await rawMessage
+          : rawMessage;
+    }
+    const chatId = message?.chat_id || message?.chatId || null;
+    if (!chatId) return res.status(404).end();
+
+    // Chat membership gates the file. The instance owner (and staff
+    // moderation roles) may inspect any chat's media without membership.
+    const staffRoles = new Set(["owner", "admin"]);
+    const sessionRole = String(session.role || "").toLowerCase();
+    if (!staffRoles.has(sessionRole)) {
+      if (typeof isMember !== "function") {
+        return res.status(403).end();
+      }
+      const rawIsMember = isMember(chatId, sessionUserId);
+      const memberCheck =
+        rawIsMember && typeof rawIsMember.then === "function"
+          ? await rawIsMember
+          : rawIsMember;
+      if (!memberCheck) return res.status(403).end();
+    }
+
+    // The stored mime_type is client-controlled — never echo it verbatim.
+    // Derive the served Content-Type from the stored filename extension and
+    // force attachment for anything outside the safe inline policy (in
+    // particular any *+xml / html-ish mimetype, which Chromium would parse
+    // on the app origin).
+    const storedRef =
+      file.stored_name || file.storedName || file.storage_key || "";
+    const storedMime = file.mime_type || file.mimeType || "";
+    const applyServeHeaders = () => {
+      res.type(resolveServedUploadContentType(storedRef, storedMime));
+      if (!shouldServeInline(storedRef, storedMime)) {
+        res.setHeader("Content-Disposition", "attachment");
+      }
+      res.setHeader("X-Content-Type-Options", "nosniff");
+    };
 
     const driver = file.storage_driver || file.storageDriver;
     if (driver === "s3" || driver === "remote") {
@@ -1005,7 +1107,7 @@ export function registerRemoteUploadRoutes(app, deps) {
             deps.storageEncryption || defaultStorageEncryption
           ).decryptBuffer(cipherBuf);
 
-          if (file.mime_type) res.type(file.mime_type);
+          applyServeHeaders();
           return res.send(decrypted);
         }
 
@@ -1018,7 +1120,7 @@ export function registerRemoteUploadRoutes(app, deps) {
     }
 
     // Local storage driver
-    if (file.mime_type) res.type(file.mime_type);
+    applyServeHeaders();
     return res.status(200).send("OK");
   });
 }

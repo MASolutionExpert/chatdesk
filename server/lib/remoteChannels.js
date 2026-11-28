@@ -7,6 +7,12 @@ import { getSetting } from "./appSettings.js";
 
 import { isValidUuid } from "./uuidUtils.js";
 import { markEncryptedFileRecord } from "./storageEncryption.js";
+import {
+  isPrivateHost,
+  ssrfFetch,
+  readBodyWithCap,
+  MAX_REMOTE_AVATAR_DOWNLOAD_BYTES,
+} from "./ssrfGuard.js";
 
 // ─── ChatDesk outbound proxy ──────────────────────────────────────────────────
 // Applied per-fetch-call (no persistent connection to bake it into), so this
@@ -34,22 +40,22 @@ function chatdeskFetch(url, options = {}) {
   //
   // A static allowlist is intentionally not used — the Remote Channel feature
   // federates with any public ChatDesk server, so the hostname is open-ended by
-  // design. Instead, we block the entire private/internal address space (loopback,
-  // RFC-1918, link-local, cloud metadata endpoints, etc.) via isPrivateHost().
-  // codeql[js/ssrf] - hostname validated against private-address blocklist;
-  //                   allowlist not applicable for open server federation.
-  try {
-    const parsed = new URL(String(url));
-    if (isPrivateHost(parsed.hostname)) {
-      return Promise.reject(
-        new Error(`Request blocked: '${parsed.hostname}' is a private or internal address.`),
-      );
-    }
-  } catch {
-    return Promise.reject(new Error("Request blocked: URL is invalid."));
-  }
+  // design. Instead, ssrfGuard.js blocks the entire private/internal address
+  // space (loopback, RFC-1918, link-local, CGNAT, cloud metadata endpoints,
+  // bracketed/IPv4-mapped IPv6 literals, etc.) on the target URL AND on every
+  // redirect hop — fetch runs with redirect:"manual" and ssrfFetch() walks
+  // redirects explicitly, re-validating each hop. Without a proxy dispatcher,
+  // the hostname is also DNS-resolved locally and any private resolved IP is
+  // rejected (catches localhost/*.internal names and rebinding hosts).
+  // codeql[js/ssrf] - target + redirect hops validated against the
+  //                   private-address blocklist; resolved IPs checked.
   const dispatcher = getChatDeskProxyDispatcher();
-  return fetch(url, dispatcher ? { ...options, dispatcher } : options);
+  const fetchOptions = dispatcher ? { ...options, dispatcher } : options;
+  return ssrfFetch(url, fetchOptions, {
+    // With a proxy configured the DNS resolution happens on the proxy host —
+    // resolving locally would not reflect the real egress path.
+    skipDnsCheck: Boolean(dispatcher),
+  });
 }
 
 function normalizeTelegramSource(value) {
@@ -178,36 +184,9 @@ function normalizeChatDeskSource(value) {
   };
 }
 
-/**
- * Returns true if the hostname is a private/loopback/link-local address that
- * should never be the target of a server-side outbound request.
- * Blocks SSRF against internal services and cloud metadata endpoints.
- */
-function isPrivateHost(hostname) {
-  const h = String(hostname || "").toLowerCase().trim();
-
-  // Loopback
-  if (h === "localhost" || h === "::1" || /^127\./.test(h)) return true;
-
-  // Cloud metadata endpoints (AWS, GCP, Azure, Oracle, DigitalOcean, etc.)
-  if (h === "169.254.169.254" || h === "metadata.google.internal") return true;
-
-  // IPv4 private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
-  if (/^10\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-
-  // Link-local (169.254.x.x covers AWS/GCP metadata; block the whole range)
-  if (/^169\.254\./.test(h)) return true;
-
-  // IPv6 private / link-local (fe80::, fc00::, fd00::)
-  if (/^fe[89ab][0-9a-f]:/i.test(h) || /^fc[0-9a-f]{2}:/i.test(h) || /^fd[0-9a-f]{2}:/i.test(h)) return true;
-
-  // Unspecified / broadcast
-  if (h === "0.0.0.0" || h === "255.255.255.255") return true;
-
-  return false;
-}
+// isPrivateHost() lives in ssrfGuard.js (imported above) — the hardened
+// version also strips IPv6 brackets and rejects IPv4-mapped IPv6, CGNAT,
+// 0.0.0.0/8 and full IPv6 ULA/link-local ranges.
 
 /**
  * Resolve a ChatDesk invite link against the target server to get the
@@ -1368,8 +1347,13 @@ export function createRemoteChannelManager(deps = {}) {
           signal: AbortSignal.timeout(15_000),
         });
         if (avatarRes.ok) {
-          const buffer = Buffer.from(await avatarRes.arrayBuffer());
-          if (buffer.length > 0) {
+          // Body size cap: the avatar is saved to disk and re-served publicly,
+          // so an unbounded response body would be a memory/disk DoS vector.
+          const buffer = await readBodyWithCap(
+            avatarRes,
+            MAX_REMOTE_AVATAR_DOWNLOAD_BYTES,
+          );
+          if (buffer && buffer.length > 0) {
             const safeUsername = channelUsername.replace(/[^a-zA-Z0-9_-]/g, "");
             const stamp = Date.now();
             const fileName = `chatdesk-source-${Number(source.id)}-${safeUsername}-${stamp}.jpg`;

@@ -49,7 +49,7 @@ RUN apt-get update \
   && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/keyrings/postgresql.gpg \
   && echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
   && apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg postgresql-client \
+  && apt-get install -y --no-install-recommends ffmpeg postgresql-client gosu \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=server-deps /app/server/node_modules ./server/node_modules
@@ -67,7 +67,15 @@ COPY VERSION ./
 COPY CHANGELOG.md ./
 COPY package.json ./
 
-RUN mkdir -p /app/data /app/data/uploads /app/data/backups
+# Dedicated unprivileged runtime user. The image ships without a USER
+# directive so docker-entrypoint.sh can repair ownership of volumes created
+# by older root-run images, then re-exec the workload as this user via gosu
+# (root-then-drop). Containers started with a non-root `user:` skip the root
+# phase entirely.
+RUN groupadd --system --gid 10001 chatdesk \
+  && useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin chatdesk \
+  && mkdir -p /app/data /app/data/uploads /app/data/backups \
+  && chown -R chatdesk:chatdesk /app/data
 
 ENV APP_ENV=production
 ENV SERVER_PORT=5174

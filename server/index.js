@@ -737,8 +737,14 @@ const mediaQueueManager = createMediaQueueManager({
   getSetting,
 });
 
-async function createSessionCombined(userId, token) {
-  await createSession(userId, token);
+// Pass the trailing `options` through (migration 046): POST
+// /api/admin/users/:id/impersonate calls createSession(user.id, token,
+// { impersonatedBy }) and the options argument MUST reach db.createSession,
+// otherwise `impersonated_by` is never stored — /api/me loses its
+// `impersonatedBy` banner and /api/admin/impersonate/return can no longer
+// tell a real impersonation session apart from a fresh login.
+async function createSessionCombined(userId, token, options = {}) {
+  await createSession(userId, token, options);
   await redisSessionStore.createSession(userId, token);
 }
 
@@ -979,6 +985,10 @@ const apiDeps = {
   getRemoteChannelQueueSummary,
   getRemoteChannelSourceByChatId,
   getRemoteChannelSourceById,
+  // adminPanel's impersonate/return endpoint resolves the parked admin_sid
+  // cookie and the working session through getSession — without it the route
+  // throws a TypeError and returns 500 (the owner can never get back).
+  getSession: getSessionCombined,
   getSessionFromRequest,
   getUploadKind,
   getUserPresence,

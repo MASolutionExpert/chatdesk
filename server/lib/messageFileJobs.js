@@ -281,6 +281,26 @@ export function createMessageFileJobs({
     }
 
     let removed = 0;
+    // Security: thumb_storage_key lives in the DB (written by the media-worker
+    // webhook and older rows), so a poisoned key like "../../.env" must never
+    // escape the upload root when retention unlinks files. Use the basename
+    // AND a resolved-path containment check (mirrors the GET
+    // /api/uploads/thumbs/:fileId defense in uploadsRemote.js): candidates
+    // outside uploadRootDir are skipped, and without a resolvable root
+    // nothing is deleted (fail closed).
+    const resolvedRoot =
+      uploadRootDir && path && typeof path.resolve === "function"
+        ? path.resolve(String(uploadRootDir))
+        : null;
+    const isInsideUploadRoot = (candidate) => {
+      if (!resolvedRoot || !path || typeof path.resolve !== "function") {
+        return false;
+      }
+      const resolved = path.resolve(candidate);
+      return (
+        resolved === resolvedRoot || resolved.startsWith(resolvedRoot + path.sep)
+      );
+    };
     thumbKeys.forEach((thumbKey) => {
       if (stillReferenced.has(thumbKey)) return;
       const base = path.basename(String(thumbKey));
@@ -293,6 +313,7 @@ export function createMessageFileJobs({
           : [path.join(uploadRootDir, String(thumbKey))];
       for (const candidate of candidates) {
         try {
+          if (!isInsideUploadRoot(candidate)) continue;
           if (fs.existsSync(candidate)) {
             fs.unlinkSync(candidate);
             removed += 1;

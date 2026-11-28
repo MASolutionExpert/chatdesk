@@ -1847,6 +1847,15 @@ export function getRemoteChannelQueueSummary(sourceId) {
 }
 
 export function releaseStaleRemoteChannelQueueItems(staleBeforeIso) {
+  const staleBefore = String(staleBeforeIso || new Date().toISOString());
+  // Timestamp compare is dialect-specific (see the queueCompare note below):
+  // SQLite uses julianday(); Postgres must cast both sides to timestamptz —
+  // after the sqlNormalizer strips julianday() there, a bare text compare
+  // between CURRENT_TIMESTAMP::text (session TZ, space-separated) and a JS
+  // ISO param mis-orders timestamps for any server TZ east of UTC.
+  const staleClause = isPostgresMode()
+    ? `AND NULLIF(locked_at, '')::timestamptz <= ?::timestamptz`
+    : `AND julianday(locked_at) <= julianday(?)`;
   run(
     `UPDATE remote_channel_queue
      SET status = 'retry',
@@ -1855,13 +1864,27 @@ export function releaseStaleRemoteChannelQueueItems(staleBeforeIso) {
          next_attempt_at = datetime('now')
      WHERE status = 'processing'
        AND locked_at IS NOT NULL
-       AND julianday(locked_at) <= julianday(?)`,
-    [String(staleBeforeIso || new Date().toISOString())],
+       ${staleClause}`,
+    [staleBefore],
   );
 }
 
 export function claimNextRemoteChannelQueueItem(lockOwner, nowIso) {
   const now = String(nowIso || new Date().toISOString());
+  // Due-check + ordering are dialect-specific: SQLite compares dates via
+  // julianday(); on Postgres the sqlNormalizer would strip julianday() and
+  // leave a raw TEXT compare between CURRENT_TIMESTAMP::text (session TZ,
+  // space-separated) and the JS ISO `now` param — items enqueued between
+  // local midnight and UTC midnight (server TZ east of UTC) would then not
+  // be "due" until UTC catches up, stalling mirroring for hours. Casting
+  // both sides to timestamptz parses every stored format (JS ISO and PG's
+  // CURRENT_TIMESTAMP::text with its offset) as an absolute point in time.
+  const dueClause = isPostgresMode()
+    ? `OR NULLIF(q.next_attempt_at, '')::timestamptz <= ?::timestamptz`
+    : `OR julianday(q.next_attempt_at) <= julianday(?)`;
+  const createdOrder = isPostgresMode()
+    ? `ORDER BY NULLIF(q.created_at, '')::timestamptz ASC, q.id ASC`
+    : `ORDER BY julianday(q.created_at) ASC, q.id ASC`;
   const row = getRow(
     `SELECT q.id, q.source_id, q.provider, q.telegram_update_id,
             q.telegram_message_id, q.source_version, q.payload_json, q.status,
@@ -1884,34 +1907,44 @@ export function claimNextRemoteChannelQueueItem(lockOwner, nowIso) {
        AND (
          q.next_attempt_at IS NULL
          OR q.next_attempt_at = ''
-         OR julianday(q.next_attempt_at) <= julianday(?)
+         ${dueClause}
        )
-     ORDER BY julianday(q.created_at) ASC, q.id ASC
+     ${createdOrder}
      LIMIT 1`,
     [now],
   );
 
+  const ownerLabel = String(lockOwner || "remote-channel-worker");
   const processRow = (r) => {
     if (!r?.id) return null;
-    const res = run(
+    const claimed = run(
       `UPDATE remote_channel_queue
        SET status = 'processing',
            locked_at = ?,
            lock_owner = ?
        WHERE id = ?
          AND status IN ('pending', 'retry')`,
-      [now, String(lockOwner || "remote-channel-worker"), Number(r.id)],
+      [now, ownerLabel, Number(r.id)],
     );
-    const item = {
-      ...r,
-      status: "processing",
-      locked_at: now,
-      lock_owner: String(lockOwner || "remote-channel-worker"),
-    };
-    if (res && typeof res.then === "function") {
-      return res.then(() => item);
+    // The UPDATE is the actual claim: another instance may have flipped the
+    // row to 'processing' between our SELECT and this UPDATE. When the
+    // statement affects 0 rows the item was claimed elsewhere — return null
+    // instead of the stale snapshot, otherwise overlapping ticks mirror the
+    // same Telegram post twice. run() reports the affected-row count on both
+    // dialects (PG rowCount, SQLite .changes).
+    const finalize = (changedRows) =>
+      Number(changedRows) > 0
+        ? {
+            ...r,
+            status: "processing",
+            locked_at: now,
+            lock_owner: ownerLabel,
+          }
+        : null;
+    if (claimed && typeof claimed.then === "function") {
+      return claimed.then(finalize);
     }
-    return item;
+    return finalize(claimed);
   };
 
   if (row && typeof row.then === "function") {
@@ -1971,13 +2004,20 @@ export function markRemoteChannelQueueItemRetry(id, payload = {}) {
 /**
  * Delete completed (done/skipped/failed) queue rows older than the given ISO
  * timestamp. Prevents the remote_channel_queue table from growing unboundedly.
+ * The age compare is dialect-specific (see claimNextRemoteChannelQueueItem):
+ * on Postgres a bare `processed_at < ?` text compare mixes the session-TZ
+ * CURRENT_TIMESTAMP::text format with the JS ISO param, so both sides are
+ * cast to timestamptz.
  */
 export function purgeOldRemoteChannelQueueItems(olderThanIso) {
+  const purgeClause = isPostgresMode()
+    ? `AND NULLIF(processed_at, '')::timestamptz < ?::timestamptz`
+    : `AND processed_at < ?`;
   return run(
     `DELETE FROM remote_channel_queue
      WHERE status IN ('done', 'skipped', 'failed')
        AND processed_at IS NOT NULL
-       AND processed_at < ?`,
+       ${purgeClause}`,
     [String(olderThanIso)],
   );
 }
@@ -4550,8 +4590,22 @@ function escapeLikePattern(value) {
 // then the trailing integer numerically (so "User 2" < "User 10"),
 // then falls back to `tiebreaker` for rows with identical values.
 // `dir` ("ASC"/"DESC") is applied to every term so reversing actually reverses.
+// Dialect notes:
+// - SQLite keeps the classic expression: RTRIM(col,'0123456789') COLLATE
+//   NOCASE + CAST(substr AS INTEGER).
+// - PostgreSQL has no COLLATE NOCASE and CAST('' AS INTEGER) throws, so the
+//   text terms compare through LOWER() and the numeric tail is a NULLIF
+//   -> bigint cast (empty tail = 0).
 function naturalSortExpr(col, tiebreaker = null, dir = "ASC") {
   const d = dir === "DESC" ? "DESC" : "ASC";
+  if (isPostgresMode()) {
+    const textPart = `LOWER(RTRIM(${col},'0123456789')) ${d}`;
+    const numPart =
+      `COALESCE(NULLIF(SUBSTR(${col}, LENGTH(RTRIM(${col},'0123456789'))+1), '')::bigint, 0) ${d}`;
+    const parts = [textPart, numPart];
+    if (tiebreaker) parts.push(`LOWER(${tiebreaker}) ${d}`);
+    return parts.join(", ");
+  }
   // RTRIM strips all trailing digit characters to give the text prefix.
   const textPart = `RTRIM(${col},'0123456789') COLLATE NOCASE ${d}`;
   // SUBSTR from the end of the text prefix onward, cast to integer.
@@ -4816,7 +4870,12 @@ export function adminListChats({
   } else if (safeSortBy === "name") {
     qb = qb.orderByRaw(naturalSortExpr("c.name", "c.group_username", safeSortDir));
   } else if (safeSortBy === "type" || safeSortBy === "group_visibility") {
-    qb = qb.orderByRaw(`c.${safeSortBy} COLLATE NOCASE ${safeSortDir}`);
+    // COLLATE NOCASE is SQLite-only — Postgres sorts case-insensitively via
+    // LOWER() (same ordering semantics, valid on both dialects).
+    const sortExpr = isPostgresMode()
+      ? `LOWER(c.${safeSortBy}) ${safeSortDir}`
+      : `c.${safeSortBy} COLLATE NOCASE ${safeSortDir}`;
+    qb = qb.orderByRaw(sortExpr);
   } else {
     qb = qb.orderBy(`c.${safeSortBy}`, safeSortDir);
   }
@@ -4928,9 +4987,16 @@ export function adminListCalls({
   }
 
   if (safeSortBy === "caller") {
-    qb = qb.orderByRaw(`cu.username COLLATE NOCASE ${safeSortDir}`);
+    // COLLATE NOCASE is SQLite-only — Postgres uses LOWER() (see above).
+    const callerSortExpr = isPostgresMode()
+      ? `LOWER(cu.username) ${safeSortDir}`
+      : `cu.username COLLATE NOCASE ${safeSortDir}`;
+    qb = qb.orderByRaw(callerSortExpr);
   } else if (safeSortBy === "chat") {
-    qb = qb.orderByRaw(naturalSortExpr("c.name", safeSortDir));
+    // NOTE: the dir is the THIRD argument — the review caught a call site
+    // that passed it as the tiebreaker, producing "... DESC COLLATE NOCASE
+    // ASC" and a hard SQLite error on every chat-sorted admin calls list.
+    qb = qb.orderByRaw(naturalSortExpr("c.name", null, safeSortDir));
   } else {
     qb = qb.orderBy(`cm.${safeSortBy}`, safeSortDir);
   }

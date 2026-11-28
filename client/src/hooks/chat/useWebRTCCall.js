@@ -157,6 +157,27 @@ export async function swapCameraTrack({ pc, stream, newTrack, videoEl }) {
 }
 
 /**
+ * Decide whether a media stream that was just acquired still belongs to a
+ * live call. getUserMedia can take arbitrarily long (permission prompt), and
+ * the call may be torn down while it is pending — by the user hanging up, by
+ * the peer cancelling, or by any signal that resets the call state. When that
+ * happens the freshly captured mic/camera stream must be stopped immediately
+ * instead of being adopted by the dead call (it would otherwise never be
+ * released and the mic indicator would stay on).
+ *
+ * @param {number} epoch captured before the await
+ * @param {number} currentEpoch the ref value after the await
+ * @param {{callState?: string, callEndReason?: string|null, exitTimerPending?: *}} call
+ */
+export function isCallMediaStale(epoch, currentEpoch, call = {}) {
+  if (epoch !== currentEpoch) return true;
+  if (call.callState === "idle") return true;
+  if (call.callEndReason) return true;
+  if (call.exitTimerPending) return true;
+  return false;
+}
+
+/**
  * True when a local send was left out of the last negotiation, which happens
  * when an offer collision rolled back the offer that carried it.
  */
@@ -244,6 +265,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   // server's ring-ended broadcast for its own call (the SSE event can arrive
   // before the HTTP accept response does).
   const isAcceptingRef = useRef(false);
+  // Bumped on every call teardown (resetCallState / finishCall). Media
+  // acquisition captures it before the await and re-checks afterwards, so a
+  // stream granted while the permission prompt was open is dropped instead of
+  // being attached to a call that already ended.
+  const callEpochRef = useRef(0);
 
   // Mirrors of state used inside stable callbacks so they never read stale values
   const callStateRef = useRef(callState);
@@ -360,6 +386,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
   }, []);
 
   const resetCallState = useCallback(() => {
+    callEpochRef.current += 1;
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
@@ -462,6 +489,7 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
         endExitTimerRef.current
       )
         return;
+      callEpochRef.current += 1;
       callEndReasonRef.current = reason;
       callEndDetailRef.current = detail;
       setCallEndReason(reason);
@@ -763,9 +791,23 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
       });
 
       try {
+        const callEpoch = callEpochRef.current;
         const { stream: gotStream, hasVideo } = await acquireLocalMedia(
           type === "video",
         );
+        // The call may have been torn down while the permission prompt was
+        // open (user hung up, peer cancelled): stop the fresh capture right
+        // away and bail out before touching refs or ringing the callee.
+        if (
+          isCallMediaStale(callEpoch, callEpochRef.current, {
+            callState: callStateRef.current,
+            callEndReason: callEndReasonRef.current,
+            exitTimerPending: endExitTimerRef.current,
+          })
+        ) {
+          gotStream?.getTracks().forEach((t) => t.stop());
+          return;
+        }
         localStreamRef.current = gotStream;
         // A video call started on a device without a usable camera joins
         // audio-only with the camera off.
@@ -902,10 +944,24 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
     isAcceptingRef.current = true;
     try {
+      const callEpoch = callEpochRef.current;
       const acceptedType = callTypeRef.current;
       const { stream, hasVideo } = await acquireLocalMedia(
         acceptedType === "video",
       );
+      // The ring may have been resolved elsewhere (caller cancelled, another
+      // session accepted) while the permission prompt was open: drop the
+      // fresh capture instead of building a peer connection for a dead call.
+      if (
+        isCallMediaStale(callEpoch, callEpochRef.current, {
+          callState: callStateRef.current,
+          callEndReason: callEndReasonRef.current,
+          exitTimerPending: endExitTimerRef.current,
+        })
+      ) {
+        stream?.getTracks().forEach((t) => t.stop());
+        return;
+      }
       localStreamRef.current = stream;
       // Voice calls start with camera off; a video call without a usable
       // camera joins audio-only with the camera off.

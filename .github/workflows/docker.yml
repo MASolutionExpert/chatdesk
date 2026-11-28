@@ -63,7 +63,7 @@ jobs:
             type=semver,pattern={{version}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}},value=${{ github.event.inputs.tag }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
       - name: Set lowercase GHCR image name
         run: |
@@ -139,7 +139,7 @@ jobs:
             type=semver,pattern={{version}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}},value=${{ github.event.inputs.tag }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
       - name: Set lowercase GHCR image name
         run: |
@@ -217,7 +217,7 @@ jobs:
             type=semver,pattern={{version}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}},value=${{ github.event.inputs.tag }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
       - name: Extract metadata (GHCR)
         id: meta-ghcr
@@ -229,7 +229,7 @@ jobs:
             type=semver,pattern={{version}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}},value=${{ github.event.inputs.tag }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
       - name: Create manifest list and push
         run: |
@@ -302,7 +302,7 @@ jobs:
             type=semver,pattern={{version}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.tag }}
             type=semver,pattern={{major}},value=${{ github.event.inputs.tag }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
       - name: Build and push
         uses: docker/build-push-action@v7

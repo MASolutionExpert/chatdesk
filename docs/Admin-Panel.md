@@ -306,7 +306,7 @@ Perform system administration tasks:
 
 Service control (restart/stop) requires the right setup depending on deployment:
 
-- **Docker**: The `chatdesk` container must have the Docker socket mounted (`/var/run/docker.sock`). This is included in the default `docker-compose.yaml`. The `CHATDESK_CONTAINER_NAME` environment variable tells the app which container to target (defaults to `chatdesk`). See [Install via Docker](./Installation-Docker.md#admin-panel-service-control).
+- **Docker**: The `chatdesk` container must have the Docker socket mounted (`/var/run/docker.sock`). It is **not** mounted by default (the container runs unprivileged); enable it via a `docker-compose.override.yaml` as shown in [Install via Docker](./Installation-Docker.md#admin-panel-service-control). The `CHATDESK_CONTAINER_NAME` environment variable tells the app which container to target (defaults to `chatdesk`). See [Install via Docker](./Installation-Docker.md#admin-panel-service-control).
 - **Systemd**: The service user must have `sudo` privileges for `systemctl`. See [Troubleshooting](./Troubleshooting.md#admin-panel-issues).
 
 :::

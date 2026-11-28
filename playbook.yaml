@@ -162,4 +162,4 @@
           - "ChatDesk {{ chatdesk_resolved_version }} deployment {{ 'succeeded' if chatdesk_success else ('may be incomplete — check logs in ' + chatdesk_src) }}."
           - "Access URL: {{ chatdesk_access_url }} (self-signed cert until you replace certs/cert.pem + certs/key.pem)."
           - "First steps: create the owner account, then set SIGN_UP=false in {{ chatdesk_src }}/.env if the instance is public."
-          - "Notes: SQLite persists in the chatdesk-data volume; the container mounts /var/run/docker.sock for the admin panel's service controls."
+          - "Notes: SQLite persists in the chatdesk-data volume; the app container runs as an unprivileged user. The Docker socket is not mounted by default — the admin panel's service control needs it (see the override example in docker-compose.yaml)."

@@ -64,6 +64,7 @@ import {
   migrateLocalCacheToIdb,
   updateMessagesIndex,
   writeMessagesIndex,
+  clearAllChatCaches,
 } from "../utils/chatCache.js";
 import { getMessageFiles } from "../utils/messageContent.js";
 import {
@@ -597,6 +598,7 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
     messagePreviewEnabled,
     handleToggleNotifications,
     handleToggleMessagePreview,
+    removePushSubscription,
   } = useChatNotifications({
     user,
     settingsPanel,
@@ -5973,9 +5975,28 @@ export default function ChatPage({ user, setUser, isDark, setIsDark, toggleTheme
   }
 
   function handleLogout() {
-    logout().catch(() => null);
     setUser(null);
     setMobileTab("chats");
+    // Privacy cleanup must not depend on the (soon-invalid) session, so it
+    // runs BEFORE the server call, fire-and-forget so logout never stalls:
+    // drop the push subscription (otherwise this device keeps receiving the
+    // old user's notifications with message previews) and wipe the IDB /
+    // localStorage message + chat-list caches (external review, F3).
+    const cleanupBeforeServerLogout = async () => {
+      try {
+        await removePushSubscription();
+      } catch {
+        // ignore — the server-side subscription stays usable (see follow-up)
+      }
+      try {
+        await clearAllChatCaches(user?.username);
+        messagesCacheRef.current.clear();
+      } catch {
+        // ignore cache failures
+      }
+      logout().catch(() => null);
+    };
+    void cleanupBeforeServerLogout();
   }
 
   const [supportOpen, setSupportOpen] = useState(false);

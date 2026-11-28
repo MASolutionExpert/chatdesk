@@ -2,6 +2,7 @@ import { CHAT_PAGE_CONFIG } from "../settings/chatPageConfig.js";
 import { formatDayLabel, parseServerDate } from "./chatFormat.js";
 import {
   CACHE_STORES,
+  idbClearStore,
   idbDelete,
   idbGet,
   idbSet,
@@ -507,6 +508,64 @@ export const normalizeMessageForRender = (message) => {
     body: normalizedBody,
     replyTo: normalizedReply,
   };
+};
+
+export const CACHE_STORE_KEYS = Object.values(CACHE_STORES);
+// Media caches that live outside the per-user key namespace (localStorage /
+// sessionStorage mirrors of the IDB stores, including pre-IDB legacy keys).
+const SHARED_MEDIA_CACHE_KEYS = [
+  MEDIA_THUMB_CACHE_KEY,
+  MEDIA_POSTER_CACHE_KEY,
+  VOICE_WAVEFORM_CACHE_KEY,
+  "chat-media-thumbs",
+  "chat-video-posters-v2",
+];
+
+/**
+ * Wipe every on-disk trace of the current user's chats: the per-user
+ * localStorage entries (chat list, message caches, messages index), the
+ * shared media caches, and all IndexedDB stores. Used on logout so the next
+ * user of the device (or the logged-out state itself) cannot read the
+ * previous user's messages.
+ */
+export const clearAllChatCaches = async (username) => {
+  const normalized = String(username || "").toLowerCase();
+
+  if (canUseLocalStorage()) {
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i);
+        if (!key) continue;
+        if (
+          (normalized &&
+            (key === buildChatListCacheKey(normalized) ||
+              key === buildMessagesIndexKey(normalized) ||
+              key.startsWith(`${CHAT_MESSAGES_CACHE_KEY}:${normalized}:`))) ||
+          SHARED_MEDIA_CACHE_KEYS.includes(key)
+        ) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((key) => removeLocalCache(key));
+    } catch {
+      // ignore storage failures
+    }
+
+    try {
+      SHARED_MEDIA_CACHE_KEYS.forEach((key) => {
+        window.sessionStorage.removeItem(key);
+      });
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  if (canUseIdb()) {
+    await Promise.all(
+      CACHE_STORE_KEYS.map((store) => idbClearStore(store)),
+    ).catch(() => null);
+  }
 };
 
 export const normalizeMessagesForRender = (messages) => {

@@ -94,12 +94,19 @@ describe("Remote Uploads & File Management Routes", () => {
         return filesStore;
       });
 
+      // Stage 2 [F3]: presign-with-messageId now requires the session user to
+      // OWN the target message (fail closed when it cannot be loaded).
+      let ownerUserId = null;
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
           createMessageFiles: createMessageFilesMock,
           findMessageFileById: (id) =>
             filesStore.find((f) => String(f.id) === String(id)) || null,
+          findMessageById: (id) =>
+            String(id) === "c0c0c0c0-d1d1-4e2e-af3f-060606060606" && ownerUserId
+              ? { id: String(id), user_id: ownerUserId, chat_id: "chat-1" }
+              : null,
           adminGetRow: (sql, params) => {
             if (sql.includes("chat_message_files")) {
               return filesStore[filesStore.length - 1] || null;
@@ -116,6 +123,7 @@ describe("Remote Uploads & File Management Routes", () => {
         null,
         "#fff",
       );
+      ownerUserId = uId;
       customApp.sessionStore.createSession(uId, sessionToken);
 
       const res = await request(customApp.app)
@@ -598,17 +606,37 @@ describe("Remote Uploads & File Management Routes", () => {
         storage_key: "uploads/public.jpg",
         encryption_type: "none",
         mime_type: "image/jpeg",
+        message_id: "50000000-0000-4000-8000-000000000016",
       };
 
+      // Stage 2 [F2]: file/:id now requires a session AND chat membership on
+      // the file's parent message (owner/staff exempt).
+      let viewerUserId = null;
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
           findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
+          findMessageById: (id) =>
+            String(id) === fileRecord.message_id && viewerUserId
+              ? { id: String(id), chat_id: "chat-1", user_id: viewerUserId }
+              : null,
+          isMember: (chatId, uid) =>
+            String(chatId) === "chat-1" && String(uid) === String(viewerUserId),
           adminGetRow: () => fileRecord,
         },
       });
+      viewerUserId = customApp.userStore.createUser(
+        "fileviewer",
+        "pass",
+        "Viewer",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(viewerUserId, sessionToken);
 
-      const res = await request(customApp.app).get(`/api/uploads/file/${fileUuid}`);
+      const res = await request(customApp.app)
+        .get(`/api/uploads/file/${fileUuid}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
       expect(res.status).toBe(302);
       expect(res.headers.location).toContain(
@@ -624,17 +652,37 @@ describe("Remote Uploads & File Management Routes", () => {
         storage_key: "uploads/sse.png",
         encryption_type: "provider_sse",
         mime_type: "image/png",
+        message_id: "50000000-0000-4000-8000-000000000016",
       };
 
+      // Stage 2 [F2]: file/:id now requires a session AND chat membership on
+      // the file's parent message (owner/staff exempt).
+      let viewerUserId = null;
       const customApp = makeApp({
         deps: {
           storageProvider: mockRemoteProvider,
           findMessageFileById: (id) => (String(id) === fileUuid ? fileRecord : null),
+          findMessageById: (id) =>
+            String(id) === fileRecord.message_id && viewerUserId
+              ? { id: String(id), chat_id: "chat-1", user_id: viewerUserId }
+              : null,
+          isMember: (chatId, uid) =>
+            String(chatId) === "chat-1" && String(uid) === String(viewerUserId),
           adminGetRow: () => fileRecord,
         },
       });
+      viewerUserId = customApp.userStore.createUser(
+        "fileviewer",
+        "pass",
+        "Viewer",
+        null,
+        "#fff",
+      );
+      customApp.sessionStore.createSession(viewerUserId, sessionToken);
 
-      const res = await request(customApp.app).get(`/api/uploads/file/${fileUuid}`);
+      const res = await request(customApp.app)
+        .get(`/api/uploads/file/${fileUuid}`)
+        .set("Cookie", [`sid=${sessionToken}`]);
 
       expect(res.status).toBe(302);
       expect(res.headers.location).toContain(
@@ -656,6 +704,8 @@ describe("Remote Uploads & File Management Routes", () => {
         storage_key: "uploads/encrypted.txt",
         encryption_type: "aes-256-gcm",
         mime_type: "text/plain",
+        // Stage 2 [F2]: membership is resolved through the parent message.
+        message_id: "50000000-0000-4000-8000-000000000016",
       };
 
       // Mock fetch globally or pass custom fetch implementation in deps
@@ -670,17 +720,34 @@ describe("Remote Uploads & File Management Routes", () => {
       });
 
       try {
+        let viewerUserId = null;
         const customApp = makeApp({
           deps: {
             storageProvider: mockRemoteProvider,
             storageEncryption: enc,
             findMessageFileById: (id) =>
               String(id) === fileUuid ? fileRecord : null,
+            findMessageById: (id) =>
+              String(id) === fileRecord.message_id && viewerUserId
+                ? { id: String(id), chat_id: "chat-1", user_id: viewerUserId }
+                : null,
+            isMember: (chatId, uid) =>
+              String(chatId) === "chat-1" && String(uid) === String(viewerUserId),
             adminGetRow: () => fileRecord,
           },
         });
+        viewerUserId = customApp.userStore.createUser(
+          "encryptedviewer",
+          "pass",
+          "Encrypted Viewer",
+          null,
+          "#fff",
+        );
+        customApp.sessionStore.createSession(viewerUserId, sessionToken);
 
-        const res = await request(customApp.app).get(`/api/uploads/file/${fileUuid}`);
+        const res = await request(customApp.app)
+          .get(`/api/uploads/file/${fileUuid}`)
+          .set("Cookie", [`sid=${sessionToken}`]);
 
         expect(res.status).toBe(200);
         expect(res.text).toBe(plainText);
