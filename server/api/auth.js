@@ -51,6 +51,23 @@ function registerAuthRoutes(app, deps) {
         .json({ error: "Username and password are required." });
     }
 
+    // Non-string JSON bodies (e.g. username:["abcd"]) used to crash on
+    // .trim()/.toLowerCase() below and surface as a 500. Validate the types
+    // up-front and answer 400 instead.
+    if (typeof username !== "string" || typeof password !== "string") {
+      return res
+        .status(400)
+        .json({ error: "Username and password must be strings." });
+    }
+    if (
+      (nickname !== undefined && nickname !== null && typeof nickname !== "string") ||
+      (avatarUrl !== undefined && avatarUrl !== null && typeof avatarUrl !== "string")
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Nickname and avatar URL must be strings." });
+    }
+
     const trimmed = username.trim().toLowerCase();
     const usernameMax = getSetting("USERNAME_MAX_CHARS");
     const nicknameMax = getSetting("NICKNAME_MAX_CHARS");
@@ -150,18 +167,31 @@ function registerAuthRoutes(app, deps) {
         .json({ error: "Username and password are required." });
     }
 
+    // Non-string JSON bodies (e.g. username:12345) used to crash on
+    // .trim() below and surface as a 500. Validate the types up-front.
+    if (typeof username !== "string" || typeof password !== "string") {
+      return res
+        .status(400)
+        .json({ error: "Username and password must be strings." });
+    }
+
     const trimmed = username.trim().toLowerCase();
     const rawUser = findUserByUsername(trimmed);
     const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
 
-    // NB: Postgres returns BIGINT columns (e.g. users.banned) as strings,
-    // and "0" is truthy in JS, so coerce to Number before the check.
-    if (user && Number(user.banned)) {
-      return res.status(403).json({ error: "Account is banned." });
+    // Validate the password FIRST: the previous order (banned check before
+    // the bcrypt compare) let anyone probe whether a username is banned —
+    // and confirm it exists — without any credentials.
+    const passwordValid =
+      user && user.password_hash && bcrypt.compareSync(password, user.password_hash);
+    if (!passwordValid) {
+      return res.status(401).json({ error: "Invalid credentials." });
     }
 
-    if (!user || !user.password_hash || !bcrypt.compareSync(password, user.password_hash)) {
-      return res.status(401).json({ error: "Invalid credentials." });
+    // NB: Postgres returns BIGINT columns (e.g. users.banned) as strings,
+    // and "0" is truthy in JS, so coerce to Number before the check.
+    if (Number(user.banned)) {
+      return res.status(403).json({ error: "Account is banned." });
     }
 
     await updateLastSeen(user.id);

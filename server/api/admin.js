@@ -96,6 +96,27 @@ function registerAdminRoutes(app, deps) {
     return adminRun(sql, params);
   };
 
+  // Runs `statements(transactionRun)` atomically. Prefers adminTransaction —
+  // a real knex transaction that pins a single connection (on Postgres,
+  // BEGIN/COMMIT sent as plain statements through the pooled adminRun can
+  // land on different pool connections, so the "transaction" and its
+  // ROLLBACK are silently ineffective). Falls back to the pooled adminRun
+  // only when no adminTransaction is wired (e.g. minimal test stubs).
+  const runTransaction = async (statements) => {
+    if (typeof adminTransaction === "function") {
+      return adminTransaction(statements);
+    }
+    await adminRun("BEGIN");
+    try {
+      const result = await statements((sql, params = []) => adminRun(sql, params));
+      await adminRun("COMMIT");
+      return result;
+    } catch (error) {
+      await adminRun("ROLLBACK");
+      throw error;
+    }
+  };
+
   app.post("/api/admin/db-tools", async (req, res) => {
     if (!isLoopbackRequest(req)) {
       return res.status(403).json({ error: "Forbidden" });
@@ -160,66 +181,60 @@ function registerAdminRoutes(app, deps) {
         const fileRows = Array.isArray(rawFileRows) ? rawFileRows : (await rawFileRows) || [];
         const storedNames = fileRows.map((row) => row.stored_name);
 
-        await adminRun("BEGIN");
-        try {
+        await runTransaction(async (transactionRun) => {
           for (const chunk of chunkArray(chatIds, 500)) {
             const chunkPlaceholders = chunk.map(() => "?").join(", ");
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM chat_message_reads WHERE message_id IN (
                 SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
               )`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM chat_message_files WHERE message_id IN (
                 SELECT id FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})
               )`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM chat_messages WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM chat_members WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM chat_mutes WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM group_removed_members WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM chat_left_members WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM hidden_chats WHERE chat_id IN (${chunkPlaceholders})`,
               chunk,
             );
 
-            await adminRun(
+            await transactionRun(
               `DELETE FROM chats WHERE id IN (${chunkPlaceholders})`,
               chunk,
             );
           }
-
-          await adminRun("COMMIT");
-        } catch (error) {
-          await adminRun("ROLLBACK");
-          throw error;
-        }
+        });
 
         removeStoredFileNames(storedNames);
         adminSave();
@@ -622,10 +637,9 @@ function registerAdminRoutes(app, deps) {
         const auto_add_new_users = (visibility === "public" && Boolean(payload.autoAddNewUsers || payload.auto_add_new_users)) ? 1 : 0;
 
         let row = null;
-        await adminRun("BEGIN");
-        try {
+        await runTransaction(async (transactionRun) => {
           const newChatId = generateUuid();
-          await callAdminRun(
+          const insertChat = toSql(
             dbKnex("chats").insert({
               id: newChatId,
               name,
@@ -640,30 +654,31 @@ function registerAdminRoutes(app, deps) {
               group_avatar_url: null,
             }),
           );
-          row = await callAdminGetRow(
-            dbKnex("chats")
-              .select("id", "name", "type", "group_username", "group_visibility", "created_by_user_id")
-              .where("group_username", username)
-              .orderBy("id", "desc")
-              .first(),
-          );
-          if (!row?.id) {
-            throw new Error("Failed to create chat.");
-          }
-          await adminRun(
+          await transactionRun(insertChat.sql, insertChat.params);
+          await transactionRun(
             "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-            [row.id, owner.id, "owner"],
+            [newChatId, owner.id, "owner"],
           );
           for (const member of members) {
-            await adminRun(
+            await transactionRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
-              [row.id, member.id, "member"],
+              [newChatId, member.id, "member"],
             );
           }
-          await adminRun("COMMIT");
-        } catch (error) {
-          await adminRun("ROLLBACK");
-          throw error;
+        });
+
+        // Read the created row back AFTER the transaction commits: on
+        // Postgres a pooled read inside the transaction would run on a
+        // different connection and would not see the uncommitted insert.
+        row = await callAdminGetRow(
+          dbKnex("chats")
+            .select("id", "name", "type", "group_username", "group_visibility", "created_by_user_id")
+            .where("group_username", username)
+            .orderBy("id", "desc")
+            .first(),
+        );
+        if (!row?.id) {
+          throw new Error("Failed to create chat.");
         }
         adminSave();
 
@@ -921,10 +936,9 @@ function registerAdminRoutes(app, deps) {
           auto_add_new_users = payload.auto_add_new_users ? 1 : 0;
         }
 
-        await adminRun("BEGIN");
-        try {
+        await runTransaction(async (transactionRun) => {
           if (auto_add_new_users !== undefined) {
-            await adminRun(
+            await transactionRun(
               `UPDATE chats
                SET name = ?, group_username = ?, group_visibility = ?, group_color = ?, allow_member_invites = ?, auto_add_new_users = ?, created_by_user_id = COALESCE(?, created_by_user_id)
                WHERE id = ? AND type IN ('group', 'channel')`,
@@ -940,7 +954,7 @@ function registerAdminRoutes(app, deps) {
               ],
             );
           } else {
-            await adminRun(
+            await transactionRun(
               `UPDATE chats
                SET name = ?, group_username = ?, group_visibility = ?, group_color = ?, allow_member_invites = ?, created_by_user_id = COALESCE(?, created_by_user_id)
                WHERE id = ? AND type IN ('group', 'channel')`,
@@ -957,24 +971,20 @@ function registerAdminRoutes(app, deps) {
           }
 
           if (nextOwner?.id) {
-            await adminRun(
+            await transactionRun(
               "UPDATE chat_members SET role = 'member' WHERE chat_id = ? AND role = 'owner'",
               [chat.id],
             );
-            await adminRun(
+            await transactionRun(
               "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, 'owner')",
               [chat.id, nextOwner.id],
             );
-            await adminRun(
+            await transactionRun(
               "UPDATE chat_members SET role = 'owner' WHERE chat_id = ? AND user_id = ?",
               [chat.id, nextOwner.id],
             );
           }
-          await adminRun("COMMIT");
-        } catch (error) {
-          await adminRun("ROLLBACK");
-          throw error;
-        }
+        });
         adminSave();
 
         const updated = await resolveChatRow(
@@ -1436,13 +1446,12 @@ function registerAdminRoutes(app, deps) {
           return stamps;
         };
 
-        adminRun("BEGIN");
-        try {
-          adminRun(
+        await runTransaction(async (transactionRun) => {
+          await transactionRun(
             "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
             [chatId, userAId, "member"],
           );
-          adminRun(
+          await transactionRun(
             "INSERT OR IGNORE INTO chat_members (chat_id, user_id, role) VALUES (?, ?, ?)",
             [chatId, userBId, "member"],
           );
@@ -1455,7 +1464,7 @@ function registerAdminRoutes(app, deps) {
               rawBody.length > maxMessageChars
                 ? rawBody.slice(0, maxMessageChars)
                 : rawBody;
-            adminRun(
+            await transactionRun(
               "INSERT INTO chat_messages (id, chat_id, user_id, body, created_at, read_at, read_by_user_id) VALUES (?, ?, ?, ?, ?, NULL, NULL)",
               [
                 generateUuid(),
@@ -1466,12 +1475,7 @@ function registerAdminRoutes(app, deps) {
               ],
             );
           }
-
-          adminRun("COMMIT");
-        } catch (error) {
-          adminRun("ROLLBACK");
-          throw error;
-        }
+        });
 
         adminSave();
         return res.json({ ok: true, result: { created: count, chatId } });
@@ -1555,10 +1559,10 @@ function registerAdminRoutes(app, deps) {
         const timestampSchedule = buildTimestampSchedule(count, daysBack);
 
         let created = 0;
-        adminRun("BEGIN");
-        try {
-          timestampSchedule.forEach((stamp, index) => {
-            adminRun(
+        await runTransaction(async (transactionRun) => {
+          for (let index = 0; index < timestampSchedule.length; index += 1) {
+            const stamp = timestampSchedule[index];
+            await transactionRun(
               `INSERT INTO chat_messages (id, chat_id, user_id, body, created_at)
                VALUES (?, ?, ?, ?, ?)`,
               [
@@ -1570,12 +1574,8 @@ function registerAdminRoutes(app, deps) {
               ],
             );
             created += 1;
-          });
-          adminRun("COMMIT");
-        } catch (error) {
-          adminRun("ROLLBACK");
-          throw error;
-        }
+          }
+        });
 
         adminSave();
 
@@ -1708,41 +1708,36 @@ function registerAdminRoutes(app, deps) {
           }
         }
 
-        adminRun("BEGIN");
-        try {
+        await runTransaction(async (transactionRun) => {
           if (targetMessageIds.length) {
-            chunkArray(targetMessageIds, 500).forEach((chunk) => {
+            for (const chunk of chunkArray(targetMessageIds, 500)) {
               const placeholders = chunk.map(() => "?").join(", ");
 
-              adminRun(
+              await transactionRun(
                 `DELETE FROM chat_message_files WHERE message_id IN (${placeholders})`,
                 chunk,
               );
 
-              adminRun(
+              await transactionRun(
                 `DELETE FROM chat_messages WHERE id IN (${placeholders})`,
                 chunk,
               );
-            });
+            }
           }
           if (targetAvatarUsers.length) {
-            chunkArray(
+            for (const chunk of chunkArray(
               targetAvatarUsers.map((row) => String(row.id)).filter(Boolean),
               500,
-            ).forEach((chunk) => {
+            )) {
               const placeholders = chunk.map(() => "?").join(", ");
 
-              adminRun(
+              await transactionRun(
                 `UPDATE users SET avatar_url = NULL WHERE id IN (${placeholders})`,
                 chunk,
               );
-            });
+            }
           }
-          adminRun("COMMIT");
-        } catch (error) {
-          adminRun("ROLLBACK");
-          throw error;
-        }
+        });
 
         removeStoredFileNames(messageStoredNames);
         targetAvatarUsers.forEach((row) => {
@@ -2101,21 +2096,15 @@ function registerAdminRoutes(app, deps) {
       }
 
       if (action === "delete_db") {
-        adminRun("BEGIN");
-
-        try {
-          adminRun("DELETE FROM chat_message_files");
-          adminRun("DELETE FROM chat_messages");
-          adminRun("DELETE FROM hidden_chats");
-          adminRun("DELETE FROM chat_members");
-          adminRun("DELETE FROM chats");
-          adminRun("DELETE FROM sessions");
-          adminRun("DELETE FROM users");
-          adminRun("COMMIT");
-        } catch (error) {
-          adminRun("ROLLBACK");
-          throw error;
-        }
+        await runTransaction(async (transactionRun) => {
+          await transactionRun("DELETE FROM chat_message_files");
+          await transactionRun("DELETE FROM chat_messages");
+          await transactionRun("DELETE FROM hidden_chats");
+          await transactionRun("DELETE FROM chat_members");
+          await transactionRun("DELETE FROM chats");
+          await transactionRun("DELETE FROM sessions");
+          await transactionRun("DELETE FROM users");
+        });
 
         removeAllMessageUploads();
         adminSave();

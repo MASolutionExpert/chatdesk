@@ -2,6 +2,72 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.8.0-dev.4
+
+### Security
+
+- 🔒 **Stage 4 (LOW — final stage) of the external security review — every remaining LOW/low-impact finding verified and fixed.** Items already incidentally shipped in Stages 1–3 (lego `renew --days 3`, `npm ci` in build.yml, playbook arch/apt_key, WS cookie regex, `replace_env_value`) were confirmed and excluded rather than redone.
+  - **`delete scope=everyone` crossed chat boundaries (`server/api/messages.js`):** a non-owner role granted `*.message.delete_any` could delete messages in chats it is NOT a member of, given a message id. Membership is now required for everyone except the instance owner (who legitimately moderates tickets they are not in).
+  - **`GET /api/messages` amplification (`server/api/messages.js`):** `limit` was accepted up to **10000** (each call also runs per-file presign + a cleanup scan) — capped at 200 like every other endpoint.
+  - **Public channel poller could never advance (`server/db.js` + `server/api/chats.js`):** the afterId anchor is intentionally inclusive for the client's anchored history loads, but the public channel route used the same semantics — a poller passing the last seen id with `limit=1` always received the same message back. getMessages now accepts opt-in `afterIdExclusive` (used only by the public channel route).
+  - **Webhook endpoint failed OPEN without a secret (`server/api/uploadsRemote.js`):** `POST /api/uploads/webhook/processed` skipped authentication entirely when `WEBHOOK_SECRET` was unset (an unauthenticated caller could mark files ready and inject thumb keys), and the compare was `!==`. Now: unset secret → 503 (fail-closed) with a boot-time `ensureWebhookSecret()` that generates and persists a secret to `.env` so production never runs without one; set secret → constant-time compare (new exported `webhookSecretMatches` helper, SHA-256 + `timingSafeEqual`).
+  - **`startCall` race + no caller-busy check (`server/lib/callManager.js`):** between the "existing call?" check and `activeCalls.set` there were `await`s, so two simultaneous starts (both sides of a DM) both passed the check and one ring silently overwrote the other; and a user with two devices could start overlapping calls as CALLER (callee-busy was checked, caller-busy was not). The existing-call decision (resume / stale-takeover / 409) is now re-evaluated immediately before the set, and a caller already in another call gets 409 `caller_busy`.
+  - **Dead broken `POST /api/uploads` route removed (`server/api/uploadsRemote.js`):** it had no multer middleware so `req.file` was ALWAYS undefined — filename defaulted to "upload.bin", size to 0, and it inserted orphan `message_id=0` rows from client-chosen metadata. Verified no caller exists (the real flows are presign→PUT→complete and the multer-backed `POST /api/messages/upload`); the route is deleted and the e2e test now asserts it is gone.
+  - **Omitted group visibility silently flipped groups/channels public (`server/db.js`):** `updateGroupChat` AND `updateChannelChat` coerced an omitted `groupVisibility` to "public" — any caller that updated just the name (or an owner leaving the toggle out) made a private group/channel public. Both now only touch `group_visibility` when the field is explicitly provided. `join-public` also now refuses ticket threads (400) instead of letting customers join support channels.
+  - **Non-string JSON inputs crashed endpoints with 500 (`server/api/auth.js`, `server/api/profile.js`):** `register` with `username:["abcd"]` or login with `username:12345` threw on `.trim()`. All client-supplied string fields in register/login/profile/password/status now type-check → 400.
+  - **Owner could self-delete (`server/api/profile.js`):** `POST /api/profile/delete` had no role check, contradicting the "owner is permanent" rule — the instance would be left without an owner. Now 403 `owner_protected` (before any destructive step).
+  - **Login leaked ban status (`server/api/auth.js`):** the banned check ran BEFORE the password compare, so anyone could probe whether an account is banned without credentials. Password is validated first; the 403 `Account is banned.` only comes after valid credentials.
+  - **Settings writes were fire-and-forget (`server/lib/appSettings.js`):** `dbRun` results were never awaited — on Postgres the cache updated and `{ok:true}` returned before the write landed, and a failed write was an unhandled rejection (Node 22 crash). Async (PG) writes are now awaited with cache updated only after success and failures surfaced as `{ok:false}`; the synchronous SQLite path is unchanged.
+  - **db-tools "transactions" were not transactions on Postgres (`server/api/admin.js`, `server/index.js`):** seven db-tools actions and the text-retention purge issued `BEGIN`/`COMMIT` as plain statements through the pooled `adminRun` — on PG each statement can land on a DIFFERENT pool connection, so the transaction and its ROLLBACK were silently ineffective (3 of them also unawaited). All now run through `adminTransaction` (knex trx pinning one connection), with the pooled fallback only for minimal test stubs.
+  - **`restore-db.js` could corrupt a live SQLite database (`server/scripts/restore-db.js`):** the PG path checked for a running server and aborted, but the SQLite path deleted `-wal`/`-shm` and overwrote the DB file unconditionally. The same `detectRunningServer()` guard now protects both paths.
+  - **Content-Security-Policy added (defense-in-depth for the Stage 2 markdown XSS fixes):** a moderate CSP (`default-src 'self'`, inline allowed for the SPA's theme-preload script/styles, `img/media/connect` scoped to self/data/blob/https, `object-src 'none'`, `frame-ancestors 'none'`, `form-action 'self'`, `base-uri 'self'`) is now served by the server, overridable via `CSP_HEADER`, switchable to report-only via `CSP_REPORT_ONLY=1`, and opt-out via `CSP_HEADER=off`.
+  - **Deployment tail:** Docker images pinned to `node:24.22.1-bookworm-slim` / `node:24.22.1-alpine` (previously the floating `node:24` tags); the installer warns (soft) when the installed Node is below the 24.18 engines floor; install.sh shellcheck tail cleaned (11× SC2155 split declare/assign, 11× SC2034 dead vars removed — both now 0).
+
+### Fixed
+
+- 🛠️ **Client service-worker cache grew forever and flashed "updating" on every load (`client/public/sw.js` + `client/vite.config.js`):** `CACHE_VERSION` was a constant so every deploy's hashed bundles piled up in Cache Storage; the build now rewrites `dist/sw.js` with a per-build cache version (dev fallback intact, verified by a real `vite build`), the activate prune therefore actually evicts old bundles, `APP_SHELL_UPDATED` is posted only when the index.html signature (ETag/Last-Modified) actually CHANGES — no more 2 s "updating" state on every navigation — and every `cache.put` is guarded with `.catch` (no more unhandled rejections on 206s).
+- 🛠️ **Call signals accepted while idle (`client/src/hooks/chat/useWebRTCCall.js`):** a stray `call:offer` created an orphan peer connection while idle (later overwritten without `close()`), and stray ICE candidates queued and flushed into the NEXT call. All call signals except `call:incoming` are now ignored when no call is active; a duplicate incoming ring for the same chat is also ignored instead of auto-rejecting itself as "busy" (the mount-time fetch raced the WS `call:incoming`).
+- 🛠️ **Read bursts left messages unread (`client/src/hooks/chat/useChatEvents.js`):** while one `read-one` was in flight, mark-read for later messages in a burst was DROPPED (the server marks only one) — reads are now queued and flushed after the in-flight request resolves, with a bounded single chat-wide `read` when several ids queue up.
+- 🛠️ **Push re-subscribed far too often (`client/src/hooks/chat/useChatNotifications.js`):** `ensurePushSubscription` depended on the whole `user` object and the preview toggle, re-running a full key-fetch + subscribe POST on every identity refresh — deps narrowed to the stable username identity (the explicit toggle path stays parameterized).
+- 🛠️ **Cache migration skipped every other key (`client/src/utils/chatCache.js`):** `migrateLocalCacheToIdb` removed localStorage keys while iterating by index, skipping half the matches on every run — both loops now snapshot matching keys first.
+
+**Intentionally not changed (verified, low impact):** the `MessageItem` memo comparator ignoring function props (the app's hottest render path; handlers are de-facto stable via refs — belongs to a dedicated performance pass) and the anchored-unread gap needing forward pagination (feature-level loader/scroll rework). Both are documented code comments/tickets rather than blind edits.
+
+**Tests:** server 182 files / 1732 tests — 1730 green (+~71 new across delete-any membership, limit cap, afterIdExclusive, webhook secret, startCall race/busy, dead-route removal, visibility preservation, restore-db guard, input type checks, owner self-delete, ban-oracle, settings await, db-tools transactions, CSP; the 2 remaining failures are the known environmental test-pollution flakes, each reproduced on clean HEAD via stash baseline). Worker 7 files / 38 green. Client unit 55 files / 537 green (+40). Client production `vite build` green (incl. the per-build sw.js cache-version rewrite). ESLint clean (0 errors). `bash -n` + shellcheck (SC2155/SC2034 = 0) pass.
+
+**خلاصهٔ فارسی:**
+
+### امنیت
+
+- 🔒 **مرحلهٔ ۴ (LOW — مرحلهٔ پایانی) بررسی امنیتی خارجی — همهٔ یافته‌های باقی‌ماندهٔ LOW تأیید و رفع شدند.** مواردی که اتفاقی در مراحل ۱–۳ رفع شده بودند (lego `renew --days 3`، `npm ci` در build.yml، arch/apt_key در playbook، regex کوکی WS، `replace_env_value`) تأیید و از لیست خارج شدند.
+  - **`delete scope=everyone` از مرز چت‌ها عبور می‌کرد (`messages.js`):** نقش غیرمالک با مجوز `delete_any` می‌توانست پیام‌های چت‌هایی که عضو آن نیست را حذف کند. حالا عضویت برای همه لازم است جز مالک نمونه.
+  - **تقویت‌سازی `GET /api/messages`:** ‏`limit` تا **۱۰۰۰۰** پذیرفته می‌شد — به ۲۰۰ محدود شد.
+  - **poller کانال عمومی هرگز جلو نمی‌رفت (`db.js` + `chats.js`):** انکر afterId برای لود تاریخچهٔ کلاینت عامدانه inclusive است، اما مسیر کانال عمومی همان معنا را داشت و poller با `limit=1` همیشه همان پیام را می‌گرفت. گزینهٔ `afterIdExclusive` فقط برای آن مسیر اضافه شد.
+  - **endpoint وب‌هوک بدون secret باز بود (`uploadsRemote.js`):** وقتی `WEBHOOK_SECRET` تنظیم نشده بود احراز هویت کلاً رد می‌شد و مقایسه `!==` بود. حالا secret خالی → 503 (fail-closed) با `ensureWebhookSecret()` هنگام بوت؛ secret تنظیم‌شده → مقایسه زمان-ثابت (`webhookSecretMatches`).
+  - **رقابت `startCall` + نبود چک اشغال بودن تماس‌گیرنده (`callManager.js`):** بین چک «تماس موجود؟» و `activeCalls.set` چند `await` بود و دو شروع هم‌زمان همدیگر را overwrite می‌کردند؛ تماس‌گیرندهٔ دارای تماس فعال دیگر هم 409 نمی‌گرفت. تصمیم تماسِ موجود درست قبل از set دوباره ارزیابی و `caller_busy` اضافه شد.
+  - **مسیر مردهٔ `POST /api/uploads` حذف شد:** بدون multer همیشه `req.file` تعریف‌نشده بود — نام "upload.bin"، سایز صفر، و ردیف‌های یتیم `message_id=0` با متادیتای کلاینت. مسیر حذف و e2e حذفش را تأیید می‌کند.
+  - **visibility نامشخص گروه/کانال را خصوصی→عمومی می‌کرد (`db.js`):** هم `updateGroupChat` هم `updateChannelChat` فیلد حذف‌شده را به "public" تبدیل می‌کردند؛ حالا فقط با مقدار صریح لمس می‌شود. `join-public` هم تیکت‌های پشتیبانی را با 400 رد می‌کند.
+  - **ورودی JSON غیررشته‌ای کرش 500 می‌داد (`auth.js`، `profile.js`):** همهٔ فیلدهای رشته‌ای از کلاینت حالا type-check می‌شوند → 400.
+  - **مالک می‌توانست حساب خودش را حذف کند (`profile.js`):** ‏403 `owner_protected` قبل از هر گام مخرب.
+  - **لاگین وضعیت بن را لو می‌داد (`auth.js`):** ابتدا رمز اعتبارسنجی می‌شود؛ 403 «Account is banned.» فقط بعد از اعتبار موفق.
+  - **نوشتن تنظیمات fire-and-forget بود (`appSettings.js`):** روی PG کش قبل از فرود نوشتن به‌روز می‌شد و خطا unhandled rejection بود — حالا await، کش بعد از موفقیت، و شکست به شکل `{ok:false}`.
+  - **«تراکنش‌های» db-tools روی PG تراکنش نبودند (`admin.js`، `index.js`):** هفت اکشن db-tools و پاک‌سازی retention متن، ‏BEGIN/COMMIT را از طریق `adminRun` استخلی می‌فرستادند که روی PG هر جمله می‌توانست به connection متفاوتی برود — حالا همه از `adminTransaction` می‌روند.
+  - **`restore-db.js` می‌توانست دیتابیس زندهٔ SQLite را خراب کند:** گارد `detectRunningServer()` حالا هر دو مسیر را می‌پوشاند.
+  - **Content-Security-Policy اضافه شد (دفاع در عمق برای رفع‌های XSS مرحلهٔ ۲):** CSP میانه با override از طریق `CSP_HEADER`، حالت report-only با `CSP_REPORT_ONLY=1`، و خروج با `CSP_HEADER=off`.
+  - **دنبالهٔ استقرار:** ایمیج‌های داکر به `node:24.22.1` پین شدند؛ هشدار نرم Node < 24.18 در نصب‌کننده؛ tail شل‌چک install.sh پاک شد (SC2155/SC2034 = ۰).
+
+### رفع اشکال
+
+- 🛠️ **کش سرویس‌ورکر کلاینت بی‌پایان بزرگ می‌شد و هر بار «updating» فلش می‌زد (`sw.js` + `vite.config.js`):** ‏`CACHE_VERSION` ثابت بود و باندل‌های هش‌دار هر دیپلوی انبار می‌شدند — حالا بیلد `dist/sw.js` را با نسخهٔ کش per-build بازنویسی می‌کند، prune واقعاً حذف می‌کند، `APP_SHELL_UPDATED` فقط وقتی امضای index.html واقعاً عوض شود ارسال می‌شود، و هر `cache.put` با `.catch` محافظت می‌شود.
+- 🛠️ **سیگنال‌های تماس در حالت idle پذیرفته می‌شدند (`useWebRTCCall.js`):** یک `call:offer` سرگردان در حالت idle اتصال peer یتیم می‌ساخت و ICEهای سرگردان به تماس بعدی تزریق می‌شدند — همهٔ سیگنال‌ها جز `call:incoming` در حالت idle نادیده گرفته می‌شوند؛ زنگ ورودی تکراری همان چت هم به‌جای reject خودکار نادیده گرفته می‌شود.
+- 🛠️ **انفجار خواندن پیام‌ها را نخوانده باقی می‌گذاشت (`useChatEvents.js`):** mark-readها به‌جای حذف، صف و بعد از پایان درخواست جاری flush می‌شوند.
+- 🛠️ **پوش بارها بیش از لازم re-subscribe می‌شد (`useChatNotifications.js`):** وابستگی‌ها به هویت پایدار نام‌کاربری محدود شد.
+- 🛠️ **مهاجرت کش هر کلید دیگر را جا می‌انداخت (`chatCache.js`):** هر دو حلقه اول کلیدهای منطبق را snapshot می‌کنند.
+
+**عمداً تغییر نکرد (بررسی‌شده، اثر کم):** کامپاراتر memo در `MessageItem` (داغ‌ترین مسیر رندر؛ هندلرها عملاً پایدار هستند — سهم پاس بهینه‌سازی) و شکاف unread انکری نیاز به forward pagination (تغییر سطح feature). هر دو مستند شدند نه کورکورانه ویرایش.
+
+**آزمون‌ها:** سرور ۱۸۲ فایل / ۱۷۳۲ تست — ۱۷۳۰ سبز (+~۷۱ جدید؛ ۲ خطای باقی‌مانده همان flakeهای محیطیِ شناخته‌شده‌اند که روی HEAD تمیز با stash baseline هم بازتولید شدند). ورکر ۷ فایل / ۳۸ سبز. کلاینت unit ‏۵۵ فایل / ۵۳۷ سبز (+۴۰). بیلد پروداکشن vite سبز (شامل بازنویسی نسخهٔ کش sw.js). ESLint پاک (۰ خطا). `bash -n` + shellcheck سبز.
+
 ## 1.8.0-dev.3
 
 ### Security

@@ -2317,10 +2317,19 @@ export function updateGroupChat(chatId, payload = {}) {
     String(payload?.groupUsername || "")
       .trim()
       .toLowerCase() || null;
-  const groupVisibility =
-    String(payload?.groupVisibility || "").toLowerCase() === "private"
+  // Only touch group_visibility when the caller EXPLICITLY provides it.
+  // Previously an omitted field silently coerced to "public", so any caller
+  // that updated just the name (or an owner that left the toggle out) flipped
+  // a private group back to public.
+  const hasGroupVisibility = Object.prototype.hasOwnProperty.call(
+    payload || {},
+    "groupVisibility",
+  );
+  const groupVisibility = hasGroupVisibility
+    ? String(payload?.groupVisibility || "").trim().toLowerCase() === "private"
       ? "private"
-      : "public";
+      : "public"
+    : null;
   const allowMemberInvites = payload?.allowMemberInvites === false ? 0 : 1;
   const hasGroupAvatarUrl = Object.prototype.hasOwnProperty.call(
     payload || {},
@@ -2334,9 +2343,11 @@ export function updateGroupChat(chatId, payload = {}) {
   const updateData = {
     name,
     group_username: groupUsername,
-    group_visibility: groupVisibility,
     allow_member_invites: allowMemberInvites,
   };
+  if (hasGroupVisibility) {
+    updateData.group_visibility = groupVisibility;
+  }
   if (hasGroupAvatarUrl) {
     updateData.group_avatar_url = groupAvatarUrl;
   }
@@ -2360,10 +2371,18 @@ export function updateChannelChat(chatId, payload = {}) {
     String(payload?.groupUsername || "")
       .trim()
       .toLowerCase() || null;
-  const groupVisibility =
-    String(payload?.groupVisibility || "").toLowerCase() === "private"
+  // Only touch group_visibility when the caller EXPLICITLY provides it
+  // (same rule as updateGroupChat): an omitted field used to silently
+  // coerce to "public" and could flip a private channel public.
+  const hasGroupVisibility = Object.prototype.hasOwnProperty.call(
+    payload || {},
+    "groupVisibility",
+  );
+  const groupVisibility = hasGroupVisibility
+    ? String(payload?.groupVisibility || "").trim().toLowerCase() === "private"
       ? "private"
-      : "public";
+      : "public"
+    : null;
   const allowMemberInvites = payload?.allowMemberInvites === false ? 0 : 1;
   const hasGroupAvatarUrl = Object.prototype.hasOwnProperty.call(
     payload || {},
@@ -2377,9 +2396,11 @@ export function updateChannelChat(chatId, payload = {}) {
   const updateData = {
     name,
     group_username: groupUsername,
-    group_visibility: groupVisibility,
     allow_member_invites: allowMemberInvites,
   };
+  if (hasGroupVisibility) {
+    updateData.group_visibility = groupVisibility;
+  }
   if (hasGroupAvatarUrl) {
     updateData.group_avatar_url = groupAvatarUrl;
   }
@@ -3719,6 +3740,11 @@ export function getMessages(chatId, options = {}) {
   const afterIdRaw = String(options.afterId || "").trim();
   const afterCreatedAtRaw = normalizeDbTimestamp(options.afterCreatedAt);
   const viewerUserIdRaw = String(options.viewerUserId || "").trim();
+  // Opt-in exclusive afterId anchor (`id > ?` instead of `id >= ?`). The
+  // default stays INCLUSIVE because the client's anchored history loads rely
+  // on receiving the anchor message itself (unread divider). Exclusive mode
+  // is for pollers that pass the last-seen id and must never re-receive it.
+  const afterIdExclusive = options.afterIdExclusive === true;
   const hasViewerUserId = Boolean(viewerUserIdRaw);
   const hasBeforeId = Boolean(beforeIdRaw);
   const hasBeforeCreatedAt = Boolean(beforeCreatedAtRaw);
@@ -3748,15 +3774,18 @@ export function getMessages(chatId, options = {}) {
        )`
     : "";
 
-  // afterSql: inclusive — includes the anchor message itself so the unread
-  // divider message is always present in the returned window.
+  // afterSql: inclusive by default — includes the anchor message itself so
+  // the unread divider message is always present in the returned window.
+  // With afterIdExclusive the anchor is excluded (`id > ?`) so pollers that
+  // pass the last-seen id never get the same message back.
+  const afterAnchorComparison = afterIdExclusive ? ">" : ">=";
   const afterSql = hasAfter
     ? `
        AND (
          chat_messages.created_at > ?
          OR (
            chat_messages.created_at = ?
-           AND chat_messages.id >= ?
+           AND chat_messages.id ${afterAnchorComparison} ?
          )
        )`
     : "";

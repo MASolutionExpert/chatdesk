@@ -126,7 +126,13 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
       expect(downloadRes.status).toBe(200);
     });
 
-    test("fallback multipart form upload POST /api/uploads", async () => {
+    test("dead multipart route POST /api/uploads is removed (404)", async () => {
+      // Security review (Stage 4, LOW): this handler had no multer middleware
+      // (req.file always undefined → "upload.bin", size 0, client-chosen
+      // metadata) and inserted orphan message_id = 0 rows that could never be
+      // downloaded. Verified there is no live client caller (the real flows
+      // are presign → PUT → /api/uploads/complete and the multer-backed
+      // POST /api/messages/upload), so the route was removed entirely.
       const createMessageFilesMock = vi.fn((msgId, files) => {
         const result = [];
         files.forEach((f) => {
@@ -178,22 +184,10 @@ describe("E2E S3 & Local Upload Lifecycle", () => {
         .field("width", "800")
         .field("height", "600");
 
-      expect(uploadRes.status).toBe(200);
-      expect(uploadRes.body.success).toBe(true);
-      expect(uploadRes.body.fileId).toBeDefined();
-      expect(uploadRes.body.url).toContain(
-        `/api/uploads/file/${uploadRes.body.fileId}`,
-      );
-
-      // Verify download endpoint. The multipart fallback inserts orphan
-      // rows (message_id = 0) — under the Stage 2 security contract they are
-      // intentionally unreachable via /api/uploads/file/:id (no parent
-      // message -> no chat membership to authorize), so the download 404s.
-      const downloadRes = await request(appObj.app)
-        .get(`/api/uploads/file/${uploadRes.body.fileId}`)
-        .set("Cookie", [`sid=${sessionToken}`]);
-
-      expect(downloadRes.status).toBe(404);
+      expect(uploadRes.status).toBe(404);
+      // No orphan chat_message_files rows may be created by the removed route.
+      expect(createMessageFilesMock).not.toHaveBeenCalled();
+      expect(filesStore).toHaveLength(0);
     });
   });
 

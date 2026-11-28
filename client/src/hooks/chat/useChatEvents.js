@@ -35,6 +35,120 @@ const isDocumentActive = () => {
   return document.visibilityState === "visible" && document.hasFocus();
 };
 
+// While a mark-read request is in flight, a burst of later messages used to
+// have their mark-read DROPPED (the isMarkingReadRef guard), so the server
+// only ever marked one message read and the chat drifted unread. These
+// constants drive the bounded retry that also copes with the flag being held
+// by another owner (e.g. the scroll-driven mark-read in useChatScroll).
+const READ_FLUSH_RETRY_MS = 150;
+const READ_FLUSH_MAX_RETRIES = 20;
+
+/**
+ * Queue-based mark-read scheduler.
+ *
+ * - The first read request still goes out immediately (same behavior as
+ *   before for a single message).
+ * - Messages that arrive while a request is in flight are QUEUED (a Set of
+ *   message ids per chat; a null id means "mark the whole chat") instead of
+ *   being dropped, and are flushed after the in-flight request resolves
+ *   (looping until the queue is empty).
+ * - A flush covering more than one queued id sends one chat-wide
+ *   markMessagesRead request instead of one request per id — bounded network
+ *   usage and strictly stronger semantics for a chat the user is viewing.
+ *
+ * Pure factory (no React) so the burst behavior is unit-testable.
+ */
+export function createReadMarkerQueue({
+  isMarkingReadRef,
+  markMessageRead,
+  markMessagesRead,
+  usernameRef,
+}) {
+  // chatId -> Set<messageId | null> (null = mark the whole chat read)
+  const pending = new Map();
+  let retryTimer = null;
+  let retryCount = 0;
+
+  const stopRetry = () => {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  };
+
+  const scheduleRetry = () => {
+    if (retryTimer || retryCount >= READ_FLUSH_MAX_RETRIES) return;
+    retryCount += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      flush();
+    }, READ_FLUSH_RETRY_MS);
+  };
+
+  const flush = () => {
+    if (isMarkingReadRef?.current) {
+      // Another owner holds the in-flight guard (our own request sets it too,
+      // but then the finally below drains the queue directly). Retry briefly
+      // so queued ids still flush once the flag clears.
+      if (pending.size) scheduleRetry();
+      return;
+    }
+    if (!pending.size) {
+      stopRetry();
+      return;
+    }
+    retryCount = 0;
+    const chatId = pending.keys().next().value;
+    const ids = pending.get(chatId);
+    pending.delete(chatId);
+    const idList = [...ids];
+    const hasMarkAll = idList.includes(null);
+    const concreteIds = idList.filter(Boolean);
+    // One id → read-one for that message; a mark-all marker or multiple ids
+    // → a single chat-wide read request that covers all of them.
+    const messageId =
+      hasMarkAll || concreteIds.length !== 1 ? null : concreteIds[0];
+    if (isMarkingReadRef) isMarkingReadRef.current = true;
+    const request = messageId
+      ? markMessageRead({
+          chatId,
+          username: usernameRef.current,
+          messageId,
+        })
+      : markMessagesRead({
+          chatId,
+          username: usernameRef.current,
+        });
+    request
+      .catch(() => null)
+      .finally(() => {
+        if (isMarkingReadRef) isMarkingReadRef.current = false;
+        // Loop until the queue is empty: ids that arrived while this request
+        // was in flight flush now.
+        if (pending.size) {
+          flush();
+        } else {
+          stopRetry();
+        }
+      });
+  };
+
+  return {
+    enqueue(chatId, messageId) {
+      if (!chatId) return;
+      const normalized = normalizeUuid(messageId) || null;
+      if (!pending.has(chatId)) pending.set(chatId, new Set());
+      pending.get(chatId).add(normalized);
+      flush();
+    },
+    flush,
+    dispose() {
+      stopRetry();
+      pending.clear();
+    },
+  };
+}
+
 export function useChatEvents({
   username,
   getSseStreamUrl,
@@ -79,6 +193,9 @@ export function useChatEvents({
   const onSessionRevokedRef = useRef(onSessionRevoked);
   const onCallSignalRef = useRef(onCallSignal);
   const canMarkReadInCurrentViewRef = useRef(canMarkReadInCurrentView);
+  // Holds the active createReadMarkerQueue() instance so the effect cleanup
+  // can stop pending retries when the connection goes away.
+  const readMarkerRef = useRef(null);
   const loadChatsTimerRef = useRef(null);
   const loadChatsFirstScheduledAtRef = useRef(0);
 
@@ -160,6 +277,16 @@ export function useChatEvents({
 
     const connect = () => {
       if (!isMounted) return;
+      // Read-marker queue: mark-read requests for incoming messages must not
+      // be dropped while another one is in flight (read bursts otherwise
+      // leave every message but the first unread on the server).
+      const readMarker = createReadMarkerQueue({
+        isMarkingReadRef,
+        markMessageRead,
+        markMessagesRead,
+        usernameRef,
+      });
+      readMarkerRef.current = readMarker;
       wsOpened = false;
       let ws = null;
       if (useWebSocket) {
@@ -404,26 +531,9 @@ export function useChatEvents({
                   return matches ? { ...chat, unread_count: 0 } : chat;
                 }),
               );
-              if (!isMarkingReadRef?.current) {
-                isMarkingReadRef.current = true;
-                const payloadMsgId = normalizeUuid(payload?.messageId) || null;
-                const markReadRequest =
-                  payloadMsgId
-                    ? markMessageRead({
-                        chatId: payloadChatId,
-                        username: usernameRef.current,
-                        messageId: payloadMsgId,
-                      })
-                    : markMessagesRead({
-                        chatId: payloadChatId,
-                        username: usernameRef.current,
-                      });
-                markReadRequest
-                  .catch(() => null)
-                  .finally(() => {
-                    isMarkingReadRef.current = false;
-                  });
-              }
+              // Queue (never drop) the mark-read; the queue flushes after any
+              // in-flight request resolves so read bursts cannot drift.
+              readMarker.enqueue(payloadChatId, payload?.messageId);
             }
           }
           if (payload.type === "chat_read" && !isOwnEvent) {
@@ -546,6 +656,8 @@ export function useChatEvents({
 
     return () => {
       isMounted = false;
+      readMarkerRef.current?.dispose();
+      readMarkerRef.current = null;
       setSseConnected(false);
       if (realtimeSenderRef) {
         realtimeSenderRef.current = null;

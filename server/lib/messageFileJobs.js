@@ -120,6 +120,15 @@ export function createMessageFileJobs({
               deletedByChat.set(chatId, list);
             });
 
+            // NOTE (PG limitation, reviewed in 1.8.0-dev.4): on SQLite these
+            // BEGIN/COMMIT statements run on the single shared connection and
+            // ARE atomic. On Postgres, adminRun returns a promise and the
+            // statements below are fire-and-forget, so the BEGIN/COMMIT pair
+            // is not a real transaction there (pooled connections). Converting
+            // this helper to adminTransaction requires an async signature —
+            // the sync result contract (cleanup.changed) is consumed
+            // synchronously by GET /api/messages, GET /api/chats and the
+            // retention service — deferred to a dedicated async-rework ticket.
             adminRun("BEGIN");
             try {
               chunkArray(uniqueTargetIds, 500).forEach((chunk) => {
@@ -368,6 +377,12 @@ export function createMessageFileJobs({
           const activeProvider =
             (options && options.storageProvider) || storageProvider;
 
+          // NOTE (PG limitation, reviewed in 1.8.0-dev.4): same pooled-
+          // connection caveat as cleanupMissingMessageFiles above — atomic
+          // on SQLite, fire-and-forget statements on Postgres. The public
+          // caller (index.js retention timer) awaits, but the sync return
+          // shape is asserted by existing tests; async conversion deferred
+          // to the same ticket.
           adminRun("BEGIN");
           try {
             chunkArray(uniqueMsgIds, 500).forEach((chunk) => {

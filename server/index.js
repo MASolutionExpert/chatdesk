@@ -23,6 +23,7 @@ import { createPushService } from "./lib/push.js";
 import { createUploadTools } from "./lib/uploads.js";
 import { resolveAppOrigins, ensureBucketCors } from "./lib/bucketCors.js";
 import { resolveWebhookCallbackUrl } from "./lib/webhookUrl.js";
+import { ensureWebhookSecret } from "./lib/webhookSecret.js";
 import { createVideoTranscodeManager } from "./lib/videoTranscode.js";
 import { createMessageFileJobs } from "./lib/messageFileJobs.js";
 import { createInspector } from "./lib/inspect.js";
@@ -38,6 +39,7 @@ import { initAutoAddWorker } from "./lib/workers/autoAddWorker.js";
 import { ensureLocalWorkerRunning } from "./lib/localWorkerManager.js";
 import { buildTimestampSchedule } from "./lib/timeUtils.js";
 import { isLoopbackRequest, parseUploadFileMetadata } from "./lib/requestUtils.js";
+import { buildCspHeader } from "./lib/csp.js";
 import { USERNAME_REGEX } from "./lib/validation.js";
 import { USER_COLORS, setUserColor } from "./settings/colors.js";
 import { readDbConfig, parseEnv } from "./settings/env.js";
@@ -225,6 +227,13 @@ const projectRootDir = path.resolve(serverDir, "..");
 dotenv.config({ path: path.join(projectRootDir, ".env"), override: true, quiet: true });
 dotenv.config({ path: path.join(serverDir, ".env"), override: true, quiet: true });
 
+// Guarantee a webhook secret exists (generated + persisted to .env when
+// missing) so the worker-callback endpoint is never reachable without one.
+// Without this, deployments that enable remote storage but never set
+// WEBHOOK_SECRET would have the webhook route fail closed (503) and the
+// worker could never report processed transcodes back.
+ensureWebhookSecret({ projectRootDir });
+
 // Load runtime settings from DB (env vars remain as fallback defaults).
 // Must run after dotenv and after the DB module (which runs migrations).
 await loadSettings(dbGetAllSettings);
@@ -311,6 +320,19 @@ app.use((req, res, next) => {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  next();
+});
+
+// Content-Security-Policy (Stage 4 LOW): defense-in-depth for the SPA. The
+// header is set globally next to the other security headers above — JSON API
+// responses, SSE streams and file-serving routes are unaffected by a CSP
+// header (CSP only restricts document loads and subresources). CSP_REPORT_ONLY=1
+// switches to the Report-Only header; CSP_HEADER overrides the policy verbatim.
+app.use((req, res, next) => {
+  const csp = buildCspHeader(process.env);
+  if (csp.headerName && csp.header) {
+    res.setHeader(csp.headerName, csp.header);
+  }
   next();
 });
 
@@ -694,6 +716,7 @@ const messageFileJobs = createMessageFileJobs({
   adminGetRow,
   adminRun,
   adminSave,
+  adminTransaction,
   listMessageFilesByMessageIds,
   listChatFilesForUser,
   countChatFilesForUser,
@@ -1544,17 +1567,40 @@ async function cleanupExpiredTextOnlyMessages() {
     deletedByChat.set(chatId, list);
   });
 
-  adminRun("BEGIN");
-  try {
-    chunkArray(messageIds, 500).forEach((chunk) => {
-      adminRun(dbKnex("chat_message_reads").whereIn("message_id", chunk).del());
-      adminRun(dbKnex("hidden_chat_messages").whereIn("message_id", chunk).del());
-      adminRun(dbKnex("chat_messages").whereIn("id", chunk).del());
+  // Atomic purge: BEGIN/COMMIT sent as plain statements through the pooled
+  // adminRun can land on DIFFERENT pool connections on Postgres, so the
+  // "transaction" and its ROLLBACK were silently ineffective. adminTransaction
+  // pins a single connection (knex trx on PG, BEGIN on the shared SQLite
+  // connection). Builders must be stringified before entering the PG path.
+  const toSql = (builder, p = []) => {
+    if (builder && typeof builder.toSQL === "function") {
+      const c = builder.toSQL();
+      return { sql: c.sql, params: c.bindings || [] };
+    }
+    return { sql: builder, params: p };
+  };
+  if (typeof adminTransaction === "function") {
+    await adminTransaction(async (transactionRun) => {
+      for (const chunk of chunkArray(messageIds, 500)) {
+        for (const table of ["chat_message_reads", "hidden_chat_messages", "chat_messages"]) {
+          const { sql, params } = toSql(dbKnex(table).whereIn("message_id", chunk).del());
+          await transactionRun(sql, params);
+        }
+      }
     });
-    adminRun("COMMIT");
-  } catch (error) {
-    adminRun("ROLLBACK");
-    throw error;
+  } else {
+    adminRun("BEGIN");
+    try {
+      chunkArray(messageIds, 500).forEach((chunk) => {
+        adminRun(dbKnex("chat_message_reads").whereIn("message_id", chunk).del());
+        adminRun(dbKnex("hidden_chat_messages").whereIn("message_id", chunk).del());
+        adminRun(dbKnex("chat_messages").whereIn("id", chunk).del());
+      });
+      adminRun("COMMIT");
+    } catch (error) {
+      adminRun("ROLLBACK");
+      throw error;
+    }
   }
 
   adminSave();

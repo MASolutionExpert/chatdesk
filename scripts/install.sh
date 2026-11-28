@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.8.0-dev.3
+# chatdesk-deploy-version: 1.8.0-dev.4
 
 set -uo pipefail
 
@@ -47,7 +47,6 @@ handle_interrupt() {
 trap 'handle_interrupt' INT TERM
 trap 'handle_exit' EXIT
 
-APP_NAME="chatdesk"
 INSTALL_DIR="/opt/chatdesk"
 LOG_FILE="/opt/chatdesk/logs/install.log"
 DATA_COMMAND_LAUNCHER="${DATA_COMMAND_LAUNCHER:-${INSTALL_DIR}/scripts/run-data-command.sh}"
@@ -71,15 +70,11 @@ NGINX_ENABLED_FILE="/etc/nginx/sites-enabled/chatdesk"
 DEFAULT_SERVER_PORT="5174"
 DEFAULT_CLIENT_PORT="80"
 DEFAULT_WORKER_PORT="8080"
-DEFAULT_FILE_UPLOAD="true"
-DEFAULT_FILE_UPLOAD_MAX_SIZE_MB="25"
 DEFAULT_MAX_UPLOAD_MB="75"
-DEFAULT_RETENTION_DAYS="7"
-DEFAULT_TEXT_RETENTION_DAYS="0"
-DEFAULT_SIGN_UP="true"
-DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_MB="5"
-DEFAULT_CHAT_VOICE_WAVEFORM_MAX_DECODE_SECONDS="480"
 NODE_MAJOR="24"
+# package.json engines floor: node >=24.18.0 (used for a soft warning only —
+# minor availability on mirrors varies, so we do not hard-fail on it).
+NODE_MINOR_FLOOR="18"
 _repo_url_path="${REPO_URL#*github.com/}"
 _repo_url_path="${_repo_url_path%.git}"
 SCRIPT_REMOTE_URL="${SCRIPT_REMOTE_URL:-https://raw.githubusercontent.com/${_repo_url_path}/${REPO_BRANCH}/scripts/install.sh}"
@@ -122,19 +117,12 @@ POSTGRES_SSL="false"
 SERVER_PORT="$DEFAULT_SERVER_PORT"
 CLIENT_PORT="$DEFAULT_CLIENT_PORT"
 WORKER_PORT="$DEFAULT_WORKER_PORT"
-FILE_UPLOAD="$DEFAULT_FILE_UPLOAD"
 MAX_UPLOAD_MB="$DEFAULT_MAX_UPLOAD_MB"
-RETENTION_DAYS="$DEFAULT_RETENTION_DAYS"
-TEXT_RETENTION_DAYS="$DEFAULT_TEXT_RETENTION_DAYS"
-ACCOUNT_CREATION="$DEFAULT_SIGN_UP"
 NGINX_SERVER_NAME="_"
-CURRENT_ENV_FILE=""
 PROMPT_FD=0
 PROMPT_FD_OUT=1
 DB_BACKUP_PATH=""
 RESTORE_BACKUP_QUIET="no"
-LAST_UNZIP_OUTPUT=""
-LAST_UNZIP_STATUS=0
 SOURCE_MODE=""
 SOURCE_ZIP_PATH=""
 CERT_MODE="http"
@@ -236,8 +224,10 @@ SCRIPT_VERSION="$(resolve_script_version_for_path "$CURRENT_SCRIPT_PATH" 2>/dev/
 LAST_GLOBAL_COMMAND_VERSION=""
 
 log() {
-  local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-  local log_dir="$(dirname "$LOG_FILE")"
+  local timestamp
+  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+  local log_dir
+  log_dir="$(dirname "$LOG_FILE")"
 
   printf "%b[CHATDESK] %s%b\n" "$COLOR_LOG" "$1" "$COLOR_RESET"
 
@@ -248,7 +238,8 @@ log() {
 
 
 ensure_log_dir() {
-  local log_dir="$(dirname "$LOG_FILE")"
+  local log_dir
+  log_dir="$(dirname "$LOG_FILE")"
   if [[ ! -d "$log_dir" ]]; then
     run_as_root mkdir -p "$log_dir" || return 1
     log "Created log directory: $log_dir"
@@ -274,7 +265,8 @@ ensure_log_dir() {
 }
 
 warn() {
-  local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+  local timestamp
+  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
   printf "%b[%s] WARNING: %s%b\n" "$COLOR_WARN" "CHATDESK" "$*" "$COLOR_RESET" >&2
   if [[ -f "$LOG_FILE" ]]; then
     printf "[%s] [CHATDESK] WARNING: %s\n" "$timestamp" "$*" >> "$LOG_FILE" 2>/dev/null || true
@@ -282,7 +274,8 @@ warn() {
 }
 
 fail() {
-  local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+  local timestamp
+  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
   printf "%b[%s] ERROR: %s%b\n" "$COLOR_ERROR" "CHATDESK" "$*" "$COLOR_RESET" >&2
   if [[ -f "$LOG_FILE" ]]; then
     printf "[%s] [CHATDESK] ERROR: %s\n" "$timestamp" "$*" >> "$LOG_FILE" 2>/dev/null || true
@@ -371,7 +364,8 @@ print_success_frame() {
   if (( frame_width < 40 )); then
     print_plain_success_block "$title" "${lines[@]}"
     if [[ -f "$LOG_FILE" ]]; then
-      local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+      local timestamp
+      timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
       printf "[%s] [CHATDESK] %s\n" "$timestamp" "$title" >> "$LOG_FILE" 2>/dev/null || true
       local line=""
       for line in "${lines[@]}"; do
@@ -409,7 +403,8 @@ print_success_frame() {
   printf "%b+%s+%b\n\n" "$COLOR_SUCCESS" "$border" "$COLOR_RESET"
 
   if [[ -f "$LOG_FILE" ]]; then
-    local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    local timestamp
+    timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
     printf "[%s] [CHATDESK] %s\n" "$timestamp" "$title" >> "$LOG_FILE" 2>/dev/null || true
     for line in "${lines[@]}"; do
       printf "[%s] [CHATDESK] %s\n" "$timestamp" "$line" >> "$LOG_FILE" 2>/dev/null || true
@@ -571,16 +566,9 @@ run_logged_quiet() {
 }
 
 run_unzip_capture() {
-  local output=""
-  local status=0
-  if output="$(run_as_root "$@" </dev/null 2>&1)"; then
-    status=0
-  else
-    status=$?
-  fi
-  LAST_UNZIP_OUTPUT="$output"
-  LAST_UNZIP_STATUS="$status"
-  [[ "$status" -eq 0 ]]
+  # Silence unzip output (stdout/stderr) but let its exit code propagate to
+  # the caller.
+  run_as_root "$@" </dev/null 2>&1
 }
 
 output_looks_password_related() {
@@ -1461,7 +1449,12 @@ ensure_nodejs_from_nodesource() {
   if command -v node &>/dev/null; then
     local current_major
     current_major="$(node -e 'process.stdout.write(String(process.versions.node.split(".")[0]))')"
+    local current_minor
+    current_minor="$(node -e 'process.stdout.write(String(process.versions.node.split(".")[1]))')"
     if (( current_major >= NODE_MAJOR )); then
+      if (( current_major == NODE_MAJOR && current_minor < NODE_MINOR_FLOOR )); then
+        warn "Node.js ${current_major}.${current_minor}.x is installed, which is below the ${NODE_MAJOR}.${NODE_MINOR_FLOOR} floor required by package.json engines. Continuing anyway — update Node.js at your convenience."
+      fi
       log "Node.js ${current_major}.x already installed. Skipping."
       return 0
     fi
@@ -2308,7 +2301,8 @@ get_existing_env_value_with_fallback() {
 }
 
 bytes_to_mb_rounded_up() {
-  local bytes="$(printf "%s" "$1" | tr -d '[:space:]')"
+  local bytes
+  bytes="$(printf "%s" "$1" | tr -d '[:space:]')"
   if [[ -z "$bytes" || ! "$bytes" =~ ^[0-9]+$ ]]; then
     return 1
   fi
@@ -2393,7 +2387,6 @@ CHATDESK_REPLACE_ENV_SCRIPT
 write_env_from_example() {
   local env_file="${INSTALL_DIR}/.env"
   write_env_fallback "$env_file" || return 1
-  CURRENT_ENV_FILE="$env_file"
 }
 
 # 32 random bytes as lowercase hex.
@@ -2774,14 +2767,9 @@ open_env_editor() {
 }
 
 sync_values_from_env() {
-  local env_file="$INSTALL_DIR/.env"
   SERVER_PORT="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
   CLIENT_PORT="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
-  FILE_UPLOAD="$(get_existing_env_value "FILE_UPLOAD" "$DEFAULT_FILE_UPLOAD")"
   MAX_UPLOAD_MB="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
-  RETENTION_DAYS="$(get_existing_env_value "MESSAGE_FILE_RETENTION" "$DEFAULT_RETENTION_DAYS")"
-  TEXT_RETENTION_DAYS="$(get_existing_env_value "MESSAGE_TEXT_RETENTION" "$DEFAULT_TEXT_RETENTION_DAYS")"
-  ACCOUNT_CREATION="$(get_existing_env_value_with_fallback "SIGN_UP" "ACCOUNT_CREATION" "$DEFAULT_SIGN_UP")"
   DB_CLIENT="$(get_existing_env_value "DB_CLIENT" "$DEFAULT_DB_CLIENT")"
   POSTGRES_HOST="$(get_existing_env_value "POSTGRES_HOST" "$DEFAULT_POSTGRES_HOST")"
   POSTGRES_PORT="$(get_existing_env_value "POSTGRES_PORT" "$DEFAULT_POSTGRES_PORT")"
@@ -2795,7 +2783,6 @@ sync_values_from_env() {
   fi
   POSTGRES_URL="$(get_existing_env_value "POSTGRES_URL" "$DEFAULT_POSTGRES_URL")"
   POSTGRES_SSL="$(get_existing_env_value "POSTGRES_SSL" "$DEFAULT_POSTGRES_SSL")"
-  CURRENT_ENV_FILE="$env_file"
 }
 
 ensure_local_postgres_setup() {
@@ -4098,7 +4085,8 @@ update_nginx_runtime_values() {
     return 1
   fi
 
-  local backup_file="${NGINX_SITE_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+  local backup_file
+  backup_file="${NGINX_SITE_FILE}.bak.$(date +%Y%m%d%H%M%S)"
   run_silent run_as_root cp "$NGINX_SITE_FILE" "$backup_file"
 
   run_silent run_as_root sed -i -E \
@@ -5608,7 +5596,8 @@ db_chat_create() {
     configure_remote="$(prompt_yes_no "Configure remote channel for this channel?" "no")"
     
     if [[ "$configure_remote" == "yes" ]]; then
-      local remote_enabled="$(get_existing_env_value "REMOTE_CHANNEL" "false")"
+      local remote_enabled
+      remote_enabled="$(get_existing_env_value "REMOTE_CHANNEL" "false")"
       remote_enabled="${remote_enabled,,}"
       if [[ "$remote_enabled" != "true" ]]; then
         warn "Remote channel feature is disabled. Configure it first."
@@ -5677,7 +5666,8 @@ db_chat_edit() {
   configure_remote="$(prompt_yes_no "Update remote channel configuration?" "no")"
   
   if [[ "$configure_remote" == "yes" ]]; then
-    local remote_enabled="$(get_existing_env_value "REMOTE_CHANNEL" "false")"
+    local remote_enabled
+    remote_enabled="$(get_existing_env_value "REMOTE_CHANNEL" "false")"
     remote_enabled="${remote_enabled,,}"
     if [[ "$remote_enabled" != "true" ]]; then
       warn "Remote channel feature is disabled. Configure it first."

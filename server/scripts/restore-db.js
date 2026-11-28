@@ -196,6 +196,14 @@ async function main() {
       process.exit(1);
     }
   } else {
+    // Same live-server guard as the PostgreSQL branch above: deleting
+    // -wal/-shm and copying over the SQLite file while the server holds an
+    // open handle corrupts the database. Abort with a clear error instead.
+    const { running, port } = await detectRunningServer();
+    if (running) {
+      console.error(`Stop ChatDesk on port ${port} before restoring the SQLite database.`);
+      process.exit(1);
+    }
     try {
       const walPath = `${dbPath}-wal`;
       const shmPath = `${dbPath}-shm`;

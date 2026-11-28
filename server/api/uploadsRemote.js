@@ -13,6 +13,23 @@ import {
   shouldServeInline,
 } from "../lib/uploadContentTypes.js";
 
+/**
+ * Timing-safe comparison of the incoming webhook secret header against the
+ * configured secret. Both sides are hashed with SHA-256 first so the compared
+ * buffers always have equal length (timingSafeEqual throws on length
+ * mismatch) and so leaking the secret length via early termination is not
+ * possible.
+ */
+export function webhookSecretMatches(headerSecret, expectedSecret) {
+  if (typeof expectedSecret !== "string" || expectedSecret.length === 0) {
+    return false;
+  }
+  const provided = typeof headerSecret === "string" ? headerSecret : "";
+  const providedHash = crypto.createHash("sha256").update(provided, "utf8").digest();
+  const expectedHash = crypto.createHash("sha256").update(expectedSecret, "utf8").digest();
+  return crypto.timingSafeEqual(providedHash, expectedHash);
+}
+
 export function registerRemoteUploadRoutes(app, deps) {
   const {
     storageProvider,
@@ -697,14 +714,26 @@ export function registerRemoteUploadRoutes(app, deps) {
   app.post("/api/uploads/webhook/processed", async (req, res) => {
     const expectedSecret =
       deps.webhookSecret !== undefined ? deps.webhookSecret : webhookSecret;
-    if (expectedSecret) {
-      const headerSecret = req.headers["x-chatdesk-webhook-secret"];
-      if (headerSecret !== expectedSecret) {
-        console.warn(
-          `[uploads] Rejected webhook for file ${req.body?.fileId ?? "unknown"}: invalid webhook secret.`,
-        );
-        return res.status(401).json({ error: "Unauthorized webhook request." });
-      }
+    // Fail CLOSED when no secret is configured: this callback lets the caller
+    // mark files as processed and inject storage/thumb keys, so an
+    // unauthenticated caller must never be able to reach it. An unset secret
+    // used to fall through to full access.
+    if (!expectedSecret) {
+      console.warn(
+        "[uploads] Rejected webhook for file " +
+          (req.body?.fileId ?? "unknown") +
+          ": WEBHOOK_SECRET is not configured on this server.",
+      );
+      return res
+        .status(503)
+        .json({ error: "Webhook secret is not configured on this server." });
+    }
+    const headerSecret = req.headers["x-chatdesk-webhook-secret"];
+    if (!webhookSecretMatches(headerSecret, expectedSecret)) {
+      console.warn(
+        `[uploads] Rejected webhook for file ${req.body?.fileId ?? "unknown"}: invalid webhook secret.`,
+      );
+      return res.status(401).json({ error: "Unauthorized webhook request." });
     }
 
     const {
@@ -887,99 +916,17 @@ export function registerRemoteUploadRoutes(app, deps) {
     return res.json({ success: true });
   });
 
-  // POST /api/uploads (fallback multipart upload)
-  app.post("/api/uploads", async (req, res) => {
-    const session = await authenticateSession(req, res);
-    if (!session) return;
-
-    if (deps.getSetting && !deps.getSetting("FILE_UPLOAD")) {
-      return res
-        .status(503)
-        .json({ error: "File uploads are disabled on this server." });
-    }
-
-    const file = req.file || (Array.isArray(req.files) ? req.files[0] : null);
-    const filename =
-      req.body?.filename || file?.originalname || file?.name || "upload.bin";
-    const mimeType =
-      req.body?.contentType ||
-      req.body?.mimeType ||
-      file?.mimetype ||
-      file?.type ||
-      "application/octet-stream";
-    const fileSize = Number(
-      req.body?.fileSize || req.body?.size || file?.size || 0,
-    );
-
-    const ext = path.extname(filename).toLowerCase();
-    const generatedKey = `uploads/messages/${Date.now()}_${crypto.randomBytes(8).toString("hex")}${ext}`;
-
-    let kind = "document";
-    if (mimeType.startsWith("image/")) kind = "image";
-    else if (mimeType.startsWith("video/")) kind = "video";
-    else if (mimeType.startsWith("audio/")) kind = "audio";
-
-    const fileObj = {
-      kind,
-      originalName: filename,
-      storedName: path.basename(generatedKey),
-      mimeType,
-      sizeBytes: fileSize,
-      widthPx: Number.isFinite(Number(req.body?.width))
-        ? Number(req.body?.width)
-        : null,
-      heightPx: Number.isFinite(Number(req.body?.height))
-        ? Number(req.body?.height)
-        : null,
-      durationSeconds: Number.isFinite(Number(req.body?.duration))
-        ? Number(req.body?.duration)
-        : null,
-      processingStatus: "ready",
-      storageDriver: "local",
-      storageKey: generatedKey,
-      blurhash: req.body?.clientWebpThumbBase64 || req.body?.blurhash || null,
-      waveform: req.body?.waveform
-        ? typeof req.body.waveform === "string"
-          ? req.body.waveform
-          : JSON.stringify(req.body.waveform)
-        : null,
-      encryptionType: "none",
-    };
-
-    let inserted = null;
-    if (typeof createMessageFiles === "function") {
-      inserted = createMessageFiles(0, [fileObj]);
-    }
-
-    let fileId = null;
-    if (Array.isArray(inserted) && inserted[0]?.id) {
-      fileId = inserted[0].id;
-    } else if (inserted && typeof inserted === "object" && inserted.id) {
-      fileId = inserted.id;
-    } else if (typeof adminGetRow === "function") {
-      const row = callAdminGetRow(
-        dbKnex("chat_message_files")
-          .select("id")
-          .where("storage_key", generatedKey)
-          .orderBy("id", "desc")
-          .first(),
-      );
-      fileId = row?.id || 1;
-    } else {
-      fileId = 1;
-    }
-
-    return res.json({
-      success: true,
-      fileId,
-      url: `/api/uploads/file/${fileId}`,
-      filename,
-      mimeType,
-      fileSize,
-      waveform: fileObj.waveform,
-      blurhash: fileObj.blurhash,
-    });
-  });
+  // POST /api/uploads (dead fallback multipart route) — REMOVED.
+  // Security review (Stage 4, LOW): this handler had no multer middleware, so
+  // `req.file`/`req.files` were ALWAYS undefined → the filename defaulted to
+  // "upload.bin" with size 0 and fully client-chosen metadata, and it inserted
+  // orphan `message_id = 0` rows via createMessageFiles(0, ...) without ever
+  // storing a single byte. Verified there is no live caller: the client's real
+  // upload flow is presign → PUT → /api/uploads/complete (remote) or the
+  // multer-backed POST /api/messages/upload (local); the only client reference
+  // to POST /api/uploads is an exported-but-never-imported `uploadFile()` in
+  // client/src/api/chatApi.js. The route therefore served as an unauthenticated
+  // orphan-row injection vector and is removed entirely.
 
   // GET /api/uploads/file/:id
   app.get("/api/uploads/file/:id", async (req, res) => {

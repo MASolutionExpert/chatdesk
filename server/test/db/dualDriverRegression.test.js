@@ -503,6 +503,9 @@ describe("Dual Database Driver Regression Tests (SQLite & Postgres)", () => {
           id: 7,
           username: "banneduser",
           banned: true,
+          // Password must validate first (1.8.0): banned status is only
+          // revealed AFTER valid credentials, closing the username/ban oracle.
+          password_hash: bcrypt.hashSync("password123", 10),
         }),
       );
 

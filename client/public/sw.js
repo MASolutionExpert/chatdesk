@@ -1,3 +1,9 @@
+// NOTE: the literal CACHE_VERSION below is rewritten at build time by the
+// `chatdesk-sw-cache-version` plugin in vite.config.js (dist/sw.js only — the
+// dev server keeps serving this fallback so `vite dev` still works). A unique
+// value per build makes CACHE_NAME unique per deploy, so the activate handler
+// below actually prunes the hashed /assets/* bundles of previous deploys
+// instead of accumulating them forever under one static cache name.
 const CACHE_VERSION = "1.1.0";
 const CACHE_NAME = `chatdesk-${CACHE_VERSION}`;
 const APP_SHELL = [
@@ -49,6 +55,15 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Signature of the last successfully cached index.html (etag or
+// last-modified). APP_SHELL_UPDATED is only posted when this changes, so the
+// in-app "updating" flash no longer appears on every navigation — only after
+// an actual deploy. null means "nothing cached yet in this SW lifetime": the
+// very first navigation after install/activate must not post.
+let lastIndexSignature = null;
+const getIndexSignature = (response) =>
+  response?.headers?.get("etag") || response?.headers?.get("last-modified") || null;
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
@@ -62,16 +77,31 @@ self.addEventListener("fetch", (event) => {
       if (isNavigation) {
         const network = await fetch(event.request, { cache: "no-store" })
           .then((response) => {
-            if (response && response.ok) {
-              cache.put("/index.html", response.clone());
-              self.clients
-                .matchAll({ type: "window", includeUncontrolled: true })
-                .then((clientsArr) => {
-                  clientsArr.forEach((client) =>
-                    client.postMessage({ type: "APP_SHELL_UPDATED" }),
-                  );
-                })
-                .catch(() => null);
+            if (response && response.ok && response.status === 200) {
+              // The navigation response is what keeps the offline shell
+              // correct, so the put is awaited via waitUntil (and must never
+              // produce an unhandled rejection — e.g. put rejecting on a
+              // 206/vary response).
+              event.waitUntil(
+                cache.put("/index.html", response.clone()).catch(() => null),
+              );
+              // Only announce the new shell when index.html actually changed.
+              const signature = getIndexSignature(response);
+              if (
+                signature &&
+                lastIndexSignature !== null &&
+                signature !== lastIndexSignature
+              ) {
+                self.clients
+                  .matchAll({ type: "window", includeUncontrolled: true })
+                  .then((clientsArr) => {
+                    clientsArr.forEach((client) =>
+                      client.postMessage({ type: "APP_SHELL_UPDATED" }),
+                    );
+                  })
+                  .catch(() => null);
+              }
+              if (signature) lastIndexSignature = signature;
             }
             return response;
           })
@@ -88,8 +118,10 @@ self.addEventListener("fetch", (event) => {
       const cached = await cache.match(event.request);
       const revalidate = fetch(event.request)
         .then((response) => {
-          if (response && response.ok) {
-            cache.put(event.request, response.clone());
+          if (response && response.ok && response.status === 200) {
+            // Catch is essential: cache.put rejects for opaque/206/vary-*
+            // responses and an unhandled rejection would crash the worker.
+            cache.put(event.request, response.clone()).catch(() => null);
           }
           return response;
         })

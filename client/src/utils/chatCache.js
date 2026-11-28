@@ -312,10 +312,17 @@ export const migrateLocalCacheToIdb = async (username) => {
   }
 
   try {
+    // Snapshot the matching keys BEFORE removing anything: deleting entries
+    // while iterating by index skips every other key (indices shift on each
+    // removal, so key(i) points past the next match).
+    const keysToMigrate = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i);
       if (!key) continue;
       if (!key.startsWith(`${CHAT_MESSAGES_CACHE_KEY}:${normalized}:`)) continue;
+      keysToMigrate.push(key);
+    }
+    for (const key of keysToMigrate) {
       const cached = readLocalCache(key);
       if (!cached || cached.version !== CHAT_CACHE_VERSION) continue;
       await writeIdbCache(CACHE_STORES.messages, key, cached);
@@ -326,10 +333,14 @@ export const migrateLocalCacheToIdb = async (username) => {
   }
 
   try {
+    const keysToMigrate = [];
     for (let i = 0; i < window.localStorage.length; i += 1) {
       const key = window.localStorage.key(i);
       if (!key) continue;
       if (!key.startsWith(`${CHANNEL_SEEN_CACHE_KEY}:${normalized}:`)) continue;
+      keysToMigrate.push(key);
+    }
+    for (const key of keysToMigrate) {
       const cached = readLocalCache(key);
       if (!cached || cached.version !== 1) continue;
       await writeIdbCache(CACHE_STORES.channelSeen, key, cached);

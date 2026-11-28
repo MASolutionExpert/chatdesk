@@ -1077,6 +1077,10 @@ function registerChatRoutes(app, deps) {
       getMessages(chat.id, {
         afterId: afterId || null,
         afterCreatedAt: afterCreatedAt || null,
+        // Pollers pass the last-seen id and must not receive it back — the
+        // default afterId anchor is inclusive (client history loads rely on
+        // that), so opt into exclusive semantics here only.
+        afterIdExclusive: true,
         limit,
         viewerUserId: null,
       }),
@@ -2026,6 +2030,16 @@ function registerChatRoutes(app, deps) {
     const chat = await resolveMaybePromise(rawChat);
     if (!chat || (chat.type !== "group" && chat.type !== "channel")) {
       return res.status(404).json({ error: "Chat not found." });
+    }
+    // Ticket threads (migration 045): a referred ticket lives in a support
+    // group chat that may well be "public" — but join-public would drop an
+    // arbitrary user into a customer↔operator thread. Tickets can only be
+    // joined by opening/receiving one, never via self-join.
+    const ticketRow = await resolveMaybePromise(getTicketByChatId(chatId));
+    if (ticketRow) {
+      return res
+        .status(400)
+        .json({ error: "Support tickets cannot be joined." });
     }
     if (String(chat.group_visibility || "").toLowerCase() !== "public") {
       return res.status(403).json({ error: "This group is private." });

@@ -762,7 +762,15 @@ export function getSetting(key) {
 
 /**
  * Persist a setting to the DB and update the in-memory cache.
- * Returns { ok: true } or { ok: false, error }.
+ *
+ * Returns { ok: true } or { ok: false, error } — synchronously when the DB
+ * layer is synchronous (SQLite), as a Promise of the same shape when the DB
+ * layer returns a promise (Postgres). The promise variant AWAITS the write:
+ * previously the dbRun() result was never awaited (fire-and-forget), so a
+ * failed write became an unhandled rejection and the cache was updated
+ * before the write landed. Now the cache is only updated after the write
+ * succeeds, and a failed write resolves { ok: false, error } so callers can
+ * handle it (no unhandled rejection either way).
  *
  * @param {string}   key
  * @param {string}   rawValue  – the raw string value (will be validated + coerced)
@@ -773,23 +781,44 @@ export function setSetting(key, rawValue, dbRun, dbSave) {
   const validation = validateSetting(key, rawValue);
   if (!validation.valid) return { ok: false, error: validation.error };
 
-  dbRun(
+  const def = DEFS_BY_KEY[key];
+  const coerced = coerce(def, validation.value);
+  const save = () => {
+    if (typeof dbSave === "function") dbSave();
+  };
+
+  const pending = dbRun(
     dbKnex("app_settings")
       .insert({ key, value: validation.value })
       .onConflict("key")
       .merge({ value: validation.value }),
   );
-  dbSave();
 
-  const def = DEFS_BY_KEY[key];
-  _cache[key] = coerce(def, validation.value);
+  if (pending && typeof pending.then === "function") {
+    return pending.then(
+      () => {
+        save();
+        _cache[key] = coerced;
+        return { ok: true, value: coerced };
+      },
+      (error) => ({
+        ok: false,
+        error: `Failed to persist setting '${key}': ${error?.message || error}`,
+      }),
+    );
+  }
 
-  return { ok: true, value: _cache[key] };
+  save();
+  _cache[key] = coerced;
+  return { ok: true, value: coerced };
 }
 
 /**
  * Persist multiple settings in one call.
  * Returns { ok: true, saved: [...keys] } or { ok: false, errors: { key: msg } }.
+ * Sync when the DB layer is sync (SQLite); a Promise of the same shape when
+ * the DB layer is async (Postgres). See setSetting() for the write/cache
+ * ordering guarantees.
  *
  * @param {Object}   updates   – { key: rawValue, ... }
  * @param {Function} dbRun
@@ -797,29 +826,66 @@ export function setSetting(key, rawValue, dbRun, dbSave) {
  */
 export function setSettings(updates, dbRun, dbSave) {
   const errors = {};
-  const saved = [];
+  const pending = []; // { key, value, promise } — async writes
+  const settled = []; // { key, value } — sync writes already committed
+  let saved = [];
 
-  for (const [key, rawValue] of Object.entries(updates)) {
+  const upsertFor = (key, value) =>
+    dbKnex("app_settings")
+      .insert({ key, value })
+      .onConflict("key")
+      .merge({ value });
+
+  for (const [key, rawValue] of Object.entries(updates || {})) {
     const validation = validateSetting(key, rawValue);
     if (!validation.valid) {
       errors[key] = validation.error;
       continue;
     }
-    dbRun(
-      dbKnex("app_settings")
-        .insert({ key, value: validation.value })
-        .onConflict("key")
-        .merge({ value: validation.value }),
-    );
-    const def = DEFS_BY_KEY[key];
-    _cache[key] = coerce(def, validation.value);
-    saved.push(key);
+    const coerced = coerce(DEFS_BY_KEY[key], validation.value);
+    const pendingWrite = dbRun(upsertFor(key, validation.value));
+    if (pendingWrite && typeof pendingWrite.then === "function") {
+      pending.push({ key, value: coerced, promise: pendingWrite });
+    } else {
+      settled.push({ key, value: coerced });
+    }
   }
 
-  if (saved.length > 0) dbSave();
+  const finish = (savedKeys) => {
+    saved = savedKeys;
+    if (saved.length > 0 && typeof dbSave === "function") dbSave();
+    if (Object.keys(errors).length > 0) return { ok: false, errors, saved };
+    return { ok: true, saved };
+  };
 
-  if (Object.keys(errors).length > 0) return { ok: false, errors, saved };
-  return { ok: true, saved };
+  // Sync fast path (SQLite): the writes already landed, so the cache can be
+  // updated immediately.
+  if (pending.length === 0) {
+    for (const { key, value } of settled) {
+      _cache[key] = value;
+    }
+    return finish(settled.map((entry) => entry.key));
+  }
+
+  // Async path (Postgres): await every write; update the cache per-key only
+  // on success and record a per-key error on failure (no fire-and-forget).
+  const savedKeys = settled.map((entry) => entry.key);
+  for (const { key, value } of settled) {
+    _cache[key] = value;
+  }
+  return Promise.all(
+    pending.map(({ key, value, promise }) =>
+      promise.then(
+        () => {
+          _cache[key] = value;
+          savedKeys.push(key);
+        },
+        (error) => {
+          errors[key] = `Failed to persist setting '${key}': ${error?.message || error}`;
+        },
+      ),
+    ),
+  ).then(() => finish(savedKeys));
 }
 
 /**
@@ -854,14 +920,32 @@ export function getAllSettings() {
 
 /**
  * Reset a setting to its env/default value by removing it from the DB.
- * Returns { ok: true } or { ok: false, error }.
+ * Returns { ok: true } or { ok: false, error } — sync (SQLite) or a Promise
+ * of the same shape (Postgres). The cache is only reset after the delete
+ * succeeds; a failed write resolves { ok: false, error } (previously the
+ * dbRun() result was fire-and-forget, leaking an unhandled rejection on PG).
  */
 export function resetSetting(key, dbRun, dbSave) {
   const def = DEFS_BY_KEY[key];
   if (!def) return { ok: false, error: `Unknown setting: ${key}` };
 
-  dbRun(dbKnex("app_settings").where("key", key).del());
-  dbSave();
+  const pending = dbRun(dbKnex("app_settings").where("key", key).del());
+
+  if (pending && typeof pending.then === "function") {
+    return pending.then(
+      () => {
+        if (typeof dbSave === "function") dbSave();
+        _cache[key] = resolveEnvDefault(def);
+        return { ok: true, value: _cache[key] };
+      },
+      (error) => ({
+        ok: false,
+        error: `Failed to reset setting '${key}': ${error?.message || error}`,
+      }),
+    );
+  }
+
+  if (typeof dbSave === "function") dbSave();
   _cache[key] = resolveEnvDefault(def);
   return { ok: true, value: _cache[key] };
 }

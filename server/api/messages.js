@@ -370,8 +370,11 @@ function registerMessageRoutes(app, deps) {
     const afterId = req.query.afterId?.toString() || "";
     const afterCreatedAt = req.query.afterCreatedAt?.toString() || "";
     const limitRaw = Number(req.query.limit || 50);
+    // Cap at 200 like the other list endpoints: each message fetch also
+    // triggers per-file presigning plus a background cleanup scan, so a
+    // huge client-chosen limit is an amplification/DoS vector.
     const limit = Number.isFinite(limitRaw)
-      ? Math.max(1, Math.min(10000, limitRaw))
+      ? Math.max(1, Math.min(200, limitRaw))
       : 50;
 
     if (!chatId || !username) {
@@ -2382,6 +2385,21 @@ function registerMessageRoutes(app, deps) {
           error: "You do not have permission to delete messages.",
           code: "permission_denied",
         });
+      }
+      // Members-only guard for non-owners: delete_any grants moderation
+      // power, not cross-chat access. Only the instance owner may delete
+      // in chats they are not a member of (they are not a member of most
+      // support tickets by design). Without this, a moderator with
+      // delete_any could delete messages in any chat given a message id.
+      if (!isOwner) {
+        const rawIsMemDelete = isMember(chatId, user.id);
+        const memberCheckDelete =
+          rawIsMemDelete && typeof rawIsMemDelete.then === "function"
+            ? await rawIsMemDelete
+            : rawIsMemDelete;
+        if (!memberCheckDelete) {
+          return res.status(403).json({ error: "Not a member of this chat." });
+        }
       }
       const h = hideMessageForEveryone(message.id);
       if (h && typeof h.then === "function") await h;

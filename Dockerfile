@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-bookworm-slim AS client-build
+FROM node:24.22.1-bookworm-slim AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
 RUN npm config set registry https://registry.npmjs.org/ \
@@ -12,7 +12,7 @@ RUN npm config set registry https://registry.npmjs.org/ \
 COPY client/ ./
 RUN npm run build
 
-FROM node:24-bookworm-slim AS server-deps
+FROM node:24.22.1-bookworm-slim AS server-deps
 WORKDIR /app/server
 # python3/make/g++ are required to compile native modules (bufferutil,
 # utf-8-validate via telegram->ws) when no prebuilt binary is available,
@@ -28,7 +28,7 @@ RUN npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-timeout 300000 \
   && npm ci --omit=dev --no-audit --no-fund --loglevel=verbose
 
-FROM node:24-bookworm-slim AS worker-deps
+FROM node:24.22.1-bookworm-slim AS worker-deps
 WORKDIR /app/worker
 COPY worker/package*.json ./
 RUN npm config set registry https://registry.npmjs.org/ \
@@ -38,7 +38,7 @@ RUN npm config set registry https://registry.npmjs.org/ \
   && npm config set fetch-timeout 300000 \
   && npm ci --omit=dev --no-audit --no-fund --loglevel=verbose
 
-FROM node:24-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 WORKDIR /app
 
 # ffmpeg is required for video transcoding and metadata extraction in the media worker

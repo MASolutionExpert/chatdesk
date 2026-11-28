@@ -334,6 +334,45 @@ export function createCallManager(deps) {
       : call.callerUsername;
   }
 
+  // Shared startCall decision for an existing call in the target chat:
+  // - ringing + same caller -> resume the ring (200)
+  // - stale -> force-end it and proceed with the new call (done=false)
+  // - otherwise -> 409 "already in progress"
+  // Extracted so startCall can re-run the exact same decision after its
+  // awaits, closing the check-then-set race window (see startCall below).
+  function resolveExistingCallDecision(key, user) {
+    const existingCall = activeCalls.get(key);
+    if (!existingCall) {
+      return { done: false, result: null };
+    }
+    // A redial from the same caller while the ring is still up (e.g. the
+    // caller's browser refreshed mid-ring and lost the call screen):
+    // resume the same ring instead of a scary 409 -> "Call failed".
+    const sameCaller =
+      String(existingCall.callerUsername).toLowerCase() ===
+      String(user.username).toLowerCase();
+    if (existingCall.status === "ringing" && sameCaller) {
+      return { done: true, result: { status: 200, call: existingCall } };
+    }
+    // A stale entry (participants gone, or an ancient leftover) must not
+    // poison the chat forever — take it over.
+    if (isCallStale(existingCall)) {
+      forceEndCall(existingCall, {
+        logStatus:
+          existingCall.status === "ringing" ? "missed" : "connected",
+        durationSeconds:
+          existingCall.status === "ringing"
+            ? null
+            : secondsSinceStart(existingCall),
+      });
+      return { done: false, result: null };
+    }
+    return {
+      done: true,
+      result: { status: 409, error: "Call already in progress in this chat" },
+    };
+  }
+
   async function startCall({ user, chatId, type = "voice" }) {
     if (!user?.username) {
       return { status: 401, error: "Not authenticated" };
@@ -366,31 +405,22 @@ export function createCallManager(deps) {
     }
 
     const key = normalizedChatId.toLowerCase();
-    const existingCall = activeCalls.get(key);
-    if (existingCall) {
-      // A redial from the same caller while the ring is still up (e.g. the
-      // caller's browser refreshed mid-ring and lost the call screen):
-      // resume the same ring instead of a scary 409 -> "Call failed".
-      const sameCaller =
-        String(existingCall.callerUsername).toLowerCase() ===
-        String(user.username).toLowerCase();
-      if (existingCall.status === "ringing" && sameCaller) {
-        return { status: 200, call: existingCall };
-      }
-      // A stale entry (participants gone, or an ancient leftover) must not
-      // poison the chat forever — take it over.
-      if (isCallStale(existingCall)) {
-        forceEndCall(existingCall, {
-          logStatus:
-            existingCall.status === "ringing" ? "missed" : "connected",
-          durationSeconds:
-            existingCall.status === "ringing"
-              ? null
-              : secondsSinceStart(existingCall),
-        });
-      } else {
-        return { status: 409, error: "Call already in progress in this chat" };
-      }
+    const decision = resolveExistingCallDecision(key, user);
+    if (decision.done) {
+      return decision.result;
+    }
+
+    // A caller with two devices/chats must not start overlapping calls as
+    // caller (the callee-busy check below only covered the receiving side).
+    // At this point any same-chat ring for this caller was resolved above,
+    // so an active call found here is necessarily in a DIFFERENT chat.
+    const callerBusyCall = findActiveCallForUser(user.username);
+    if (callerBusyCall) {
+      return {
+        status: 409,
+        error: "You are busy — already in another call.",
+        code: "caller_busy",
+      };
     }
 
     const members =
@@ -425,6 +455,19 @@ export function createCallManager(deps) {
         error: "The person you are calling is busy.",
         code: "callee_busy",
       };
+    }
+
+    // Re-run the existing-call decision right before the synchronous
+    // check-then-set: between the initial check and here we awaited
+    // (listChatMembers, findUserById), so a simultaneous start from the
+    // other side of the DM (or a redial from another device) may have
+    // created a call meanwhile. Without this re-check the loser would
+    // overwrite the winner's entry and orphan its ring. activeCalls is
+    // in-memory single-process, so keeping the window synchronous is
+    // sufficient.
+    const redecision = resolveExistingCallDecision(key, user);
+    if (redecision.done) {
+      return redecision.result;
     }
 
     const call = {

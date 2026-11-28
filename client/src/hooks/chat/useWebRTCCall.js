@@ -69,6 +69,33 @@ export const CALL_EXIT_MS = 250;
 export const ICE_RESTART_WINDOW_MS = 10000;
 
 /**
+ * True when an offer/answer/ICE candidate/camera/screen-share signal should
+ * be processed. Signals for an existing call are accepted only while a call
+ * is actually active in this session AND belongs to the chat the signal
+ * names. Previously the chat-id guard alone passed whenever the chat-id ref
+ * was empty (idle), so a stray `call:offer` created an orphan peer connection
+ * and stray ICE candidates queued up and flushed into the next call.
+ */
+export function isSignalForActiveCall(callState, activeChatId, payloadChatId) {
+  if (callState === "idle" || !activeChatId) return false;
+  return String(payloadChatId) === String(activeChatId);
+}
+
+/**
+ * True when a `call:incoming` is a duplicate notification for the call this
+ * session is already ringing for. The mount-time fetchIncomingCall() probe
+ * can race the WebSocket broadcast for the same call; the second copy must be
+ * ignored, not answered with `reject ... busy` for our own ringing call.
+ */
+export function isDuplicateIncomingRing(callState, activeChatId, payloadChatId) {
+  return (
+    callState === "ringing" &&
+    Boolean(activeChatId) &&
+    String(payloadChatId) === String(activeChatId)
+  );
+}
+
+/**
  * Capture the local media stream for a call. A video request fails on
  * camera-less devices (NotFoundError) or when the camera is otherwise
  * unusable; fall back to an audio-only call.
@@ -1352,8 +1379,21 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
             return;
           }
 
-          // Busy: reject second call if already active
+          // Busy handling: a duplicate notification for the call we are
+          // already ringing for (mount-time fetchIncomingCall racing the
+          // WebSocket broadcast) must be ignored — rejecting it would hang up
+          // our own incoming ring. Any other incoming call while we are in a
+          // call is genuinely busy.
           if (callStateRef.current !== "idle") {
+            if (
+              isDuplicateIncomingRing(
+                callStateRef.current,
+                callChatIdRef.current,
+                payload.chatId,
+              )
+            ) {
+              return;
+            }
             void postSignal("reject", { chatId: payload.chatId, reason: "busy" });
             return;
           }
@@ -1406,8 +1446,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
         case "call:offer": {
           if (
-            callChatIdRef.current &&
-            String(payload.chatId) !== String(callChatIdRef.current)
+            !isSignalForActiveCall(
+              callStateRef.current,
+              callChatIdRef.current,
+              payload.chatId,
+            )
           ) {
             return;
           }
@@ -1470,8 +1513,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
         case "call:answer": {
           if (
-            callChatIdRef.current &&
-            String(payload.chatId) !== String(callChatIdRef.current)
+            !isSignalForActiveCall(
+              callStateRef.current,
+              callChatIdRef.current,
+              payload.chatId,
+            )
           ) {
             return;
           }
@@ -1513,8 +1559,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
         case "call:ice-candidate": {
           if (
-            callChatIdRef.current &&
-            String(payload.chatId) !== String(callChatIdRef.current)
+            !isSignalForActiveCall(
+              callStateRef.current,
+              callChatIdRef.current,
+              payload.chatId,
+            )
           ) {
             return;
           }
@@ -1535,8 +1584,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
         case "call:camera-state": {
           if (
-            callChatIdRef.current &&
-            String(payload.chatId) !== String(callChatIdRef.current)
+            !isSignalForActiveCall(
+              callStateRef.current,
+              callChatIdRef.current,
+              payload.chatId,
+            )
           ) {
             return;
           }
@@ -1551,8 +1603,11 @@ export function useWebRTCCall({ realtimeSenderRef } = {}) {
 
         case "call:screen-share-state": {
           if (
-            callChatIdRef.current &&
-            String(payload.chatId) !== String(callChatIdRef.current)
+            !isSignalForActiveCall(
+              callStateRef.current,
+              callChatIdRef.current,
+              payload.chatId,
+            )
           ) {
             return;
           }

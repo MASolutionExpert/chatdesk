@@ -126,6 +126,20 @@ function registerProfileRoutes(app, deps) {
         .json({ error: "Current username and new username are required." });
     }
 
+    // Non-string JSON bodies (e.g. username:["abcd"]) used to crash on
+    // .trim()/.toLowerCase() below and surface as a 500. Validate the types
+    // up-front and answer 400 instead.
+    if (
+      typeof currentUsername !== "string" ||
+      typeof username !== "string" ||
+      (nickname !== undefined && nickname !== null && typeof nickname !== "string") ||
+      (avatarUrl !== undefined && avatarUrl !== null && typeof avatarUrl !== "string")
+    ) {
+      return res.status(400).json({
+        error: "Username, nickname, and avatar URL must be strings.",
+      });
+    }
+
     const rawCurrentUser = findUserByUsername(currentUsername.toLowerCase());
     const currentUser = rawCurrentUser && typeof rawCurrentUser.then === "function" ? await rawCurrentUser : rawCurrentUser;
     if (!currentUser) {
@@ -362,6 +376,19 @@ function registerProfileRoutes(app, deps) {
       });
     }
 
+    // Non-string JSON bodies (e.g. currentPassword:["hunter2"]) used to crash
+    // in bcrypt.compareSync / .length below and surface as a 500. Validate
+    // the types up-front and answer 400 instead.
+    if (
+      typeof username !== "string" ||
+      typeof currentPassword !== "string" ||
+      typeof newPassword !== "string"
+    ) {
+      return res.status(400).json({
+        error: "Username, current password, and new password must be strings.",
+      });
+    }
+
     if (newPassword.length < 6) {
       return res
         .status(400)
@@ -410,6 +437,14 @@ function registerProfileRoutes(app, deps) {
       return res.status(400).json({ error: "Username and status are required." });
     }
 
+    // Non-string JSON bodies (e.g. username:["alice"]) used to crash on
+    // .toLowerCase() below and surface as a 500.
+    if (typeof username !== "string" || typeof status !== "string") {
+      return res
+        .status(400)
+        .json({ error: "Username and status must be strings." });
+    }
+
     const allowed = new Set(["online", "invisible"]);
     if (!allowed.has(status)) {
       return res.status(400).json({ error: "Invalid status." });
@@ -443,6 +478,17 @@ function registerProfileRoutes(app, deps) {
     const user = rawUser && typeof rawUser.then === "function" ? await rawUser : rawUser;
     if (!user || !user.password_hash || !bcrypt.compareSync(String(password || ""), user.password_hash)) {
       return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    // The owner account is permanent (CLI-managed only): self-deletion must
+    // be refused BEFORE any destructive step, otherwise deleting the owner
+    // leaves the instance without an owner. Same guard shape as the admin
+    // panel's owner_protected checks.
+    if (String(user.role || "").toLowerCase() === "owner") {
+      return res.status(403).json({
+        error: "The owner account can only be changed from the server's interactive menu.",
+        code: "owner_protected",
+      });
     }
 
     if (user.avatar_url) {

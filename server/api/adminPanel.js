@@ -2705,7 +2705,7 @@ function registerAdminPanelRoutes(app, deps) {
   });
 
   // PUT /api/admin/settings — bulk update one or more settings
-  app.put("/api/admin/settings", (req, res) => {
+  app.put("/api/admin/settings", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
 
@@ -2714,7 +2714,10 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "Expected { settings: { key: value, ... } }" });
     }
 
-    const result = setSettings(updates, dbRun, dbSave);
+    // setSettings returns a Promise on Postgres (awaited so a failed write is
+    // handled instead of becoming an unhandled rejection) and a plain result
+    // on SQLite — `await` covers both.
+    const result = await setSettings(updates, dbRun, dbSave);
     // Log one entry per changed key so the log reads the same as single updates.
     (result.saved || []).forEach((key) => {
       log(session, "settings.update", {
@@ -2730,7 +2733,7 @@ function registerAdminPanelRoutes(app, deps) {
   });
 
   // PUT /api/admin/settings/:key — update a single setting
-  app.put("/api/admin/settings/:key", (req, res) => {
+  app.put("/api/admin/settings/:key", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
 
@@ -2740,7 +2743,7 @@ function registerAdminPanelRoutes(app, deps) {
       return res.status(400).json({ error: "Missing 'value' in request body." });
     }
 
-    const result = setSetting(key, String(rawValue), dbRun, dbSave);
+    const result = await setSetting(key, String(rawValue), dbRun, dbSave);
     if (!result.ok) return res.status(400).json({ error: result.error });
 
     log(session, "settings.update", {
@@ -2752,12 +2755,12 @@ function registerAdminPanelRoutes(app, deps) {
   });
 
   // DELETE /api/admin/settings/:key — reset a setting to its default
-  app.delete("/api/admin/settings/:key", (req, res) => {
+  app.delete("/api/admin/settings/:key", async (req, res) => {
     const session = requireAdmin(req, res);
     if (!session) return;
 
     const key = String(req.params.key || "").trim();
-    const result = resetSetting(key, dbRun, dbSave);
+    const result = await resetSetting(key, dbRun, dbSave);
     if (!result.ok) return res.status(400).json({ error: result.error });
 
     log(session, "settings.reset", {

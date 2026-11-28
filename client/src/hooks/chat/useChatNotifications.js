@@ -105,6 +105,22 @@ export function useChatNotifications({
 
   const pushRegistrationRef = useRef(null);
   const lastPushRefreshRef = useRef(0);
+  // Stable identity for the push subscription effects. The React compiler
+  // infers a dependency on the whole `user` object for `user?.username`, so
+  // pin the username to a variable: ensurePushSubscription (and the effect
+  // that auto-ensures the subscription) must stay stable across user-object
+  // refreshes instead of triggering a full key fetch + subscribe POST every
+  // time any user field changes.
+  const pushUsername = user?.username ?? null;
+  // Ref mirror of messagePreviewEnabled so ensurePushSubscription can read
+  // the current value without depending on it: the effect that auto-ensures
+  // the subscription must not re-run (a full key fetch + subscribe POST
+  // outside the debounce) every time the preview toggle flips.
+  const messagePreviewEnabledRef = useRef(messagePreviewEnabled);
+
+  useEffect(() => {
+    messagePreviewEnabledRef.current = messagePreviewEnabled;
+  }, [messagePreviewEnabled]);
 
   const persistNotificationsEnabled = useCallback((value) => {
     setNotificationsEnabled(value);
@@ -150,13 +166,15 @@ export function useChatNotifications({
       setPushSubscribeStatus("no-perm");
       return null;
     }
-    if (!user?.username) {
+    if (!pushUsername) {
       setPushSubscribeStatus("no-user");
       return null;
     }
 
     const effectiveMessagePreview =
-      messagePreview !== undefined ? messagePreview : messagePreviewEnabled;
+      messagePreview !== undefined
+        ? messagePreview
+        : messagePreviewEnabledRef.current;
     const shouldRetryAfterError = (error) => {
       const message = String(error?.message || error || "").toLowerCase();
       if (!message) return false;
@@ -174,7 +192,7 @@ export function useChatNotifications({
         const endpoint = existing.endpoint;
         await existing.unsubscribe();
         if (endpoint) {
-          await unsubscribePush({ username: user?.username, endpoint });
+          await unsubscribePush({ username: pushUsername, endpoint });
         }
       } catch {
         // ignore cleanup failures
@@ -238,7 +256,7 @@ export function useChatNotifications({
       }
       const json = subscription.toJSON();
       const res = await subscribePush({
-        username: user?.username,
+        username: pushUsername,
         subscription: json,
         messagePreview: effectiveMessagePreview,
       });
@@ -258,12 +276,16 @@ export function useChatNotifications({
   }, [
     fetchPushPublicKey,
     getCurrentPermission,
-    messagePreviewEnabled,
+    // Narrow deps: the stable identity (pushUsername) instead of the whole
+    // user object, and no preview-flag dependency — the flag is read via ref
+    // (the explicit toggle path passes { messagePreview: next } directly), so
+    // toggling the preview setting or any other user-object refresh no longer
+    // triggers a full re-subscribe outside the 2-minute debounce.
     notificationPermission,
     notificationsSupported,
     subscribePush,
     unsubscribePush,
-    user,
+    pushUsername,
   ]);
 
   const maybeRefreshPushSubscription = useCallback(
