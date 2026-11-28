@@ -2196,3 +2196,175 @@ setup_test_git_repo() {
   [[ "$menu_body" == *"Database diagnostics (db:doctor)"* ]]
   [[ "$menu_body" == *"25) db_doctor"* ]]
 }
+
+# ===========================================================================
+# stop_chatdesk_services_for_data_commands + finalize stop-before-migrate
+# (regression: the Rebuild option ran db:migrate while the server was still
+# up, and migrate.js refused — "Refusing to run db:migrate while ChatDesk is
+# running on port 5174")
+# ===========================================================================
+
+stub_chatdesk_systemd_units() {
+  # Emit unit list output that makes both greps ("^chatdesk.service" and
+  # "^chatdesk-worker.service") succeed, and record every invocation.
+  systemctl() {
+    printf "%s\n" "$*" >> "$SYSTEMD_CALLS_FILE"
+    case "$1" in
+      list-unit-files)
+        printf "%s\n" "chatdesk.service        enabled" "chatdesk-worker.service enabled"
+        return 0
+        ;;
+      is-active)
+        # Active for both units unless the test overrides the flag file.
+        if [[ -f "$TEST_DIR/services-stopped" ]]; then
+          return 3
+        fi
+        return 0
+        ;;
+      *)
+        return 0
+        ;;
+    esac
+  }
+  export -f systemctl
+}
+
+@test "stop_chatdesk_services_for_data_commands: stops running services and verifies the port is free" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "SERVER_PORT=59234\n" > "$INSTALL_DIR/.env"
+  SYSTEMD_CALLS_FILE="$TEST_DIR/systemd-calls.log"
+  export SYSTEMD_CALLS_FILE
+  stub_chatdesk_systemd_units
+
+  run stop_chatdesk_services_for_data_commands
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Stopping ChatDesk service before database operations..."* ]]
+  [[ "$output" == *"ChatDesk service stopped."* ]]
+  grep -Fq "stop chatdesk.service" "$SYSTEMD_CALLS_FILE"
+  grep -Fq "stop chatdesk-worker.service" "$SYSTEMD_CALLS_FILE"
+}
+
+@test "stop_chatdesk_services_for_data_commands: skips the stop when the service is already inactive" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "SERVER_PORT=59234\n" > "$INSTALL_DIR/.env"
+  SYSTEMD_CALLS_FILE="$TEST_DIR/systemd-calls.log"
+  export SYSTEMD_CALLS_FILE
+  touch "$TEST_DIR/services-stopped"
+  stub_chatdesk_systemd_units
+
+  run stop_chatdesk_services_for_data_commands
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ChatDesk service stopped."* ]]
+  # No stop command may be issued for an already-inactive service.
+  ! grep -Fq "stop chatdesk.service" "$SYSTEMD_CALLS_FILE"
+}
+
+@test "stop_chatdesk_services_for_data_commands: aborts when a non-systemd process still answers on the port" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "SERVER_PORT=59234\n" > "$INSTALL_DIR/.env"
+  SYSTEMD_CALLS_FILE="$TEST_DIR/systemd-calls.log"
+  export SYSTEMD_CALLS_FILE
+  stub_chatdesk_systemd_units
+  # Stub curl so the health check always succeeds (a rogue process holds the
+  # port); have_cmd curl resolves the exported function.
+  curl() { return 0; }
+  export -f curl
+
+  run stop_chatdesk_services_for_data_commands
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ChatDesk is still running on port 59234"* ]]
+  [[ "$output" == *"Stop it manually"* ]]
+}
+
+@test "finalize_chatdesk_source_change: stops the service BEFORE migrations and restarts AFTER (rebuild regression)" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "SERVER_PORT=59234\n" > "$INSTALL_DIR/.env"
+  # Single unified order log: both the systemctl stub and the pipeline stubs
+  # append here so relative order can be asserted across files/functions.
+  ORDER_FILE="$TEST_DIR/order.log"
+  export ORDER_FILE
+
+  # Simulate the API port: connection refused until systemctl restart creates
+  # this flag, then curl answers successfully (the server is back up).
+  curl() {
+    if [[ -f "$TEST_DIR/service-restarted" ]]; then
+      return 0
+    fi
+    return 1
+  }
+  export -f curl
+
+  systemctl() {
+    printf "%s\n" "systemctl $*" >> "$ORDER_FILE"
+    case "$1" in
+      list-unit-files)
+        printf "%s\n" "chatdesk.service        enabled" "chatdesk-worker.service enabled"
+        return 0
+        ;;
+      is-active)
+        return 0
+        ;;
+      restart)
+        touch "$TEST_DIR/service-restarted"
+        return 0
+        ;;
+      *)
+        return 0
+        ;;
+    esac
+  }
+  export -f systemctl
+
+  run_migrations() { printf "%s\n" "migrations" >> "$ORDER_FILE"; return 0; }
+  install_chatdesk_dependencies() { printf "%s\n" "deps" >> "$ORDER_FILE"; return 0; }
+  ensure_vapid_keys() { return 0; }
+  ensure_service_user_exists() { return 0; }
+  apply_ownership() { return 0; }
+  install_global_command_from_path() { return 0; }
+  write_install_config() { return 0; }
+  configure_systemd_service() { return 0; }
+  export -f run_migrations install_chatdesk_dependencies ensure_vapid_keys \
+    ensure_service_user_exists apply_ownership install_global_command_from_path \
+    write_install_config configure_systemd_service
+
+  run finalize_chatdesk_source_change
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ChatDesk service stopped."* ]]
+
+  # The stop of chatdesk.service must appear BEFORE migrations in the
+  # execution order, and the restart AFTER it.
+  local stop_line migration_line restart_line
+  stop_line="$(grep -n "^systemctl stop chatdesk.service$" "$ORDER_FILE" | head -n 1 | cut -d: -f1)"
+  migration_line="$(grep -n "^migrations$" "$ORDER_FILE" | head -n 1 | cut -d: -f1)"
+  restart_line="$(grep -n "^systemctl restart chatdesk.service$" "$ORDER_FILE" | head -n 1 | cut -d: -f1)"
+  [ -n "$stop_line" ]
+  [ -n "$migration_line" ]
+  [ -n "$restart_line" ]
+  [ "$stop_line" -lt "$migration_line" ]
+  [ "$restart_line" -gt "$migration_line" ]
+}
+
+@test "finalize_chatdesk_source_change: fails cleanly when a rogue process holds the API port" {
+  INSTALL_DIR="$TEST_DIR/install"
+  mkdir -p "$INSTALL_DIR"
+  printf "SERVER_PORT=59234\n" > "$INSTALL_DIR/.env"
+  SYSTEMD_CALLS_FILE="$TEST_DIR/systemd-calls.log"
+  export SYSTEMD_CALLS_FILE
+  stub_chatdesk_systemd_units
+  curl() { return 0; }
+  export -f curl
+
+  deps_called="no"
+  install_chatdesk_dependencies() { deps_called="yes"; return 0; }
+  export -f install_chatdesk_dependencies
+
+  run finalize_chatdesk_source_change
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"ChatDesk is still running on port 59234"* ]]
+  # Nothing else in the pipeline may run once the port check fails.
+  [ "$deps_called" = "no" ]
+}

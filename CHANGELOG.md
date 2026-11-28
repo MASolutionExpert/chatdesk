@@ -2,6 +2,22 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.8.0-dev.6
+
+### Fixed
+
+- 🛠️ **The "Rebuild & Restart" menu option always failed at the migration step (`scripts/install.sh`)** — a regression caused by the migration-writer guard in `server/scripts/migrate.js` ("Refusing to run db:migrate while ChatDesk is running on port 5174"). The Update and Channel-Switch options stop the services themselves before finalizing, but the Rebuild option ran the shared finalization pipeline (`finalize_chatdesk_source_change`) directly against a LIVE server, so `db:migrate` detected the running instance on the API port and refused — the rebuild aborted at "Running database migrations..." with the site left untouched (still up). A new non-interactive, idempotent `stop_chatdesk_services_for_data_commands` helper now runs at the start of the shared pipeline: it stops `chatdesk.service` (and the worker when active), then verifies the API port is actually free — if a non-systemd process still answers, it aborts with an actionable `ss -tulpn` hint instead of racing the migration writer. All three callers of the pipeline (update, channel switch, rebuild) are now safe by construction; a service already stopped by the update flow simply stays stopped. The three pre-existing copies of the SERVER_PORT/PORT env resolution were also consolidated into one `chatdesk_configured_port` helper.
+
+**Tests:** install-utils bats 180/180 green (6 new tests: stop-when-running, skip-when-inactive, abort-on-rogue-port-listener, stop-before-migrate + restart-after ordering, abort-without-running-pipeline). Client vite production build green. Server suite 1730/1732 (2 known environment flakes, confirmed identical on a clean-HEAD stash baseline). `verify-release-sync` OK.
+
+**خلاصهٔ فارسی:**
+
+### رفع اشکال
+
+- 🛠️ **گزینهٔ «Rebuild & Restart» همیشه در مرحلهٔ مهاجرت دیتابیس شکست می‌خورد (`scripts/install.sh`)** — نتیجهٔ گارد جلوگیری از تداخل نویسندهٔ مهاجرت در `server/scripts/migrate.js` («Refusing to run db:migrate while ChatDesk is running on port 5174»). گزینه‌های Update و تغییر کانال خودشان سرویس‌ها را قبل از نهایی‌سازی متوقف می‌کنند، اما گزینهٔ Rebuild خط لولهٔ مشترک نهایی‌سازی (`finalize_chatdesk_source_change`) را مستقیم روی سرورِ در حال اجرا صدا می‌زد؛ در نتیجه `db:migrate` نمونهٔ فعال روی پورت API را می‌دید و از اجرا امتناع می‌کرد — rebuild در «Running database migrations...» قطع می‌شد و سایت دست‌نخورده (روشن) باقی می‌ماند. حالا یک تابع کمکی غیرتعاملی و idempotent به نام `stop_chatdesk_services_for_data_commands` در ابتدای خط لولهٔ مشترک اجرا می‌شود: سرویس `chatdesk.service` (و worker در صورت فعال بودن) را متوقف می‌کند و سپس بررسی می‌کند پورت API واقعاً آزاد شده باشد — اگر فرآیندی خارج از systemd هنوز روی پورت پاسخ دهد، با راهنمای عملی `ss -tulpn` متوقف می‌شود تا با نویسندهٔ مهاجرت رقابت نشود. هر سه فراخوان خط لوله (update، تغییر کانال، rebuild) حالا ذاتاً امن‌اند؛ سرویسی که update قبلاً متوقف کرده همان‌طور متوقف می‌ماند. سه نسخهٔ تکراریِ خواندن SERVER_PORT/PORT از .env هم در یک تابع کمکی واحد (`chatdesk_configured_port`) تجمیع شد.
+
+**آزمون‌ها:** bats نصب ‏۱۸۰/۱۸۰ سبز (۶ آزمون جدید). بیلد پروداکشن vite کلاینت سبز. مجموعهٔ سرور ۱۷۳۰/۱۷۳۲ (۲ فلیک محیطی شناخته‌شده که روی HEAD تمیز هم دقیقاً همین‌ها بودند). `verify-release-sync` سبز.
+
 ## 1.8.0-dev.5
 
 ### Fixed

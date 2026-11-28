@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chatdesk-deploy-version: 1.8.0-dev.5
+# chatdesk-deploy-version: 1.8.0-dev.6
 
 set -uo pipefail
 
@@ -1851,6 +1851,18 @@ detect_install_branch() {
 # the complete change set (dependencies, migrations, client build, CLI sync,
 # systemd units, service restart and health verification).
 finalize_chatdesk_source_change() {
+  # The finalization pipeline runs db:migrate, and db:migrate refuses to run
+  # while the server is up (sql.js cannot race the migration writer — the
+  # guard added to server/scripts/migrate.js). The update and channel-switch
+  # options stop the service themselves BEFORE calling this pipeline, but the
+  # Rebuild option calls it directly: without this stop the rebuild always
+  # failed with "Refusing to run db:migrate while ChatDesk is running on
+  # port 5174". Stopping here makes every caller safe and is idempotent —
+  # a service already stopped by the update flow simply stays stopped.
+  if ! stop_chatdesk_services_for_data_commands; then
+    return 1
+  fi
+
   log "Installing dependencies..."
   install_chatdesk_dependencies || return 1
   ensure_vapid_keys || return 1
@@ -3973,13 +3985,54 @@ setTimeout(() => process.exit(1), 800).unref();
   return 1
 }
 
-ensure_chatdesk_stopped_for_update() {
+# Resolved API port for local health checks: SERVER_PORT from the install's
+# .env (legacy PORT fallback), sanitized, else the built-in default.
+chatdesk_configured_port() {
   local port=""
   port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
   port="$(sanitize_input_value "$port")"
   if [[ ! "$port" =~ ^[0-9]+$ ]]; then
     port="$DEFAULT_SERVER_PORT"
   fi
+  printf "%s" "$port"
+}
+
+# Non-interactive, idempotent stop of the ChatDesk services before any
+# command that must not race them (db:migrate, db:backup, db:restore):
+# stops chatdesk.service and chatdesk-worker.service when active, then
+# verifies the API port is actually free. Returns 1 when something outside
+# systemd still answers on the port — that needs manual intervention and the
+# caller must abort instead of racing the migration writer.
+stop_chatdesk_services_for_data_commands() {
+  if have_cmd systemctl && systemctl list-unit-files 2>/dev/null | grep -q "^chatdesk.service"; then
+    if chatdesk_service_is_running; then
+      log "Stopping ChatDesk service before database operations..."
+      if ! run_as_root systemctl stop chatdesk.service; then
+        warn "Failed to stop ChatDesk service."
+        return 1
+      fi
+    fi
+    if systemctl is-active --quiet chatdesk-worker.service 2>/dev/null; then
+      run_as_root systemctl stop chatdesk-worker.service || true
+    fi
+    log "ChatDesk service stopped."
+  fi
+
+  local port=""
+  port="$(chatdesk_configured_port)"
+
+  if chatdesk_healthcheck_responds "$port"; then
+    warn "ChatDesk is still running on port ${port} (a non-systemd process may hold it)."
+    warn "Stop it manually (ss -tulpn | grep ${port}) and retry."
+    return 1
+  fi
+
+  return 0
+}
+
+ensure_chatdesk_stopped_for_update() {
+  local port=""
+  port="$(chatdesk_configured_port)"
 
   log "Checking whether ChatDesk is running before update..."
 
@@ -4028,11 +4081,7 @@ restore_chatdesk_service_after_update() {
   run_as_root systemctl reload nginx || true
 
   local port=""
-  port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
-  port="$(sanitize_input_value "$port")"
-  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
-    port="$DEFAULT_SERVER_PORT"
-  fi
+  port="$(chatdesk_configured_port)"
   local restored="no"
   for _ in $(seq 1 20); do
     if chatdesk_healthcheck_responds "$port"; then
@@ -4057,11 +4106,7 @@ verify_chatdesk_service_health() {
     return 0
   fi
   local port=""
-  port="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
-  port="$(sanitize_input_value "$port")"
-  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
-    port="$DEFAULT_SERVER_PORT"
-  fi
+  port="$(chatdesk_configured_port)"
   local healthy="no"
   for _ in $(seq 1 15); do
     if chatdesk_healthcheck_responds "$port"; then
@@ -4486,7 +4531,7 @@ edit_settings() {
   fi
 
   local before_server before_client before_max
-  before_server="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
+  before_server="$(chatdesk_configured_port)"
   before_client="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
   before_max="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
 
@@ -4503,7 +4548,7 @@ edit_settings() {
   fi
 
   local after_server after_client after_max
-  after_server="$(get_existing_env_value_with_fallback "SERVER_PORT" "PORT" "$DEFAULT_SERVER_PORT")"
+  after_server="$(chatdesk_configured_port)"
   after_client="$(get_existing_env_value "CLIENT_PORT" "$DEFAULT_CLIENT_PORT")"
   after_max="$(get_existing_env_mb_value_with_fallback "FILE_UPLOAD_MAX_TOTAL_SIZE_MB" "FILE_UPLOAD_MAX_TOTAL_SIZE" "$DEFAULT_MAX_UPLOAD_MB")"
 
