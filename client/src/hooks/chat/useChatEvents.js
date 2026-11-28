@@ -398,7 +398,13 @@ export function useChatEvents({
           const previewBody = String(
             payload?.summaryText || payload?.body || "",
           ).trim();
-          let foundChat = false;
+          // S6 fix (1.8.0-dev.4): the "was the chat found?" decision is made
+          // INSIDE the state updater. React may run updaters asynchronously
+          // (concurrent rendering / queued updates), so reading the flag
+          // after setChats() returned could observe a stale false and fire a
+          // pointless full chat-list reload on every message that DID patch.
+          // scheduleLoadChats is debounced + idempotent, so scheduling from
+          // within the updater is safe even under StrictMode double-invocation.
           setChats((prev) => {
             const { nextChats, found } = patchChatAndMoveToFront(
               prev,
@@ -442,12 +448,12 @@ export function useChatEvents({
                 };
               },
             );
-            foundChat = found;
+            // Chat missing from local state → fall back to a full reload.
+            if (!found) {
+              scheduleLoadChats();
+            }
             return nextChats;
           });
-          if (!foundChat) {
-            scheduleLoadChats();
-          }
         }
         if (isDeleteEvent) {
           scheduleLoadChats();

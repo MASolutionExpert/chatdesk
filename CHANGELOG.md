@@ -2,6 +2,24 @@
 
 All notable changes to ChatDesk are documented in this file.
 
+## 1.8.0-dev.5
+
+### Fixed
+
+- 🛠️ **Every incoming message could trigger a redundant full chat-list reload (`client/src/hooks/chat/useChatEvents.js`)** — the last of the client-review's "suspected" items (S6). The `foundChat` flag was assigned INSIDE the `setChats` updater but read AFTER the call; React may run state updaters asynchronously (concurrent rendering / queued updates), so the read could observe a stale `false` and fire `scheduleLoadChats()` even when the message event HAD patched its chat locally. The found-or-reload decision now lives inside the updater (`scheduleLoadChats` is debounced + idempotent, so StrictMode double-invocation is harmless) — patched chats no longer cause pointless reloads; only genuinely missing chats do.
+- 🛠️ Follow-up to 1.8.0-dev.4's cross-check of the external review: with this, **all "suspected" client findings are now addressed** — S1, S2, S4, S5, S7 fixed; S6 fixed here; S3 (MessageItem memo comparator) and S8 (anchored-unread forward pagination) intentionally deferred with documented rationale (performance pass / feature ticket).
+
+**Tests:** client unit 55 files / 537 green. ESLint clean.
+
+**خلاصهٔ فارسی:**
+
+### رفع اشکال
+
+- 🛠️ **هر پیام ورودی می‌توانست یک بارگذاری کاملِ اضافهٔ لیست چت‌ها را راه بیندازد (`useChatEvents.js`)** — آخرین مورد «مشکوک» بررسی کلاینت (S6). فلگ `foundChat` داخل updater ثبت و بیرون آن خوانده می‌شد؛ React می‌تواند updaterها را ناهمزمان اجرا کند و خواندنِ `false` کهنه باعث می‌شد حتی وقتی رویداد پیام همان چت را محلی پچ کرده بود هم `scheduleLoadChats()` اجرا شود. تصمیم «پیدا شد یا بارگذاری مجدد» حالا داخل updater است (debounce + idempotent، پس StrictMode بی‌ضرر است) — چت‌های پچ‌شده دیگر reload بی‌دلیل ندارند.
+- 🛠️ ادامهٔ تطبیق کامل 1.8.0-dev.4: با این رفع، **همهٔ یافته‌های «مشکوک» کلاینت بررسی/رسیدگی شدند** — S1، S2، S4، S5، S7 رفع؛ S6 این‌جا رفع؛ S3 و S8 عمداً به تکت‌های اختصاصی موکول شدند.
+
+**آزمون‌ها:** کلاینت unit ‏۵۵ فایل / ۵۳۷ سبز. ESLint پاک.
+
 ## 1.8.0-dev.4
 
 ### Security
